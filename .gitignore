@@ -1,0 +1,7 @@
+content/parsed/
+content/ledger.sqlite
+content/library.bib
+content/provenance/
+__pycache__/
+*.pyc
+.venv/
