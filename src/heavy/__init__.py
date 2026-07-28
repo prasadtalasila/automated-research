@@ -1,4 +1,4 @@
-"""Optional heavier pipeline: Docling -> GROBID/Zotero -> sentence-transformers/Chroma
+"""Optional heavier pipeline: Docling -> GROBID -> sentence-transformers/Chroma
 -> BERTopic -> PaperQA2 -> STORM -> Pandoc/LaTeX.
 
 Everything in here needs dependencies from docker/requirements-full.txt,

@@ -1,12 +1,12 @@
-"""Reads the Zotero-exported .bib file -- the source of truth for
+"""Reads the BibTeX-exported .bib file -- the source of truth for
 citekeys and bibliographic metadata (project decision, 2026-07-28).
 
-No Better BibTeX plugin is installed, so this file is a manual,
-point-in-time export from Zotero (File > Export Library > BibTeX), not
-continuously auto-synced -- re-export it after adding papers to Zotero,
-then re-run `python -m src.sync`. Whatever citekey BibTeX assigns in
-this file IS the citekey everywhere downstream (the ledger,
-citation_gate, generated drafts); this module never invents its own.
+No auto-sync plugin is installed, so this file is a manual, point-in-time
+export from your reference manager, not continuously auto-synced --
+re-export it after adding papers, then re-run `python -m src.sync`.
+Whatever citekey BibTeX assigns in this file IS the citekey everywhere
+downstream (the ledger, citation_gate, generated drafts); this module
+never invents its own.
 
 Needs `bibtexparser` (docker/requirements-full.txt, install via
 scripts/install_full_pipeline.sh) -- the one dependency the otherwise
@@ -55,8 +55,10 @@ def _parse_authors(author_field: str) -> list[tuple[str, str]]:
 
 
 def _resolve_pdf_path(file_field: str, bib_dir: Path) -> str | None:
-    """Zotero's `file` field: `Desc:path:mimetype`, `;`-separated for
-    multiple attachments (e.g. an HTML snapshot alongside the PDF)."""
+    """The `file` field format in this project's bib export:
+    `Desc:path:mimetype`, `;`-separated for multiple attachments (e.g. an
+    HTML snapshot alongside the PDF) -- an export-tool convention, not
+    part of the BibTeX standard itself."""
     for attachment in file_field.split(";"):
         parts = attachment.split(":")
         if len(parts) < 3:
@@ -80,8 +82,8 @@ def _clean_title(title: str) -> str:
 def read_library() -> list[Reference]:
     if not config.BIB_FILE_PATH.exists():
         raise FileNotFoundError(
-            f"No bib file at {config.BIB_FILE_PATH}. Export your Zotero library "
-            "(File > Export Library > BibTeX) to this path -- or point BIB_FILE / "
+            f"No bib file at {config.BIB_FILE_PATH}. Export your reference "
+            "manager's library to BibTeX at this path -- or point BIB_FILE / "
             "config.toml's [bib].path at wherever you keep it -- then re-run sync."
         )
 

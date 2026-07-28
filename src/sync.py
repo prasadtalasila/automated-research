@@ -5,7 +5,7 @@ Safe to run unattended / on a schedule (idempotent, incremental):
 
 This is "job 1" of the two-job split: no generation, no LLM calls, just
 bringing the shared content layer up to date with the bibliography (see
-src/bib_reader.py -- the Zotero-exported .bib file is the source of
+src/bib_reader.py -- the BibTeX-exported .bib file is the source of
 truth for citekeys, not something this pipeline generates). Genre-specific
 drafting (job 2) is invoked separately, on demand, via the Claude Code
 skills in .claude/skills/.
@@ -34,7 +34,7 @@ def run() -> int:
               f"citing them will produce a low-quality reference:")
         for ref in incomplete:
             print(f"    {ref.citekey}: {ref.title[:80]!r}")
-        print("  Fix the item type/metadata in Zotero, re-export, and re-run sync.")
+        print("  Fix the item type/metadata in your reference manager, re-export, and re-run sync.")
 
     con = ledger.connect()
     parsed, failed, skipped, no_pdf = 0, 0, 0, 0

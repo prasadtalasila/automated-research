@@ -1,6 +1,6 @@
 ---
 name: tutorial-writer
-description: Drafts an undergraduate-level tutorial chapter -- learning objectives, motivation, worked examples, exercises -- a distinct pedagogical register from the survey/thesis genres. May cite grounding papers from the Zotero-synced corpus (content/ledger.sqlite via src.retrieval.search()) for motivation/background, but is not citation-dense; most content is original worked examples and exercises. Triggers when the user asks to draft a tutorial chapter, lecture notes, teaching material, or worked-examples handout for students. Any citations it does include must pass `python -m src.citation_gate` before the draft is presented -- never a fabricated citekey.
+description: Drafts an undergraduate-level tutorial chapter -- learning objectives, motivation, worked examples, exercises -- a distinct pedagogical register from the survey/thesis genres. May cite grounding papers from the synced corpus (content/ledger.sqlite via src.retrieval.search()) for motivation/background, but is not citation-dense; most content is original worked examples and exercises. Triggers when the user asks to draft a tutorial chapter, lecture notes, teaching material, or worked-examples handout for students. Any citations it does include must pass `python -m src.citation_gate` before the draft is presented -- never a fabricated citekey.
 tags: [tutorial, teaching, undergraduate, pedagogy]
 ---
 

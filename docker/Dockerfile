@@ -18,7 +18,6 @@
 # Run (mount persistent volumes -- see note at the bottom):
 #   docker run -it --rm \
 #     -v "$(pwd)":/workspace/automated-research \
-#     -v "$HOME/Zotero":/root/Zotero:ro \
 #     -v research-pipeline-content:/workspace/automated-research/content \
 #     research-pipeline
 

@@ -5,11 +5,11 @@
 # flexibility without editing this file.
 
 [bib]
-# The Zotero-exported .bib file -- source of truth for citekeys and
-# bibliographic metadata (decision: 2026-07-28). No Better BibTeX plugin
-# is installed, so this is a manual, point-in-time export (Zotero:
-# File > Export Library > BibTeX), not continuously auto-synced --
-# re-export after adding papers to Zotero, then re-run `python -m src.sync`.
+# The BibTeX-exported .bib file -- source of truth for citekeys and
+# bibliographic metadata (decision: 2026-07-28). This is a manual,
+# point-in-time export from your reference manager, not continuously
+# auto-synced -- re-export after adding papers, then re-run
+# `python -m src.sync`.
 # Relative to the repo root.
 path = "bibliography.bib"
 
@@ -18,7 +18,7 @@ path = "bibliography.bib"
 dir = "content"
 
 [source_pdfs]
-# Raw PDFs gathered outside Zotero (no citekey -- see src/heavy/corpus.py).
+# Raw PDFs gathered outside the bib file (no citekey -- see src/heavy/corpus.py).
 # Relative to the repo root.
 dir = "source-pdfs"
 

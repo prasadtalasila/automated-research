@@ -25,24 +25,25 @@ lint suggestion -- treat a `FAIL` the same way you'd treat a failing test.
 ## The bib file is the source of truth (not this pipeline)
 
 `bibliography.bib` (repo root, path configurable via `config.toml`'s
-`[bib].path` or the `BIB_FILE` env var) is a manual export from Zotero
-(File > Export Library > BibTeX) -- no Better BibTeX plugin is installed, so
-it is not continuously auto-synced. Whatever citekey BibTeX assigns there
-(e.g. `talasila_composable_2025`, or `noauthor_digital_nodate` for an
-item Zotero couldn't find an author for) is the citekey everywhere
+`[bib].path` or the `BIB_FILE` env var) is a manual export from your
+reference manager's BibTeX export feature -- no auto-sync plugin is
+installed, so it is not continuously auto-synced. Whatever citekey BibTeX
+assigns there (e.g. `talasila_composable_2025`, or `noauthor_digital_nodate`
+for an item with no discoverable author) is the citekey everywhere
 downstream. `src/bib_reader.py` parses it and is the only place that reads
 it; nothing else should ever generate or guess a citekey.
 
 This was a deliberate pivot (2026-07-28) away from an earlier design that
-read `zotero.sqlite` directly and generated its own citekeys
-(`author+year+titleword`) -- that approach is gone. **If you find old
-generated content citing keys in that old format (e.g.
+read the reference manager's own database directly and generated its own
+citekeys (`author+year+titleword`) -- that approach is gone. **If you find
+old generated content citing keys in that old format (e.g.
 `talasila2025composable` instead of `talasila_composable_2025`), those
 citations are now stale and will fail the gate** -- that's expected, not a
 regression; re-cite using whatever's actually in `bibliography.bib`.
 
-To add papers: add them in Zotero, re-export `bibliography.bib`, re-run
-`python -m src.sync`. There is no watch/auto-export step here.
+To add papers: add them in your reference manager, re-export
+`bibliography.bib`, re-run `python -m src.sync`. There is no
+watch/auto-export step here.
 
 ## Two-job split
 
@@ -125,7 +126,7 @@ wasn't).
 
 ## The heavy pipeline (`src/heavy/`, `scripts/full_pipeline.py`)
 
-Implements Docling -> GROBID/Zotero -> sentence-transformers/Chroma ->
+Implements Docling -> GROBID -> sentence-transformers/Chroma ->
 BERTopic -> PaperQA2 -> STORM -> Pandoc/LaTeX, one script for both host and
 Docker (`scripts/full_pipeline.py --target host|docker`). Each stage
 self-probes its own prerequisites (reachable GROBID, an LLM API key,
@@ -136,7 +137,7 @@ it's wrong.
 
 `src/heavy/corpus.py` unifies two identifier namespaces: ledger items get
 `doc_id == citekey` (real, citable); `source-pdfs/*.pdf` (raw PDFs gathered
-outside Zotero, e.g. an open metadata-API search) get `doc:<filename stem>`,
+outside the bib file, e.g. an open metadata-API search) get `doc:<filename stem>`,
 which can never collide with a bib citekey (those never contain a colon)
 and which `citation_gate.py` will always reject. Keep it that way -- don't
 give a `source-pdfs` doc anything citekey-shaped.

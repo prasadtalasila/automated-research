@@ -2,18 +2,19 @@
 
 Two sources, two identifier namespaces, on purpose:
 
-- Zotero items (via the existing ledger): `doc_id == citekey`, whatever
-  citekey the Zotero-exported bib file assigned (src/bib_reader.py --
-  the bib file is the source of truth, this project doesn't generate
-  its own). These are real, citable references that `python -m src.sync`
-  pulled from it.
-- `source-pdfs/*.pdf`: raw PDFs gathered outside Zotero (e.g. an open
-  metadata-API search), with no citekey. `doc_id` is `doc:<filename stem>`
-  -- a shape that can never be a real bib citekey (those never contain a
-  colon) and that `citation_gate.py` will always reject, since it only
-  checks membership in the ledger. Per CLAUDE.md's invariant, these
-  documents must not be cited until they are added to Zotero, exported
-  into the bib file, and picked up by `sync`.
+- Bib items (via the existing ledger): `doc_id == citekey`, whatever
+  citekey the exported bib file assigned (src/bib_reader.py -- the bib
+  file is the source of truth, this project doesn't generate its own).
+  These are real, citable references that `python -m src.sync` pulled
+  from it.
+- `source-pdfs/*.pdf`: raw PDFs gathered outside the bib file (e.g. an
+  open metadata-API search), with no citekey. `doc_id` is
+  `doc:<filename stem>` -- a shape that can never be a real bib citekey
+  (those never contain a colon) and that `citation_gate.py` will always
+  reject, since it only checks membership in the ledger. Per CLAUDE.md's
+  invariant, these documents must not be cited until they are added to
+  the reference manager, exported into the bib file, and picked up by
+  `sync`.
 """
 
 import json
@@ -26,7 +27,7 @@ from src import config, ledger
 class CorpusDoc:
     doc_id: str
     citekey: str | None  # None for source-pdfs docs; never invented
-    source: str  # "zotero" | "source-pdfs"
+    source: str  # "bib" | "source-pdfs"
     title: str
     pdf_path: str | None
     text_path: str | None = None
@@ -54,7 +55,7 @@ def build_corpus() -> list[CorpusDoc]:
                 CorpusDoc(
                     doc_id=item["citekey"],
                     citekey=item["citekey"],
-                    source="zotero",
+                    source="bib",
                     title=item["title"] or "Untitled",
                     pdf_path=item["pdf_path"],
                     text_path=item["parsed_path"],

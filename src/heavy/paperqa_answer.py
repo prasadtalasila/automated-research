@@ -8,10 +8,10 @@ can be installed and wired but not actually executed here; it is
 verified by confirming it fails with a clear, actionable message rather
 than a traceback when no key is present, not by producing a real answer.
 
-Only Zotero-sourced PDFs and source-pdfs/ PDFs on disk are used -- no
+Only bib-sourced PDFs and source-pdfs/ PDFs on disk are used -- no
 citekeys are invented for source-pdfs docs (see src/heavy/corpus.py);
 if you want a PaperQA2 answer's sources treated as real citations, add
-the paper to Zotero and sync first.
+the paper to your reference manager and sync first.
 """
 
 import os

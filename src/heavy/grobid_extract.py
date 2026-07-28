@@ -1,8 +1,8 @@
-"""Stage 2 (the "GROBID" half of "GROBID/Zotero"): bibliographic-quality
-header + reference extraction for source-pdfs docs.
+"""Stage 2 (the GROBID stage): bibliographic-quality header + reference
+extraction for source-pdfs docs.
 
-Zotero-sourced docs already have real metadata (src/bib_reader.py) --
-this stage exists for the source-pdfs/ docs, which don't. It talks to a
+Bib-sourced docs already have real metadata (src/bib_reader.py) -- this
+stage exists for the source-pdfs/ docs, which don't. It talks to a
 running GROBID REST service at GROBID_URL (default http://localhost:8070)
 -- docker/setup.sh starts one inside the Docker target, or one can be
 built and run standalone on a bare host with a JDK 21 (not JRE) per

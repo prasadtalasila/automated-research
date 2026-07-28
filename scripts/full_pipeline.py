@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Orchestrates the full heavy pipeline:
 
-    Docling -> GROBID/Zotero -> sentence-transformers/Chroma -> BERTopic
+    Docling -> GROBID -> sentence-transformers/Chroma -> BERTopic
     -> PaperQA2 -> STORM -> Pandoc/LaTeX
 
 One script for both the host and the Docker target (docker/Dockerfile) --
@@ -118,10 +118,10 @@ def main() -> int:
     selected = set(args.stages.split(","))
 
     docs = corpus.build_corpus()
-    n_zotero = sum(1 for d in docs if d.source == "zotero")
+    n_bib = sum(1 for d in docs if d.source == "bib")
     n_source_pdfs = sum(1 for d in docs if d.source == "source-pdfs")
     print(f"Target: {args.target}")
-    print(f"Corpus: {len(docs)} doc(s) -- {n_zotero} from Zotero, {n_source_pdfs} from source-pdfs/")
+    print(f"Corpus: {len(docs)} doc(s) -- {n_bib} from the bib file, {n_source_pdfs} from source-pdfs/")
 
     results = {}
     for name in STAGE_ORDER:
