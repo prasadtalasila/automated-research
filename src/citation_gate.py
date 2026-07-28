@@ -3,8 +3,8 @@
 Every genre skill (survey/thesis-chapter/tutorial) MUST run this
 against its own output before presenting a draft as finished. It is a
 hard gate, not advisory: a citekey that doesn't resolve to something
-`sync` actually pulled from Zotero is treated as fabricated and blocks
-the draft.
+`sync` actually pulled from the bib file is treated as fabricated and
+blocks the draft.
 
 This is not a hypothetical concern -- papers/DT-Simulation-Patterns/main.bib
 in this same environment already contains entries a prior review marked
@@ -34,7 +34,12 @@ _LATEX_CITE_RE = re.compile(
 # Pandoc only treats @ as a citation marker when it isn't part of a larger
 # token -- otherwise `\href{mailto:name@example.com}` (this project's own
 # papers/ directory has author emails) would be misread as a citation.
-_PANDOC_CITE_RE = re.compile(r"(?<![A-Za-z0-9._%+-])-?@([A-Za-z][A-Za-z0-9_]*)")
+# Citekey body includes '-' because bibtexparser-generated keys do (e.g.
+# `jacoby_open-source_2023`, or a reference manager's own `-1`/`-2`
+# disambiguation suffixes on duplicate entries) -- roughly a quarter of
+# this project's synced citekeys contain one, so excluding it silently
+# truncated matches.
+_PANDOC_CITE_RE = re.compile(r"(?<![A-Za-z0-9._%+-])-?@([A-Za-z][A-Za-z0-9_-]*)")
 
 
 @dataclass
@@ -90,7 +95,7 @@ def run(paths: list[str]) -> int:
             all_ok = False
             print(f"FAIL  {p}: {len(result.unknown)} unresolved citekey(s):")
             for line_no, key in result.unknown:
-                print(f"        {p}:{line_no}: @{key} not found in ledger -- not sourced from Zotero sync")
+                print(f"        {p}:{line_no}: @{key} not found in ledger -- not sourced from bib sync")
 
     return 0 if all_ok else 1
 
