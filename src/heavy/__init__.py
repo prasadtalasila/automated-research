@@ -1,5 +1,5 @@
 """Optional heavier pipeline: Docling -> GROBID -> sentence-transformers/Chroma
--> BERTopic -> PaperQA2 -> STORM -> Pandoc/LaTeX.
+-> BERTopic -> Pandoc/LaTeX.
 
 Everything in here needs dependencies from docker/requirements-full.txt,
 installed in a venv (PEP 668 blocks system pip on the host this was built

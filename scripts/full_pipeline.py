@@ -2,15 +2,15 @@
 """Orchestrates the full heavy pipeline:
 
     Docling -> GROBID -> sentence-transformers/Chroma -> BERTopic
-    -> PaperQA2 -> STORM -> Pandoc/LaTeX
+    -> Pandoc/LaTeX
 
 One script for both the host and the Docker target (docker/Dockerfile) --
 the two don't need separate implementations. Each stage probes its own
-prerequisites (a reachable GROBID service, an LLM API key, pandoc/pdflatex
-on PATH) and reports a real per-stage status instead of assuming the
-target implies availability. On a plain host that's missing Java/TeX Live/
-an LLM key, several stages report skipped/no-api-key/missing-binary --
-that is a correct, honest result, not a bug in this script.
+prerequisites (a reachable GROBID service, pandoc/pdflatex on PATH) and
+reports a real per-stage status instead of assuming the target implies
+availability. On a plain host that's missing Java/TeX Live, some stages
+report skipped/missing-binary -- that is a correct, honest result, not a
+bug in this script.
 
 Needs the venv described in docker/requirements-full.txt (see also
 .venv-full/ on the host this was developed on). The core pipeline
@@ -20,8 +20,6 @@ and is unaffected either way.
 Usage:
     python scripts/full_pipeline.py --target host
     python scripts/full_pipeline.py --stages embed,bertopic
-    python scripts/full_pipeline.py --stages paperqa --question "..."
-    python scripts/full_pipeline.py --stages storm --topic "..."
     python scripts/full_pipeline.py --stages render --input draft.md
 """
 
@@ -32,10 +30,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.heavy import corpus, docling_parse, embed_index, grobid_extract, paperqa_answer, render_output, storm_synthesize, topic_model
+from src.heavy import corpus, docling_parse, embed_index, grobid_extract, render_output, topic_model
 from src import config
 
-STAGE_ORDER = ["docling", "grobid", "embed", "bertopic", "paperqa", "storm", "render"]
+STAGE_ORDER = ["docling", "grobid", "embed", "bertopic", "render"]
 
 
 def stage_docling(docs, args):
@@ -62,24 +60,6 @@ def stage_bertopic(docs, args):
     return {"status": "ok", "detail": {"n_docs": result["n_docs"], "assignments": result["assignments"]}}
 
 
-def stage_paperqa(docs, args):
-    if not args.question:
-        return {"status": "skipped", "detail": "no --question given"}
-    try:
-        return {"status": "ok", "detail": paperqa_answer.answer(args.question, docs)}
-    except paperqa_answer.MissingAPIKey as exc:
-        return {"status": "no-api-key", "detail": str(exc)}
-
-
-def stage_storm(docs, args):
-    if not args.topic:
-        return {"status": "skipped", "detail": "no --topic given"}
-    try:
-        return {"status": "ok", "detail": storm_synthesize.run(args.topic)}
-    except storm_synthesize.MissingAPIKey as exc:
-        return {"status": "no-api-key", "detail": str(exc)}
-
-
 def stage_render(docs, args):
     if not args.input:
         return {"status": "skipped", "detail": "no --input given"}
@@ -94,8 +74,6 @@ STAGE_FUNCS = {
     "grobid": stage_grobid,
     "embed": stage_embed,
     "bertopic": stage_bertopic,
-    "paperqa": stage_paperqa,
-    "storm": stage_storm,
     "render": stage_render,
 }
 
@@ -106,8 +84,6 @@ def parse_args():
                          help="Informational only -- stages self-probe regardless of this flag.")
     parser.add_argument("--stages", default=",".join(STAGE_ORDER),
                          help=f"Comma-separated subset of: {','.join(STAGE_ORDER)}")
-    parser.add_argument("--question", help="Question for the paperqa stage")
-    parser.add_argument("--topic", help="Topic for the storm stage")
     parser.add_argument("--input", help="Input file for the render stage")
     parser.add_argument("--output-format", default="pdf", help="Output format for the render stage")
     return parser.parse_args()

@@ -58,8 +58,6 @@ DOCLING_DIR = CONTENT_DIR / "docling"
 GROBID_DIR = CONTENT_DIR / "grobid"
 CHROMA_DIR = CONTENT_DIR / "chroma"
 TOPICS_PATH = CONTENT_DIR / "topics.json"
-PAPERQA_DIR = CONTENT_DIR / "paperqa"
-STORM_DIR = CONTENT_DIR / "storm"
 RENDERED_DIR = CONTENT_DIR / "rendered"
 
 GROBID_URL = _get("GROBID_URL", "heavy", "grobid_url", default="http://localhost:8070")

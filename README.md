@@ -80,9 +80,9 @@ JOB 1 -- deterministic, unattended-safe     JOB 2 -- generative, on demand, revi
                                      +-----------------------------------------------+
                                      | THE HEAVY PIPELINE (src/heavy/)               |
                                      | Docling -> GROBID -> embeddings/Chroma ->     |
-                                     | BERTopic -> PaperQA2 -> STORM -> Pandoc/LaTeX |
+                                     | BERTopic -> Pandoc/LaTeX                      |
                                      | each stage reports: ok / skipped /            |
-                                     | no-api-key / missing-binary                   |
+                                     | missing-binary                                |
                                      +-----------------------------------------------+
 ```
 
@@ -113,7 +113,7 @@ RAM, ~3GB actually free once other processes were accounted for):
 
 | Resource | Minimum (core pipeline only) | Recommended (`src/heavy/` in regular use) |
 |---|---|---|
-| Disk | ~1GB (bibtexparser + content/) | **10-20GB+** -- the full venv alone is **6.0GB** (torch pulled in three times over via sentence-transformers/docling/knowledge-storm, plus docling's own layout/OCR models); a GROBID build and TeX Live add several GB more on top |
+| Disk | ~1GB (bibtexparser + content/) | **10-20GB+** -- the full venv alone is **6.0GB** (torch pulled in twice over via sentence-transformers/docling, plus docling's own layout/OCR models); a GROBID build and TeX Live add several GB more on top |
 | RAM | ~1-2GB (sync, citation_gate, keyword retrieval are all lightweight) | **8GB minimum, 16GB+ better**. At ~3GB free, Docling parsing a 17-page PDF pushed the process to 3.6GB RSS and the host swapped 6.3GB -- it still finished, just slowly. Bigger PDFs or a bigger corpus will make this worse |
 | CPU | 1-2 cores | **4+ cores** -- Docling's layout inference and BERTopic's UMAP/HDBSCAN are both CPU-bound with no GPU here; more cores directly reduces wall-clock time |
 | GPU | none needed | none required, but sentence-transformers/Docling/BERTopic will use one automatically via torch if present, and it would help once the corpus is large enough for that to matter |
@@ -183,7 +183,6 @@ Don't assume this generalizes to every host running this repo, though --
 | Keyword-based retrieval | stdlib only | -- |
 | Citation verification gate | stdlib `re`, no venv needed | -- |
 | Docling layout-aware parsing, embeddings/Chroma, BERTopic | venv (`src/heavy/`) | also works, verified |
-| PaperQA2 / STORM (needs an LLM key) | installs, no key configured here | also works if given a key |
 | Bibliographic-quality parsing (GROBID: references, sections) | JDK 21 + a standalone GROBID build (a hand-built one is verified reachable at `:8070`; see caveat below) | also works -- `docker/setup.sh` builds+runs the same way |
 | Compiling generated `.tex` chapters to PDF (Pandoc/TeX Live) | `pandoc`, `pdflatex`, `latexmk` all installed and verified working | also works |
 
@@ -295,19 +294,18 @@ python scripts/full_pipeline.py --stages embed,bertopic
 ## The heavy pipeline
 
 `scripts/full_pipeline.py` runs Docling -> GROBID -> sentence-
-transformers/Chroma -> BERTopic -> PaperQA2 -> STORM -> Pandoc/LaTeX as one
-script for both the host and Docker targets:
+transformers/Chroma -> BERTopic -> Pandoc/LaTeX as one script for both the
+host and Docker targets:
 
 ```bash
 .venv-full/bin/python scripts/full_pipeline.py --stages embed,bertopic
-.venv-full/bin/python scripts/full_pipeline.py --stages paperqa --question "..."
-.venv-full/bin/python scripts/full_pipeline.py --stages storm --topic "..."
+.venv-full/bin/python scripts/full_pipeline.py --stages render --input draft.md
 ```
 
 Each stage self-probes its prerequisites and reports honestly
-(`ok`/`skipped`/`no-api-key`/`missing-binary`) instead of assuming the
-target implies availability -- see `src/heavy/*.py` docstrings for what's
-been verified and how.
+(`ok`/`skipped`/`missing-binary`) instead of assuming the target implies
+availability -- see `src/heavy/*.py` docstrings for what's been verified
+and how. No stage needs an LLM API key -- this repo intentionally has none.
 
 ### Calling the heavy pipeline from a skill or agent
 
@@ -391,13 +389,13 @@ src/                      core pipeline (needs bibtexparser; citation_gate needs
 src/heavy/                optional heavier pipeline (docker/requirements-full.txt)
   corpus.py                 unifies ledger items + source-pdfs/ (doc: prefixed, non-citable)
   docling_parse.py, embed_index.py, topic_model.py, grobid_extract.py,
-  paperqa_answer.py, storm_synthesize.py, render_output.py
+  render_output.py
 scripts/
   install_full_pipeline.sh  single staged install path (os-deps/python-deps/grobid/all) for host + Docker
   full_pipeline.py           orchestrates src/heavy/* stages
 content/                  generated, gitignored (regenerate with sync)
   ledger.sqlite, parsed/<citekey>.txt, provenance/,
-  docling/, chroma/, topics.json, paperqa/, storm/, rendered/  (src/heavy/ outputs)
+  docling/, chroma/, topics.json, rendered/  (src/heavy/ outputs)
 source-pdfs/              raw PDFs not sourced via the bib file -- see src/heavy/corpus.py; never citable
 .claude/skills/           genre layer: survey-writer, thesis-chapter-writer, tutorial-writer, deep-research
 .claude/agents/           deep-research's subagents: deep-research-interviewer, deep-research-writer, peer-reviewer

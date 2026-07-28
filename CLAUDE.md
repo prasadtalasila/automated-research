@@ -92,10 +92,10 @@ probe, not assume, in either direction:
   failure mode.
 - **When they're absent:** don't hang, stack-trace, or silently skip
   without saying so. Every `src/heavy/*` stage already self-probes its
-  own prerequisites and reports honestly (`ok`/`skipped`/`no-api-key`/
-  `missing-binary`) via `scripts/full_pipeline.py` rather than assuming
-  the target implies availability -- keep any new stage consistent with
-  that pattern instead of inventing a new fallback policy.
+  own prerequisites and reports honestly (`ok`/`skipped`/`missing-binary`)
+  via `scripts/full_pipeline.py` rather than assuming the target implies
+  availability -- keep any new stage consistent with that pattern instead
+  of inventing a new fallback policy.
 
 Install everything with:
 ```
@@ -108,10 +108,7 @@ This is **the single install script for both the host and Docker** --
 `docker/Dockerfile` calls it once per stage (`os-deps`, `grobid`,
 `python-deps` with `SKIP_VENV=1`) as separate `RUN` lines, each its own
 cached layer, rather than having its own separate apt-get/pip install
-logic. If you find a dependency-order issue (there was a real one:
-installing `paper-qa` and `knowledge-storm` sequentially breaks
-`paper-qa` via a `litellm`/`openai` version conflict -- see
-`docker/requirements-full.txt`), fix it once in
+logic. If you find a dependency-order issue, fix it once in
 `docker/requirements-full.txt` and both targets pick it up. Don't add a
 second install path.
 
@@ -127,13 +124,21 @@ wasn't).
 ## The heavy pipeline (`src/heavy/`, `scripts/full_pipeline.py`)
 
 Implements Docling -> GROBID -> sentence-transformers/Chroma ->
-BERTopic -> PaperQA2 -> STORM -> Pandoc/LaTeX, one script for both host and
-Docker (`scripts/full_pipeline.py --target host|docker`). Each stage
-self-probes its own prerequisites (reachable GROBID, an LLM API key,
-pandoc/pdflatex on PATH) and reports honestly (`skipped`/`no-api-key`/
-`missing-binary`) rather than assuming the target implies availability --
-don't "fix" a skip by hardcoding target-specific behavior; fix the probe if
-it's wrong.
+BERTopic -> Pandoc/LaTeX, one script for both host and Docker
+(`scripts/full_pipeline.py --target host|docker`). Each stage self-probes
+its own prerequisites (reachable GROBID, pandoc/pdflatex on PATH) and
+reports honestly (`skipped`/`missing-binary`) rather than assuming the
+target implies availability -- don't "fix" a skip by hardcoding
+target-specific behavior; fix the probe if it's wrong.
+
+No stage in this pipeline calls out to an LLM or needs an API key --
+Docling, GROBID, embeddings/Chroma, BERTopic, and the Pandoc/LaTeX render
+step are all local/deterministic. (An earlier revision had PaperQA2 and
+STORM stages here, both of which needed `ANTHROPIC_API_KEY` or
+`OPENAI_API_KEY`; they were removed to keep this repo API-key-free. Any
+LLM-backed synthesis now happens only via the `.claude/skills/` genre
+layer, invoked through a Claude Code session rather than a standalone
+API call.)
 
 `src/heavy/corpus.py` unifies two identifier namespaces: ledger items get
 `doc_id == citekey` (real, citable); `source-pdfs/*.pdf` (raw PDFs gathered

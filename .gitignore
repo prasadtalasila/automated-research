@@ -6,8 +6,6 @@ content/docling/
 content/grobid/
 content/chroma/
 content/topics.json
-content/paperqa/
-content/storm/
 content/rendered/
 __pycache__/
 *.pyc

@@ -28,10 +28,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /workspace/automated-research
 
 # Single script also used on a bare host -- one source of truth for
-# dependency versions/order/logic (notably the paper-qa/knowledge-storm
-# install-order fix baked into docker/requirements-full.txt, and the
-# GROBID JDK-21-specifically requirement) instead of separate, divergent
-# copies of that logic here. Note this COPY precedes all three stages
+# dependency versions/order/logic (notably the GROBID JDK-21-specifically
+# requirement) instead of separate, divergent copies of that logic here.
+# Note this COPY precedes all three stages
 # below, so editing this script invalidates all of their layers
 # (including the multi-GB grobid one) -- the per-stage caching below only
 # protects against edits to *later* Dockerfile lines or unrelated repo

@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 # Single install path for both a bare host and the Docker image -- one
 # source of truth for how every dependency gets installed (OS packages,
-# GROBID, and the Python venv), so a fix discovered on one target (e.g.
-# the paper-qa/knowledge-storm install-order conflict pinned in
-# docker/requirements-full.txt) automatically applies to both, instead
-# of drifting between a hand-run host command and separate Dockerfile
-# RUN lines.
+# GROBID, and the Python venv), so a fix discovered on one target
+# automatically applies to both, instead of drifting between a hand-run
+# host command and separate Dockerfile RUN lines.
 #
 # Usage: bash scripts/install_full_pipeline.sh [STAGE ...]
 #
