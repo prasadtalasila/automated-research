@@ -1,11 +1,44 @@
-# Heavier optional stack -- only installed inside docker/Dockerfile, never
-# on the bare host (PEP 668 / externally-managed-environment blocks system
-# pip there; use this file inside a venv/container instead).
+# Installed by scripts/install_full_pipeline.sh -- the single install
+# path for both a bare host (PEP 668 / externally-managed-environment
+# blocks system pip there, so it uses a venv) and docker/Dockerfile
+# (installs into the venv it creates at /opt/venv). bibtexparser is the
+# one dependency the otherwise-stdlib core pipeline needs (src/bib_reader.py,
+# used by `python -m src.sync`); everything else here is only used by
+# src/heavy/* (the optional Docling/GROBID/embeddings/PaperQA2/STORM/
+# Pandoc pipeline, scripts/full_pipeline.py). python -m src.citation_gate
+# needs none of this and runs with the bare system interpreter.
 #
-# Pin exact versions once you've validated a combination that works, per
-# the reproducibility guidance from the original design discussion -- the
-# ranges below are a starting point, not a tested lockfile.
-sentence-transformers>=3.0,<4.0
-chromadb>=0.5,<0.6
-bertopic>=0.16,<0.17
+# All of the below were installed and import-verified in a host venv
+# (.venv-full/) on 2026-07-28. bibtexparser/sentence-transformers/chromadb/
+# bertopic/docling were also functionally verified against this repo's
+# real corpus (bib parsing, embeddings+search, topic modeling, PDF parsing
+# all produced correct output). paper-qa/knowledge-storm could only be
+# verified up to "installs and imports cleanly, fails with an actionable
+# message" -- actually generating an answer/article needs
+# ANTHROPIC_API_KEY or OPENAI_API_KEY, neither set in that environment.
+# See src/heavy/*.py docstrings for what was and wasn't verified per stage.
+#
+# IMPORTANT: install paper-qa and knowledge-storm in the SAME pip command
+# (as below), not sequentially. Installed separately, knowledge-storm's
+# dependency resolution downgrades litellm/openai out from under
+# paper-qa's fhlmi dependency and breaks `from paperqa import Docs` with
+# `AttributeError: module 'litellm' has no attribute 'PermissionDeniedError'`
+# -- a real, reproduced conflict, not a hypothetical one. The versions
+# pinned below are the combination pip's resolver found compatible when
+# asked to solve for both packages together.
+sentence-transformers>=5.6,<6.0
+chromadb>=1.5,<2.0
+bertopic>=0.17,<0.18
+# <2.0 is load-bearing, not just a style choice: bibtexparser v2 replaces
+# BibTexParser/customization/bibtexparser.load with a different,
+# incompatible API (bibtexparser.parse_file, no customization hook) that
+# src/bib_reader.py -- the sole source of citekeys -- doesn't use. Don't
+# relax this ceiling without rewriting that module against v2's API first.
 bibtexparser>=1.4,<2.0
+requests>=2.34,<3.0
+docling>=2.115,<3.0
+paper-qa==2026.3.12
+fhlmi==0.43.1
+knowledge-storm==1.1.1
+litellm==1.80.0
+openai==1.109.1

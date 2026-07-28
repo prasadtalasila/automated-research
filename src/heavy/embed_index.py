@@ -1,0 +1,95 @@
+"""Stage 3: sentence-transformers embeddings persisted in a Chroma collection.
+
+This is the real embedding-based retrieval the core pipeline's
+src/retrieval.py deliberately deferred (keyword overlap only, pending a
+larger corpus). Needs `sentence-transformers` and `chromadb` from
+docker/requirements-full.txt in a venv.
+"""
+
+import subprocess
+import tempfile
+from pathlib import Path
+
+from src import config
+from src.heavy.corpus import CorpusDoc, safe_filename
+
+_COLLECTION_NAME = "corpus"
+
+
+def get_text(doc: CorpusDoc) -> str | None:
+    """Best available text for a doc: Docling output > existing parsed text
+    > on-the-fly pdftotext. Doesn't require the Docling stage to have run."""
+    docling_path = config.DOCLING_DIR / f"{safe_filename(doc.doc_id)}.md"
+    if docling_path.exists():
+        return docling_path.read_text()
+    if doc.text_path and Path(doc.text_path).exists():
+        return Path(doc.text_path).read_text()
+    if doc.pdf_path:
+        with tempfile.NamedTemporaryFile(suffix=".txt") as tmp:
+            subprocess.run(
+                ["pdftotext", "-layout", doc.pdf_path, tmp.name],
+                check=True, capture_output=True,
+            )
+            return Path(tmp.name).read_text(errors="ignore")
+    return None
+
+
+def chunk_text(text: str, chunk_words: int = 200, overlap_words: int = 40) -> list[str]:
+    words = text.split()
+    if not words:
+        return []
+    step = chunk_words - overlap_words
+    return [" ".join(words[i:i + chunk_words]) for i in range(0, len(words), step)]
+
+
+def get_client_and_model():
+    import chromadb
+    from sentence_transformers import SentenceTransformer
+
+    config.CHROMA_DIR.mkdir(parents=True, exist_ok=True)
+    client = chromadb.PersistentClient(path=str(config.CHROMA_DIR))
+    model = SentenceTransformer(config.EMBEDDING_MODEL)
+    return client, model
+
+
+def build_index(docs: list[CorpusDoc]) -> dict[str, int]:
+    """Embeds and upserts every doc's chunks. Returns {doc_id: n_chunks}."""
+    client, model = get_client_and_model()
+    collection = client.get_or_create_collection(_COLLECTION_NAME)
+
+    counts = {}
+    for doc in docs:
+        text = get_text(doc)
+        if not text:
+            counts[doc.doc_id] = 0
+            continue
+        chunks = chunk_text(text)
+        if not chunks:
+            counts[doc.doc_id] = 0
+            continue
+        embeddings = model.encode(chunks, show_progress_bar=False).tolist()
+        ids = [f"{safe_filename(doc.doc_id)}::{i}" for i in range(len(chunks))]
+        metadatas = [
+            {
+                "doc_id": doc.doc_id,
+                "citekey": doc.citekey or "",
+                "source": doc.source,
+                "title": doc.title,
+            }
+            for _ in chunks
+        ]
+        collection.upsert(ids=ids, documents=chunks, embeddings=embeddings, metadatas=metadatas)
+        counts[doc.doc_id] = len(chunks)
+    return counts
+
+
+def search(query: str, k: int = 5) -> list[dict]:
+    client, model = get_client_and_model()
+    collection = client.get_or_create_collection(_COLLECTION_NAME)
+    query_embedding = model.encode([query], show_progress_bar=False).tolist()
+    raw = collection.query(query_embeddings=query_embedding, n_results=k)
+
+    results = []
+    for doc_text, metadata, distance in zip(raw["documents"][0], raw["metadatas"][0], raw["distances"][0]):
+        results.append({**metadata, "snippet": doc_text[:200], "distance": distance})
+    return results

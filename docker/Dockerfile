@@ -26,7 +26,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-venv python3-pip \
     poppler-utils \
-    git curl ca-certificates \
+    git curl ca-certificates unzip \
     openjdk-17-jre-headless \
     pandoc \
     texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended latexmk \
@@ -49,13 +49,19 @@ RUN curl -fsSL -o /tmp/grobid.zip \
 
 WORKDIR /workspace/automated-research
 
-# Python deps for the heavier retrieval/clustering path. Kept separate
-# from the stdlib-only core pipeline (src/), which runs without any of
-# this installed.
+# Same install script used on a bare host (scripts/install_full_pipeline.sh)
+# -- one source of truth for dependency versions/order (notably the
+# paper-qa/knowledge-storm install-order fix baked into
+# docker/requirements-full.txt) instead of a second, divergent copy here.
+# python -m src.citation_gate doesn't need any of this and still runs
+# with the bare python3 above; python -m src.sync needs bibtexparser,
+# the one dependency the rest of the core pipeline can't avoid.
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
-COPY docker/requirements-full.txt /tmp/requirements-full.txt
-RUN pip install --no-cache-dir -r /tmp/requirements-full.txt
+COPY docker/requirements-full.txt docker/requirements-full.txt
+COPY scripts/install_full_pipeline.sh scripts/install_full_pipeline.sh
+RUN chmod +x scripts/install_full_pipeline.sh \
+    && SKIP_VENV=1 scripts/install_full_pipeline.sh
 
 COPY docker/setup.sh /usr/local/bin/setup-grobid.sh
 RUN chmod +x /usr/local/bin/setup-grobid.sh

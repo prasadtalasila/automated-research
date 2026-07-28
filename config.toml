@@ -1,0 +1,29 @@
+# Central configuration for the research pipeline.
+# Any value here can be overridden with an environment variable of the
+# same name as the corresponding setting below (e.g.
+# BIB_FILE=/path/to/other.bib python -m src.sync), for container/CI
+# flexibility without editing this file.
+
+[bib]
+# The Zotero-exported .bib file -- source of truth for citekeys and
+# bibliographic metadata (decision: 2026-07-28). No Better BibTeX plugin
+# is installed, so this is a manual, point-in-time export (Zotero:
+# File > Export Library > BibTeX), not continuously auto-synced --
+# re-export after adding papers to Zotero, then re-run `python -m src.sync`.
+# Relative to the repo root.
+path = "bibliography.bib"
+
+[content]
+# Where sync/heavy-pipeline outputs are written. Relative to the repo root.
+dir = "content"
+
+[source_pdfs]
+# Raw PDFs gathered outside Zotero (no citekey -- see src/heavy/corpus.py).
+# Relative to the repo root.
+dir = "source-pdfs"
+
+[heavy]
+# Only used by src/heavy/* (docker/requirements-full.txt), not by the
+# core sync/citation_gate pipeline.
+grobid_url = "http://localhost:8070"
+embedding_model = "sentence-transformers/all-MiniLM-L6-v2"

@@ -14,7 +14,8 @@ safe to run unattended).
 ## Shared content layer (read, don't regenerate)
 
 - `content/ledger.sqlite` -- per-citekey status, populated by `sync`
-- `content/library.bib` -- generated BibTeX, keyed the same way as the ledger
+- `bibliography.bib` (repo root) -- the source of truth for citekeys/metadata;
+  `sync` reads it, it is never regenerated
 - `content/parsed/<citekey>.txt` -- extracted PDF text
 - `src/retrieval.py` -- `search(query, k)` returns `SearchResult(citekey, title, score, snippet)`
 

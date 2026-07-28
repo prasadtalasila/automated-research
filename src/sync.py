@@ -1,33 +1,40 @@
-"""Deterministic pipeline entrypoint: Zotero -> ledger -> parsed text -> library.bib.
+"""Deterministic pipeline entrypoint: bib file -> ledger -> parsed text.
 
 Safe to run unattended / on a schedule (idempotent, incremental):
     python -m src.sync
 
 This is "job 1" of the two-job split: no generation, no LLM calls, just
-bringing the shared content layer up to date with the Zotero library.
-Genre-specific drafting (job 2) is invoked separately, on demand, via
-the Claude Code skills in .claude/skills/.
+bringing the shared content layer up to date with the bibliography (see
+src/bib_reader.py -- the Zotero-exported .bib file is the source of
+truth for citekeys, not something this pipeline generates). Genre-specific
+drafting (job 2) is invoked separately, on demand, via the Claude Code
+skills in .claude/skills/.
+
+Needs `bibtexparser` installed -- run scripts/install_full_pipeline.sh
+first (creates .venv-full/ on a bare host), then run this via that
+venv's python. python -m src.citation_gate does not need it and still
+runs with the bare system interpreter.
 """
 
 import subprocess
 import sys
 
-from src import config, ledger, pdf_text, zotero_reader
+from src import bib_reader, config, ledger, pdf_text
 
 
 def run() -> int:
-    print(f"Reading Zotero library from {config.ZOTERO_DATA_DIR} ...")
-    references = zotero_reader.read_library()
+    print(f"Reading bibliography from {config.BIB_FILE_PATH} ...")
+    references = bib_reader.read_library()
     print(f"  found {len(references)} bibliographic item(s)")
 
     incomplete = [r for r in references if not r.authors]
     if incomplete:
-        print(f"  WARNING: {len(incomplete)} item(s) have no author metadata in Zotero "
+        print(f"  WARNING: {len(incomplete)} item(s) have no author metadata in the bib file "
               f"(likely a page saved as 'webpage' rather than proper item type) -- "
-              f"citing them will produce a low-quality @misc entry:")
+              f"citing them will produce a low-quality reference:")
         for ref in incomplete:
             print(f"    {ref.citekey}: {ref.title[:80]!r}")
-        print("  Fix the item type/metadata in Zotero for a citable reference.")
+        print("  Fix the item type/metadata in Zotero, re-export, and re-run sync.")
 
     con = ledger.connect()
     parsed, failed, skipped, no_pdf = 0, 0, 0, 0
@@ -49,8 +56,6 @@ def run() -> int:
                 ledger.mark_parse_failed(con, ref.citekey, exc.stderr or str(exc))
                 failed += 1
                 print(f"  FAILED  {ref.citekey}: {exc.stderr}", file=sys.stderr)
-
-        zotero_reader.write_library_bib(references)
     finally:
         con.close()
 
@@ -58,9 +63,8 @@ def run() -> int:
         f"Sync complete: {parsed} parsed, {skipped} unchanged, "
         f"{no_pdf} without a PDF attachment, {failed} failed."
     )
-    print(f"Ledger:       {config.LEDGER_PATH}")
-    print(f"Bibliography: {config.LIBRARY_BIB_PATH}")
-    print(f"Parsed text:  {config.PARSED_DIR}/")
+    print(f"Ledger:      {config.LEDGER_PATH}")
+    print(f"Parsed text: {config.PARSED_DIR}/")
     return 1 if failed else 0
 
 

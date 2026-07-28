@@ -6,18 +6,25 @@ run. This is the state that makes the deterministic pipeline safe to
 run unattended/on a schedule.
 """
 
+from __future__ import annotations
+
 import hashlib
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from src import config
-from src.zotero_reader import Reference
+
+if TYPE_CHECKING:
+    # Only for the upsert_reference type hint -- citation_gate.py imports
+    # this module and must not require bibtexparser (src/bib_reader.py's
+    # only dependency) just to check citekeys against the ledger.
+    from src.bib_reader import Reference
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS items (
     citekey TEXT PRIMARY KEY,
-    zotero_key TEXT NOT NULL,
     item_type TEXT,
     title TEXT,
     year TEXT,
@@ -68,11 +75,11 @@ def upsert_reference(con: sqlite3.Connection, ref: Reference) -> bool:
         con.execute(
             """
             INSERT INTO items
-                (citekey, zotero_key, item_type, title, year, doi, url,
+                (citekey, item_type, title, year, doi, url,
                  pdf_path, pdf_hash, status, last_synced)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (ref.citekey, ref.zotero_key, ref.item_type, ref.title, ref.year,
+            (ref.citekey, ref.item_type, ref.title, ref.year,
              ref.doi, ref.url, ref.pdf_path, pdf_hash, status, now),
         )
     else:
@@ -85,11 +92,11 @@ def upsert_reference(con: sqlite3.Connection, ref: Reference) -> bool:
         con.execute(
             """
             UPDATE items SET
-                zotero_key = ?, item_type = ?, title = ?, year = ?, doi = ?,
+                item_type = ?, title = ?, year = ?, doi = ?,
                 url = ?, pdf_path = ?, pdf_hash = ?, status = ?, last_synced = ?
             WHERE citekey = ?
             """,
-            (ref.zotero_key, ref.item_type, ref.title, ref.year, ref.doi,
+            (ref.item_type, ref.title, ref.year, ref.doi,
              ref.url, ref.pdf_path, pdf_hash, new_status, now, ref.citekey),
         )
     con.commit()
