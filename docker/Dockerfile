@@ -3,10 +3,15 @@
 # container). Unlocks GROBID (bibliographic-quality PDF parsing), TeX Live
 # (compiling generated .tex chapters to PDF), Pandoc, and the
 # embeddings/clustering stack (sentence-transformers + Chroma + BERTopic)
-# that this host cannot install (no root, PEP 668 blocks system pip).
+# for hosts that don't have root, a JDK, TeX Live, or Pandoc available
+# directly. `pip install` outside a venv is blocked by PEP 668 regardless
+# of root, though -- see CLAUDE.md's "Environment constraints" section for
+# what is and isn't conditional on root access.
 #
-# NOT built or run in this session -- no Docker daemon is available here.
-# Treat this as a starting point to validate, not a tested artifact.
+# NOT built or run in this session -- no Docker daemon is available here,
+# and this revision (new per-stage layer split, new install-script
+# stages, new GROBID source URL) is more unverified than before, not
+# less. Treat this as a starting point to validate, not a tested artifact.
 #
 # Build:
 #   docker build -t research-pipeline -f docker/Dockerfile .
@@ -21,53 +26,42 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Base toolchain: Python for the pipeline scripts, poppler-utils for
-# pdftotext (already used on the host), git, and a JDK for GROBID.
-# GROBID needs a full JDK (not just a JRE -- it builds from source, and
-# that needs javac), and specifically 21: its build.gradle pins a Java
-# 21 toolchain, and its bundled Kotlin compiler (2.0.21) throws
-# `IllegalArgumentException: 25.0.3` trying to parse a JDK 25 version
-# string -- verified by hand on a bare host (JDK 25 installed first,
-# failed, replaced with 21).
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-venv python3-pip \
-    poppler-utils \
-    git curl ca-certificates unzip \
-    openjdk-21-jdk-headless \
-    pandoc \
-    texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended latexmk \
-    && rm -rf /var/lib/apt/lists/*
-
-# GROBID: fetch a released, self-contained distribution (ships its own
-# run script) rather than nesting another Docker daemon inside this
-# container -- avoids the extra privileged-mode risk that would come
-# with Docker-in-Docker.
-ARG GROBID_VERSION=0.9.0
-RUN curl -fsSL -o /tmp/grobid.zip \
-        "https://github.com/kermitt2/grobid/archive/refs/tags/${GROBID_VERSION}.zip" \
-    && mkdir -p /opt/grobid \
-    && unzip -q /tmp/grobid.zip -d /opt/grobid --strip-components=1 \
-    && rm /tmp/grobid.zip
-# Building GROBID from source (./gradlew clean install) is a multi-GB,
-# multi-minute step best run once and cached as its own image layer --
-# left as an explicit step in docker/setup.sh rather than baked in here,
-# so iterating on the rest of this Dockerfile doesn't re-trigger it.
-
 WORKDIR /workspace/automated-research
 
-# Same install script used on a bare host (scripts/install_full_pipeline.sh)
-# -- one source of truth for dependency versions/order (notably the
-# paper-qa/knowledge-storm install-order fix baked into
-# docker/requirements-full.txt) instead of a second, divergent copy here.
+# Single script also used on a bare host -- one source of truth for
+# dependency versions/order/logic (notably the paper-qa/knowledge-storm
+# install-order fix baked into docker/requirements-full.txt, and the
+# GROBID JDK-21-specifically requirement) instead of separate, divergent
+# copies of that logic here. Note this COPY precedes all three stages
+# below, so editing this script invalidates all of their layers
+# (including the multi-GB grobid one) -- the per-stage caching below only
+# protects against edits to *later* Dockerfile lines or unrelated repo
+# files, not to this script.
+COPY scripts/install_full_pipeline.sh scripts/install_full_pipeline.sh
+RUN chmod +x scripts/install_full_pipeline.sh
+
+# Stage 1: OS packages (JDK 21, TeX Live, Pandoc, poppler-utils,
+# git/curl/unzip). Its own cached layer -- rarely changes.
+RUN scripts/install_full_pipeline.sh os-deps && rm -rf /var/lib/apt/lists/*
+
+# Stage 2: GROBID -- fetch + build from source (multi-GB, multi-minute).
+# Its own layer, placed before the Python layers below, so editing those
+# (or anything else later in this file) doesn't force a rebuild of this
+# one -- Docker only invalidates a layer and what follows it, not what
+# came before.
+ARG GROBID_VERSION=0.9.0
+ENV GROBID_DIR=/opt/grobid
+RUN GROBID_VERSION="${GROBID_VERSION}" scripts/install_full_pipeline.sh grobid
+
+# Stage 3: Python deps -- same script + requirements file as the host.
 # python -m src.citation_gate doesn't need any of this and still runs
-# with the bare python3 above; python -m src.sync needs bibtexparser,
-# the one dependency the rest of the core pipeline can't avoid.
+# with the bare python3 from stage 1; python -m src.sync needs
+# bibtexparser, the one dependency the rest of the core pipeline can't
+# avoid.
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 COPY docker/requirements-full.txt docker/requirements-full.txt
-COPY scripts/install_full_pipeline.sh scripts/install_full_pipeline.sh
-RUN chmod +x scripts/install_full_pipeline.sh \
-    && SKIP_VENV=1 scripts/install_full_pipeline.sh
+RUN SKIP_VENV=1 scripts/install_full_pipeline.sh python-deps
 
 COPY docker/setup.sh /usr/local/bin/setup-grobid.sh
 RUN chmod +x /usr/local/bin/setup-grobid.sh

@@ -64,34 +64,64 @@ as hardcoded values in `config.py`.
 
 ## Environment constraints on this host
 
-No root/sudo, no Java, no TeX Live, no Pandoc. `pip install` outside a venv
-is blocked (PEP 668) -- **this now matters for the core pipeline too**:
-`python -m src.sync` needs `bibtexparser` (parsing `bibliography.bib`
-correctly -- nested braces, LaTeX escapes -- isn't worth hand-rolling), so
-it must be run via the installed venv, not the bare system interpreter.
-`python -m src.citation_gate` is the exception -- it only reads
-`content/ledger.sqlite` (stdlib `sqlite3`) and still runs with bare `python3`.
+`pip install` outside a venv is blocked (PEP 668) -- unconditionally, on
+every host, regardless of root access. **This matters for the core
+pipeline too**: `python -m src.sync` needs `bibtexparser` (parsing
+`bibliography.bib` correctly -- nested braces, LaTeX escapes -- isn't
+worth hand-rolling), so it must be run via the installed venv, not the
+bare system interpreter. `python -m src.citation_gate` is the exception --
+it only reads `content/ledger.sqlite` (stdlib `sqlite3`) and still runs
+with bare `python3`.
 
-Install everything (core `bibtexparser` + the full `src/heavy/` stack) with:
+Root/sudo, a JDK, TeX Live, and Pandoc were previously assumed unavailable
+on this host -- **that assumption no longer holds** (verified
+2026-07-28): root is available via `sudo`, and a JDK, TeX Live, and Pandoc
+are all installed and working. Don't assume this generalizes to every
+host running this repo, though -- treat availability as something to
+probe, not assume, in either direction:
+
+- **When heavy-pipeline dependencies are present:** stages that need them
+  (GROBID; Pandoc/TeX Live rendering) work directly on the host, not only
+  inside `docker/` -- there is nothing docker-exclusive about GROBID
+  other than that `docker/setup.sh` happens to script it for that target.
+  Building GROBID standalone needs a JDK **21 specifically, not whatever's
+  newest**: its `build.gradle` pins a Java 21 toolchain, and its bundled
+  Kotlin compiler (2.0.21) cannot parse a JDK 25 version string. See
+  README's "Building GROBID standalone" section for the exact recipe and
+  failure mode.
+- **When they're absent:** don't hang, stack-trace, or silently skip
+  without saying so. Every `src/heavy/*` stage already self-probes its
+  own prerequisites and reports honestly (`ok`/`skipped`/`no-api-key`/
+  `missing-binary`) via `scripts/full_pipeline.py` rather than assuming
+  the target implies availability -- keep any new stage consistent with
+  that pattern instead of inventing a new fallback policy.
+
+Install everything with:
 ```
-bash scripts/install_full_pipeline.sh
+bash scripts/install_full_pipeline.sh              # Python deps only (default) -- what every host needs regardless of OS packages
+bash scripts/install_full_pipeline.sh os-deps      # apt-get: JDK 21, TeX Live, Pandoc, poppler-utils -- needs root, opt-in
+bash scripts/install_full_pipeline.sh grobid       # fetch + build GROBID standalone -- multi-GB, opt-in
+bash scripts/install_full_pipeline.sh all          # os-deps + python-deps (not grobid -- too heavy to bundle by default)
 ```
 This is **the single install script for both the host and Docker** --
-`docker/Dockerfile` calls this exact script (with `SKIP_VENV=1`) rather than
-having its own separate pip install logic. If you find a dependency-order
-issue (there was a real one: installing `paper-qa` and `knowledge-storm`
-sequentially breaks `paper-qa` via a `litellm`/`openai` version conflict --
-see `docker/requirements-full.txt`), fix it once in
+`docker/Dockerfile` calls it once per stage (`os-deps`, `grobid`,
+`python-deps` with `SKIP_VENV=1`) as separate `RUN` lines, each its own
+cached layer, rather than having its own separate apt-get/pip install
+logic. If you find a dependency-order issue (there was a real one:
+installing `paper-qa` and `knowledge-storm` sequentially breaks
+`paper-qa` via a `litellm`/`openai` version conflict -- see
+`docker/requirements-full.txt`), fix it once in
 `docker/requirements-full.txt` and both targets pick it up. Don't add a
 second install path.
 
-`docker/` (Dockerfile + `docker/setup.sh` for GROBID) is scaffolded to
-additionally unlock Java/GROBID, TeX Live, and Pandoc, none of which are
-installable here without root -- it has not been built or run in this
-environment (no Docker daemon here). Treat it as a draft to validate, not a
-tested artifact, except for the parts of `docker/requirements-full.txt` that
-were verified in a host venv (see its header comment for exactly what was
-and wasn't).
+`docker/` (Dockerfile + `docker/setup.sh`) builds the same GROBID/TeX
+Live/Pandoc stack inside a container instead, for hosts where the
+`os-deps` assumption above doesn't hold (no root, or root deliberately
+withheld). **It has still not been built or run in this environment** (no
+Docker daemon here) -- treat it as a draft to validate, not a tested
+artifact, except for the parts of `docker/requirements-full.txt` that were
+verified in a host venv (see its header comment for exactly what was and
+wasn't).
 
 ## The heavy pipeline (`src/heavy/`, `scripts/full_pipeline.py`)
 
