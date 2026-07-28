@@ -83,7 +83,9 @@ def build_index(docs: list[CorpusDoc]) -> dict[str, int]:
     return counts
 
 
-def search(query: str, k: int = 5) -> list[dict]:
+def search(query: str, k: int = 5, snippet_chars: int = 500) -> list[dict]:
+    """`snippet_chars` defaults to enough context for a caller to judge
+    relevance itself before citing, rather than trusting distance alone."""
     client, model = get_client_and_model()
     collection = client.get_or_create_collection(_COLLECTION_NAME)
     query_embedding = model.encode([query], show_progress_bar=False).tolist()
@@ -91,5 +93,5 @@ def search(query: str, k: int = 5) -> list[dict]:
 
     results = []
     for doc_text, metadata, distance in zip(raw["documents"][0], raw["metadatas"][0], raw["distances"][0]):
-        results.append({**metadata, "snippet": doc_text[:200], "distance": distance})
+        results.append({**metadata, "snippet": doc_text[:snippet_chars], "distance": distance})
     return results

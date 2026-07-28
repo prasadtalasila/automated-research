@@ -18,6 +18,13 @@
 # via the `pip` already on PATH instead of creating a second one.
 set -euo pipefail
 
+if [ "${SKIP_VENV:-0}" != "1" ] && [ "$(id -u)" = "0" ]; then
+    echo "Warning: running as root (e.g. via sudo) will create a root-owned" >&2
+    echo ".venv-full/ that your normal user can't later modify or remove" >&2
+    echo "without sudo. Re-run without sudo, or set SKIP_VENV=1 if this is" >&2
+    echo "intentional (e.g. inside Docker, where /opt/venv is already root-owned)." >&2
+fi
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REQUIREMENTS="$REPO_ROOT/docker/requirements-full.txt"
 

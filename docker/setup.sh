@@ -18,7 +18,7 @@ if [ ! -x "${GROBID_DIR}/gradlew" ]; then
 fi
 
 echo "Building GROBID (first run only; this step is what's slow/multi-GB) ..."
-(cd "${GROBID_DIR}" && ./gradlew clean install -x test)
+(cd "${GROBID_DIR}" && ./gradlew clean build -x test)
 
 echo "Starting GROBID in the background on port ${GROBID_PORT} ..."
 (cd "${GROBID_DIR}" && nohup ./gradlew run > /var/log/grobid.log 2>&1 &)

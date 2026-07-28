@@ -36,30 +36,44 @@ what it found before drafting.
 1. **Clarify the research question** the chapter serves, if not already given
    by the user. The chapter's narrative arc should argue toward/around this RQ,
    not just summarize papers in sequence.
-2. **Retrieve.** Call `src.retrieval.search()` against the RQ and its component
-   concepts. This is keyword overlap, not embeddings -- verify snippets
-   yourself rather than trusting the ranking.
-3. **Draft** as a LaTeX fragment (no `\documentclass`/`\begin{document}` --
-   this is `\input`-ed into the user's existing thesis document):
+2. **Retrieve broadly, then filter.** Call `src.retrieval.search(query, k=15)`
+   against the RQ and its component concepts -- over-fetch rather than
+   assuming the top few hits are automatically the right ones. This is
+   keyword overlap, not embeddings -- read each 500-character snippet and
+   judge relevance yourself; a high score is a proxy, not a verdict. Keep
+   only what actually supports part of the argument; write the kept set to
+   `content/provenance/<slug>-evidence.json` (citekey + why it's relevant +
+   the supporting quote/paraphrase) before drafting prose.
+3. **Reformulate and re-search if a concept comes up thin.** Try synonyms
+   or adjacent terms and search again before concluding the corpus doesn't
+   cover something -- and if it genuinely doesn't after a real attempt, say
+   so to the user rather than forcing a weak citation into the argument.
+4. **Check for disagreement across kept sources.** If two sources conflict
+   on a point relevant to the RQ, surface that explicitly in the chapter
+   rather than silently picking a side.
+5. **Draft** as a LaTeX fragment (no `\documentclass`/`\begin{document}` --
+   this is `\input`-ed into the user's existing thesis document), citing
+   only from your scored-evidence file:
    - Section/subsection structure that builds an argument toward the RQ
    - Citations via `\citep{key}` / `\citet{key}` — never a bare invented key
    - Where the existing `papers/DT-Simulation-Patterns/main.tex` /
      `IEEEtran.cls` in this workspace is structurally relevant as a formatting
      reference, follow its conventions for consistency; it is a *reference*,
      not something to copy content from
-4. **Never write a citekey you didn't get from `search()`.** If a citation
+6. **Never write a citekey you didn't get from `search()`.** If a citation
    would strengthen the argument but isn't in the synced library, tell the
    user in prose rather than inventing a key. This project's own
    `papers/DT-Simulation-Patterns/main.bib` already has entries marked
    `WARNING: UNVERIFIABLE` from a past fabrication incident -- that failure
    mode is exactly what this rule exists to prevent.
-5. **Log provenance.** Write `content/provenance/<slug>.json`:
-   `{"section": "...", "citekeys": [...]}` per section, for later audit.
-6. **Gate before presenting.**
+7. **Log provenance.** Write `content/provenance/<slug>.json`:
+   `{"section": "...", "citekeys": [...]}` per section, for later audit (in
+   addition to the evidence file from step 2).
+8. **Gate before presenting.**
    ```
    python -m src.citation_gate <draft.tex>
    ```
    Fix and re-run until `OK`. Never present a draft that hasn't passed.
-7. This machine has no TeX Live installed -- do not attempt to compile the
+9. This machine has no TeX Live installed -- do not attempt to compile the
    `.tex` output. Present it as source for the user to `\input` and compile
    themselves (or use the Docker path in `docker/` which does have LaTeX).

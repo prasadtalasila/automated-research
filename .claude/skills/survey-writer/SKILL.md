@@ -34,34 +34,65 @@ before drafting anything.
 
 ## Process
 
-1. **Retrieve.** Break the requested topic into 2-4 sub-themes if it's broad.
-   Call `src.retrieval.search(sub_theme, k=8)` for each. This is a keyword-overlap
-   ranker, not embeddings (no vector store is installed here) -- read the actual
-   snippets, don't trust the score alone.
-2. **Cluster by judgment.** With a small corpus there's no BERTopic step; group
-   the retrieved citekeys into themes yourself based on what the snippets/titles
-   actually say. Note explicitly if a sub-theme returned nothing or near-nothing
-   ("thin coverage") -- do not pad it with uncited claims to compensate.
-3. **Draft**, in Markdown, using Pandoc-style citations (`[@citekey]`,
-   `[@key1; @key2]`):
+1. **Retrieve broadly, over-fetching on purpose.** Break the requested topic
+   into 2-4 sub-themes if it's broad. Call `src.retrieval.search(sub_theme, k=15)`
+   for each -- pull more candidates than you expect to use. This is a
+   keyword-overlap ranker, not embeddings (unless `src/heavy/embed_index.py`
+   has been built for this corpus) -- a high score or short distance is a
+   proxy for relevance, not a judgment of it. Don't let a top rank substitute
+   for reading the snippet.
+2. **Score every candidate yourself before it counts as evidence.** For each
+   result, read the full snippet (both `search()` functions default to 500
+   characters specifically so you have enough to judge, not just a title) and
+   decide: does this chunk actually support a claim about the sub-theme, or
+   did it just share vocabulary with the query? Keep only the ones that pass.
+   This is the same discipline PaperQA2 calls "gather evidence" (retrieve,
+   then LLM-judge relevance, *then* write) -- the difference here is you're
+   doing the judging inline as part of drafting, not via a second API call.
+   Write what survives as scored evidence -- `{"citekey": ..., "relevance":
+   "why this supports the claim", "quote_or_paraphrase": "..."}` -- into
+   `content/provenance/<slug>-evidence.json` before you start drafting
+   prose. Treat a citekey that didn't pass this filter as unused, even if it
+   was a high-scoring `search()` hit.
+3. **Reformulate and re-search if a sub-theme comes up thin.** A single
+   query wording is not the ceiling -- if scoring leaves you with little or
+   nothing for a sub-theme, try synonyms, broader/narrower terms, or an
+   adjacent concept, and search again. Do this a few times before concluding
+   "thin coverage" is real rather than a wording problem. Only after genuine
+   reformulation attempts should you report a sub-theme as thin -- and then
+   say so explicitly rather than padding it with uncited claims.
+4. **Cluster by judgment.** With a small corpus there's no BERTopic step;
+   group the surviving (scored, kept) citekeys into themes yourself based on
+   what the evidence actually says.
+5. **Check for disagreement across sources before writing.** If two kept
+   pieces of evidence conflict on a claim, don't silently pick one side --
+   note the disagreement explicitly in the draft (which source says what).
+   Silently resolving a real contradiction is a worse failure than leaving
+   it visible.
+6. **Draft**, in Markdown, using Pandoc-style citations (`[@citekey]`,
+   `[@key1; @key2]`), citing only from your scored-evidence file:
    - Framing paragraph for the overall topic
    - One subsection per theme, citing the papers that actually support each claim
    - A comparison table: columns for approach/paper, citekey, core idea,
      stated limitations
    - A gap-analysis paragraph: what the retrieved corpus does *not* cover
-4. **Never write a citekey you didn't get from a `search()` result.** If you
+     (including sub-themes that stayed thin after reformulation, and any
+     cross-source disagreement from step 5)
+7. **Never write a citekey you didn't get from a `search()` result.** If you
    want to cite something you know about from general knowledge but that isn't
    in the ledger, say so in prose to the user instead ("X is commonly discussed
    in this area but isn't in your synced library yet") -- do not invent a key
    for it.
-5. **Log provenance.** Write `content/provenance/<slug>.json`: a list of
+8. **Log provenance.** Write `content/provenance/<slug>.json`: a list of
    `{"section": "...", "citekeys": [...]}` so citation choices are auditable
-   later without re-reading the whole draft.
-6. **Gate before presenting.** Run:
+   later without re-reading the whole draft (in addition to the evidence file
+   from step 2).
+9. **Gate before presenting.** Run:
    ```
    python -m src.citation_gate <draft-file>
    ```
    If it reports `FAIL`, fix the offending line(s) — either correct the citekey
    or remove the claim — and re-run until it reports `OK`. Never show the user
    a draft that hasn't passed.
-7. Present the draft plus a one-paragraph summary of thin-coverage areas.
+10. Present the draft plus a one-paragraph summary of thin-coverage areas and
+    any unresolved cross-source disagreement.

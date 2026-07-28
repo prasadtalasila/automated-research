@@ -48,7 +48,7 @@ def stage_grobid(docs, args):
     if not grobid_extract.is_available():
         return {
             "status": "skipped",
-            "detail": f"GROBID not reachable at {config.GROBID_URL} (needs a JRE; see docker/setup.sh)",
+            "detail": f"GROBID not reachable at {config.GROBID_URL} -- start it (docker/setup.sh, or standalone on the host; see README)",
         }
     return {"status": "ok", "detail": grobid_extract.extract_corpus(docs)}
 

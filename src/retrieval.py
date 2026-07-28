@@ -36,7 +36,7 @@ def _tokenize(text: str) -> list[str]:
     ]
 
 
-def _snippet(text: str, terms: set[str], window: int = 160) -> str:
+def _snippet(text: str, terms: set[str], window: int = 500) -> str:
     lower = text.lower()
     for term in terms:
         idx = lower.find(term)
@@ -47,8 +47,14 @@ def _snippet(text: str, terms: set[str], window: int = 160) -> str:
     return " ".join(text[:window].split())
 
 
-def search(query: str, k: int = 5) -> list[SearchResult]:
-    """Rank ledger items by term-overlap with `query`. Returns top-k."""
+def search(query: str, k: int = 5, snippet_chars: int = 500) -> list[SearchResult]:
+    """Rank ledger items by term-overlap with `query`. Returns top-k.
+
+    `snippet_chars` defaults to enough context for a caller (e.g. a genre
+    skill) to judge relevance itself before citing -- see the "Retrieve"
+    step in the genre skills for why that judgment shouldn't just trust
+    the score.
+    """
     terms = set(_tokenize(query))
     if not terms:
         return []
@@ -77,7 +83,7 @@ def search(query: str, k: int = 5) -> list[SearchResult]:
                 citekey=item["citekey"],
                 title=item["title"],
                 score=score,
-                snippet=_snippet(full_text, terms),
+                snippet=_snippet(full_text, terms, window=snippet_chars),
             )
         )
 

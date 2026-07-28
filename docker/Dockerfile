@@ -22,12 +22,18 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Base toolchain: Python for the pipeline scripts, poppler-utils for
-# pdftotext (already used on the host), git, and a JRE for GROBID.
+# pdftotext (already used on the host), git, and a JDK for GROBID.
+# GROBID needs a full JDK (not just a JRE -- it builds from source, and
+# that needs javac), and specifically 21: its build.gradle pins a Java
+# 21 toolchain, and its bundled Kotlin compiler (2.0.21) throws
+# `IllegalArgumentException: 25.0.3` trying to parse a JDK 25 version
+# string -- verified by hand on a bare host (JDK 25 installed first,
+# failed, replaced with 21).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-venv python3-pip \
     poppler-utils \
     git curl ca-certificates unzip \
-    openjdk-17-jre-headless \
+    openjdk-21-jdk-headless \
     pandoc \
     texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended latexmk \
     && rm -rf /var/lib/apt/lists/*
@@ -36,7 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # run script) rather than nesting another Docker daemon inside this
 # container -- avoids the extra privileged-mode risk that would come
 # with Docker-in-Docker.
-ARG GROBID_VERSION=0.8.1
+ARG GROBID_VERSION=0.9.0
 RUN curl -fsSL -o /tmp/grobid.zip \
         "https://github.com/kermitt2/grobid/archive/refs/tags/${GROBID_VERSION}.zip" \
     && mkdir -p /opt/grobid \

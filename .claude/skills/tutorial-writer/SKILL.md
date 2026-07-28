@@ -17,8 +17,9 @@ user-reviewed) in the two-job pipeline split.
 - `content/ledger.sqlite` -- per-citekey status, populated by `sync`
 - `content/parsed/<citekey>.txt` -- extracted PDF text, useful for pulling a
   real worked example or dataset description from a paper if relevant
-- `src/retrieval.py` -- `search(query, k)` if you need a citation for
-  motivation/background context
+- `src/retrieval.py` -- `search(query, k, snippet_chars)` if you want to
+  ground the motivation section in the corpus (citing the result is still
+  optional -- see step 2)
 
 Citations here are optional, not the point. Don't force them in.
 
@@ -36,10 +37,20 @@ Citations here are optional, not the point. Don't force them in.
    this chapter, students will be able to..." statements. Let everything else
    serve these.
 2. **Motivation.** A short section on why this topic matters, pitched at an
-   undergraduate who has not read the literature. If a real paper from the
-   synced corpus (`src.retrieval.search()`) gives a good concrete motivating
-   example, cite it (`[@citekey]`) -- but don't manufacture a citation just to
-   have one; a well-chosen analogy or example is fine without a reference.
+   undergraduate who has not read the literature. If you search the synced
+   corpus for a motivating example, use the same retrieval discipline as
+   the other skills: over-fetch (`src.retrieval.search(query, k=15)`), read
+   each 500-character snippet yourself rather than trusting the score, and
+   reformulate and search again if the first pass turns up nothing genuinely
+   useful -- don't settle for a weak match just because it was the top hit.
+   **Whether to cite at all stays optional here, unlike the other skills.**
+   Finding a good example doesn't obligate a citation -- cite it (`[@citekey]`)
+   only if attributing it to a specific paper actually helps the student
+   (e.g. "this is a real system described in [@citekey]"); otherwise let it
+   inform a well-chosen analogy without a reference. Don't manufacture a
+   citation just to have one, and don't feel obligated to search at all if
+   you already have a good example. Anything you do cite still must be a
+   real citekey from a `search()` result -- never a fabricated one.
 3. **Worked example(s).** Concrete, step-by-step, with enough detail a student
    could reproduce it. Prefer originally-constructed examples suited to the
    target course level over lifting directly from a paper's (likely more

@@ -13,9 +13,11 @@ Two layers:
   -> src/pdf_text.py (content/parsed/*.txt) -> src/retrieval.py`
   Run via `python -m src.sync`. Idempotent and incremental -- a paper is only
   re-parsed if its PDF content actually changed.
-- **Genre layer** (generative, on-demand, reviewed by you): three Claude Code
+- **Genre layer** (generative, on-demand, reviewed by you): Claude Code
   skills in `.claude/skills/` -- `survey-writer`, `thesis-chapter-writer`,
-  `tutorial-writer` -- each a thin template over the same content layer.
+  `tutorial-writer`, and `deep-research` (a heavier, multi-perspective
+  alternative to `survey-writer` -- see Acknowledgements) -- each reading
+  the same content layer.
 
 `bibliography.bib` (a manual export from Zotero, File > Export Library >
 BibTeX) is the **source of truth** for citekeys and metadata -- this pipeline
@@ -94,8 +96,12 @@ src.sync`.
 
 ## What runs here vs. what needs the Docker path
 
-This host has no root, no Java, no TeX Live, no Pandoc, and `pip install`
-outside a venv is blocked (PEP 668 / externally-managed-environment).
+This section originally described a host with no root, no Java, no TeX
+Live, and no Pandoc -- the constraint `docker/` exists to work around.
+That's since changed: root (`sudo apt-get`), a JDK, TeX Live, and Pandoc
+are now all installed and verified directly on this host. `pip install`
+outside a venv is still blocked (PEP 668 / externally-managed-environment)
+-- that's a Python packaging restriction, independent of root access.
 
 | Capability | Here | Needs `docker/` |
 |---|---|---|
@@ -106,17 +112,51 @@ outside a venv is blocked (PEP 668 / externally-managed-environment).
 | Citation verification gate | stdlib `re`, no venv needed | -- |
 | Docling layout-aware parsing, embeddings/Chroma, BERTopic | venv (`src/heavy/`) | also works, verified |
 | PaperQA2 / STORM (needs an LLM key) | installs, no key configured here | also works if given a key |
-| Bibliographic-quality parsing (GROBID: references, sections) | -- | needs Java |
-| Compiling generated `.tex` chapters to PDF (Pandoc/TeX Live) | -- | needs root (apt) |
+| Bibliographic-quality parsing (GROBID: references, sections) | JDK 21 + a standalone GROBID build; service verified reachable at `:8070` (recipe below) | also works -- `docker/setup.sh` builds+runs the same way |
+| Compiling generated `.tex` chapters to PDF (Pandoc/TeX Live) | `pandoc`, `pdflatex`, `latexmk` all installed and verified working | also works |
 
-`docker/Dockerfile` + `docker/setup.sh` scaffold the full environment (Ubuntu
-24.04, per the original container design) using the exact same
-`scripts/install_full_pipeline.sh` as the host. **The Dockerfile itself has
-not been built or run in this session** -- no Docker daemon is available on
-this host -- but the packages it installs (`docker/requirements-full.txt`)
-were verified in a host venv; see that file's header for exactly what was
-and wasn't (the honest answer is per-stage, not one yes/no -- see
-`scripts/full_pipeline.py`'s docstring and `src/heavy/*.py`).
+### Building GROBID standalone on a bare host (not Docker)
+
+```bash
+sudo apt-get install -y openjdk-21-jdk   # must be 21, not the newest available -- see caveat below
+wget https://github.com/kermitt2/grobid/archive/refs/tags/0.9.0.zip
+unzip 0.9.0.zip && cd grobid-0.9.0
+./gradlew clean assemble          # builds grobid-service's + grobid-home's distribution zips
+cd ..
+mkdir grobid-installation && cd grobid-installation
+unzip ../grobid-0.9.0/grobid-service/build/distributions/grobid-service-0.9.0.zip
+mv grobid-service-0.9.0 grobid-service
+unzip ../grobid-0.9.0/grobid-home/build/distributions/grobid-home-0.9.0.zip
+./grobid-service/bin/grobid-service   # foreground; wrap in nohup ... & to background it
+```
+
+Must be a **JDK**, not a JRE -- GROBID compiles Kotlin/Java from source, and
+that needs `javac`. And it must be **version 21 specifically, not whatever's
+newest**: GROBID's `build.gradle` pins a Java 21 toolchain, and its bundled
+Kotlin compiler (2.0.21) throws `IllegalArgumentException: 25.0.3` trying to
+parse a JDK 25 version string -- it predates JDK 25's existence. If a Gradle
+daemon or the separate long-lived Kotlin compiler daemon (`ps aux | grep -i
+kotlin`) already started under the wrong JDK before you fix this, `./gradlew
+--stop` and killing that Kotlin daemon are both necessary -- neither one
+picks up a JDK change on its own.
+
+Verified: the service above answers `/api/isalive` and `/api/health` at
+`http://localhost:8070`, matching `config.toml`'s `grobid_url` default.
+**Not re-verified**: the Python-side probe
+(`src.heavy.grobid_extract.is_available()`) against a live `.venv-full/` --
+that venv doesn't currently exist on this host (rerun Quickstart step 1 to
+recreate it).
+
+`docker/Dockerfile` + `docker/setup.sh` scaffold the same environment inside
+Ubuntu 24.04 (per the original container design) using the exact same
+`scripts/install_full_pipeline.sh` as the host, and are now also pinned to
+`openjdk-21-jdk-headless` for the reason above. **The Dockerfile itself has
+still not been built or run in this session** -- no Docker daemon is
+available on this host -- but the packages it installs
+(`docker/requirements-full.txt`) were verified in a host venv; see that
+file's header for exactly what was and wasn't (the honest answer is
+per-stage, not one yes/no -- see `scripts/full_pipeline.py`'s docstring and
+`src/heavy/*.py`).
 
 Retrieval by default is a keyword-overlap ranker (`src/retrieval.py`, stdlib
 only) -- deliberately: the corpus is still small enough that embeddings are
@@ -148,73 +188,15 @@ Everything in this section is **proposed, not implemented** -- analysis and
 a recommendation, not shipped behavior. Distinct from the verified-vs-unverified
 distinction elsewhere in this doc: nothing here has code behind it yet.
 
-### Should `sync` also read `zotero.sqlite` directly, alongside the bib file?
-
-Advantage: `zotero.sqlite` is always live; `bibliography.bib` is a manual,
-point-in-time export (no Better BibTeX) that goes stale the moment you add
-a paper in Zotero without re-exporting. Reading the sqlite file too would
-let `sync` notice that drift instead of silently working from an outdated
-bibliography.
-
-**Recommendation: yes, but only as a read-only staleness check, never as a
-second citekey source.** Concretely: compare the count (and ideally the
-identity, matched DOI -> URL -> title in that priority order) of live
-Zotero items against `bibliography.bib` entries, and warn -- "Zotero has N
-items; bibliography.bib has M; re-export if this looks wrong" -- without
-ever assigning a citekey to something that isn't in the bib file.
-
-The reason for that limit, not just a style preference: Zotero's native
-BibTeX export doesn't include the internal item key, so there is no clean
-foreign key between a sqlite row and a bib entry -- matching is inherently
-heuristic. This repo's own two entries demonstrate both failure modes:
-`talasila_composable_2025` has a DOI and matches cleanly; `noauthor_digital_nodate`
-has neither DOI nor author, only a scraped title, and would only match
-reliably on URL. Letting sqlite-derived items mint their own citekeys again
-(even "provisionally") reopens exactly the fabrication risk this pipeline
-exists to prevent -- that's the tradeoff, and it's a hard "no," not a soft one.
-
-Feasible via `config.toml`: yes -- an optional `[zotero] data_dir` setting,
-absent by default, enabling a small read-only diagnostic module. Not built.
-
-### Why can't the pipeline just download PDFs for bib entries automatically?
-
-This isn't hypothetical -- `source-pdfs/manifest.json` and `reading-notes.md`
-(from an earlier research pass over 21 candidate papers) already document
-every failure mode encountered:
-
-1. **Genuinely closed-access papers** -- no legal open copy exists anywhere.
-   No automated fix exists or should exist; the real path is institutional
-   access (your university library proxy) via an authenticated human session
-   -- exactly what Zotero's browser connector already does when you save a
-   paper yourself.
-2. **Anti-bot walls on nominally open-access papers** (IEEE Xplore, MDPI,
-   Taylor & Francis blocked automated fetches in the existing manifest even
-   though the content is legitimately OA). **Not recommended, full stop**:
-   headless-browser automation or proxies to get past these would be evading
-   an access control the publisher put there on purpose, and that doesn't
-   become fine because the underlying content happens to be open-access.
-3. **DOI resolves to an HTML landing page, not a direct PDF link**
-   (ScienceDirect, PNAS, Frontiers in the existing manifest). **This one has
-   a legitimate fix, worth building**: many publishers (the Highwire Press /
-   Google Scholar convention) embed a `<meta name="citation_pdf_url" ...>`
-   tag on the landing page specifically so it can be found by automated
-   tools -- reading that tag isn't evasion, it's using metadata published
-   for exactly this purpose, and would likely recover several of the
-   landing-page-only cases already logged in the manifest.
-
-Not built: a landing-page-fetch step (case 3) gated on Unpaywall/OpenAlex
-already reporting the DOI as open-access.
-
 ### What's missing to run this as a cron job monitoring Zotero/the bib file?
 
 In priority order:
 
-1. **The bib-file freshness gap above is the blocker, not an afterthought.**
-   With no Better BibTeX, a cron job watching only `bibliography.bib`'s mtime
-   does nothing until a human clicks Export in Zotero. The sqlite
-   staleness-check proposed above is the piece that would make "monitors
-   Zotero" mean something continuous rather than "monitors whether you
-   remembered to export."
+1. **Bib-file freshness is the blocker, not an afterthought.** With no
+   Better BibTeX plugin installed, `bibliography.bib` is a manual,
+   point-in-time export -- a cron job watching only its mtime does nothing
+   until a human clicks Export in Zotero, even though `zotero.sqlite` itself
+   is always live.
 2. **The heavy stages have no incremental skip logic.** `python -m src.sync`
    already is incremental (a paper is only re-parsed if its PDF hash
    changed) -- safe to run every few minutes. `src/heavy/embed_index.py` and
@@ -238,9 +220,6 @@ In priority order:
 6. **Cron's minimal environment.** A crontab entry needs the venv's Python
    invoked by absolute path (`/workspace/git/automated-research/.venv-full/bin/python`)
    -- cron doesn't source your shell profile or activate venvs.
-
-Already solved, not a gap: reading `zotero.sqlite` safely while Zotero is
-open (`mode=ro&immutable=1`, proven in this session).
 
 ## Repository layout
 
@@ -266,6 +245,34 @@ content/                  generated, gitignored (regenerate with sync)
   ledger.sqlite, parsed/<citekey>.txt, provenance/,
   docling/, chroma/, topics.json, paperqa/, storm/, rendered/  (src/heavy/ outputs)
 source-pdfs/              raw PDFs outside Zotero -- see src/heavy/corpus.py; never citable
-.claude/skills/           genre layer: survey-writer, thesis-chapter-writer, tutorial-writer
+.claude/skills/           genre layer: survey-writer, thesis-chapter-writer, tutorial-writer, deep-research
+.claude/agents/           deep-research's subagents: deep-research-interviewer, deep-research-writer
 docker/                   Dockerfile + setup.sh (GROBID/TeX Live/Pandoc) -- Dockerfile unverified
 ```
+
+## Acknowledgements
+
+- **[hadufer/claude-storm](https://github.com/hadufer/claude-storm)** (MIT
+  License) -- the `.claude/skills/deep-research/` skill and its
+  `deep-research-interviewer`/`deep-research-writer` subagents adapt its
+  7-phase pipeline (perspective discovery, parallel grounded interviews,
+  contradiction mapping, outline, cited writing, synthesis, self peer-review).
+  Retooled here for a closed, citekey-grounded local corpus instead of live
+  web sources -- see `reference.md` in that skill's directory for exactly
+  what changed and why.
+- **[stanford-oval/storm](https://github.com/stanford-oval/storm)** -- the
+  original STORM method claude-storm implements: "Assisting in Writing
+  Wikipedia-like Articles From Scratch with Large Language Models" (Shao,
+  Jiang, Kanell, Xu, Khattab, Lam; NAACL 2024; arXiv:2402.14207).
+- Nav Toor's (@heynavtoor) 4-prompt adaptation, fused into claude-storm's
+  pipeline and carried through into `deep-research`'s synthesis-briefing
+  and single-reviewer (`quick` depth) peer-review phases.
+- **[Imbad0202/academic-research-skills](https://github.com/Imbad0202/academic-research-skills)**
+  -- the *idea* behind `deep-research`'s `standard`/`deep`-depth peer review
+  (an independent multi-reviewer panel including a dedicated adversarial
+  reviewer, reconciled against a concession threshold) is credited to that
+  project's Stage-3 peer-review design. That project is licensed CC-BY-NC
+  4.0; **no text from it was copied** -- `.claude/agents/peer-reviewer.md`
+  and `.claude/skills/deep-research/reference.md` §7 are written from
+  scratch, adapting only the concept of an independent panel plus a
+  Devil's Advocate role, not its implementation.
