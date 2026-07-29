@@ -64,7 +64,7 @@ def stage_render(docs, args):
     if not args.input:
         return {"status": "skipped", "detail": "no --input given"}
     try:
-        return {"status": "ok", "detail": str(render_output.render(args.input, args.output_format))}
+        return {"status": "ok", "detail": str(render_output.render(args.input, args.output_format, args.documentclass))}
     except render_output.MissingBinary as exc:
         return {"status": "missing-binary", "detail": str(exc)}
 
@@ -86,6 +86,7 @@ def parse_args():
                          help=f"Comma-separated subset of: {','.join(STAGE_ORDER)}")
     parser.add_argument("--input", help="Input file for the render stage")
     parser.add_argument("--output-format", default="pdf", help="Output format for the render stage")
+    parser.add_argument("--documentclass", default="article", help="LaTeX documentclass for the render stage (default: article)")
     return parser.parse_args()
 
 

@@ -6,20 +6,7 @@ tags: [deep-research, multi-perspective, storm, citation]
 
 # deep-research
 
-Adapted from [hadufer/claude-storm](https://github.com/hadufer/claude-storm)
-(MIT License), itself an implementation of Stanford OVAL's STORM method --
-"Assisting in Writing Wikipedia-like Articles From Scratch with Large
-Language Models" (Shao et al., NAACL 2024, arXiv:2402.14207) -- fused with
-Nav Toor's 4-prompt adaptation. **Read `reference.md` in this directory
-now** for the exact defaults, interview protocol, and report template this
-file summarizes.
-
-**The one deliberate, load-bearing deviation from the source:** claude-storm
-grounds every claim in a live web source with a URL, and falls back to
-labeled "ungrounded" parametric knowledge if web search is skipped. This
-project's corpus is **closed** (the synced bibliography + `source-pdfs/`)
--- there is no web fallback, and "ungrounded" is not an option here. Every
-claim must resolve to one of:
+Every claim must resolve to one of:
 
 - a real **citekey** from `content/ledger.sqlite` (via `src.retrieval.search()`
   or `src.heavy.embed_index.search()` if that stack has been built), cited
