@@ -145,7 +145,9 @@ grade, no panel verdicts row.>
 from content/ledger.sqlite -- not a URL list.>
 ```
 
-Save as `content/drafts/deep-research-<kebab-topic>.md`.
+Save as `content/drafts/deep-research-<kebab-topic>.md` (canonical format),
+then render `.tex`/`.pdf` from it — see SKILL.md Phase 7(d) for the exact
+commands and the warn-and-continue behavior on a rendering failure.
 
 ---
 

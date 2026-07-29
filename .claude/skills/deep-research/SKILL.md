@@ -191,10 +191,21 @@ python -m src.citation_gate <output-file>
 ```
 Fix and re-run until `OK`. Never present a draft that hasn't passed.
 
-**(d) Save.** Write to `content/drafts/deep-research-<slug>.md`, then give
-the user: headline finding, the single most important contradiction, the
+**(d) Save and render.** Write to `content/drafts/deep-research-<slug>.md`
+(the canonical, source-of-truth format). Then render the other two formats:
+```
+python3 -m src.heavy.render_output content/drafts/deep-research-<slug>.md --format tex
+python3 -m src.heavy.render_output content/drafts/deep-research-<slug>.md --format pdf
+```
+This needs only bare `python3` plus `pandoc`/`pdflatex` on PATH — no heavy
+venv required. If either command reports `[missing-binary]` or `[error]`,
+print a one-line warning in chat with that message and continue anyway —
+a rendering failure never blocks presenting the `.md` report. Give the
+user: headline finding, the single most important contradiction, the
 actionable insight, the overall grade, any unresolved peer-review concern
-left in the scorecard, the citekey count, and the saved path.
+left in the scorecard, the citekey count, the saved path, and the render
+outcome (paths to the `.tex`/`.pdf` if they succeeded, or the warning if
+not).
 
 ## Guardrails
 

@@ -59,9 +59,21 @@ Citations here are optional, not the point. Don't force them in.
    -- state which. Exercises should exercise the stated learning objectives,
    not just the reading.
 5. **Never write a citekey you didn't get from `search()`.** If you do include
-   any citations, gate them:
+   any citations, save the draft as `content/drafts/<slug>.md` and gate it:
    ```
-   python -m src.citation_gate <draft.md>
+   python -m src.citation_gate content/drafts/<slug>.md
    ```
-   Fix and re-run until `OK` before presenting.
-6. Output as Markdown. No LaTeX/compilation step required for this genre.
+   Fix and re-run until `OK` before presenting. If there are no citations at
+   all, the gate step is unnecessary — just save to `content/drafts/<slug>.md`.
+6. **Render tex and pdf.** Once saved (and gated, if it has citations), also
+   render the other two formats:
+   ```
+   python3 -m src.heavy.render_output content/drafts/<slug>.md --format tex
+   python3 -m src.heavy.render_output content/drafts/<slug>.md --format pdf
+   ```
+   This needs only bare `python3` plus `pandoc`/`pdflatex` on PATH — no
+   heavy venv required. If either command reports `[missing-binary]` or
+   `[error]`, print a one-line warning in chat with that message and
+   continue anyway — a rendering failure never blocks presenting the
+   `.md` draft. Report the render outcome (paths to the `.tex`/`.pdf` if
+   they succeeded, or the warning if not) alongside the draft.

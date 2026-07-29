@@ -18,8 +18,16 @@ truncates the key mid-token, silently losing the citation. `_safe_render_inputs`
 works around this by aliasing just the affected citekey(s) in temporary
 copies of the input and the bib file -- never touching the real
 `bibliography.bib` -- before handing both to pandoc.
+
+`python -m src.heavy.render_output <file> --format tex|pdf|...` runs standalone
+with bare `python3` (no heavy venv) -- it depends only on stdlib plus
+`src.config`/`src.citation_gate`, deliberately independent of
+`scripts/full_pipeline.py`, which drags in the full corpus build and the
+docling/embed/grobid/topic_model imports for stages this one doesn't need.
+The genre-writing skills under `.claude/skills/` call this CLI directly.
 """
 
+import argparse
 import re
 import shutil
 import subprocess
@@ -122,3 +130,36 @@ def render(input_path: str, output_format: str = "pdf", documentclass: str = "ar
         subprocess.run(cmd, check=True, capture_output=True, text=True)
 
     return out_path
+
+
+def main() -> int:
+    """CLI entry point -- deliberately independent of scripts/full_pipeline.py.
+
+    That script imports docling/embed/grobid/topic_model at module load and
+    builds the whole corpus before any stage runs, which drags in the
+    multi-GB `.venv-full` for a stage that itself only needs stdlib +
+    `src.config` + `src.citation_gate`. Genre skills that just want a
+    tex/pdf rendering of a draft should be able to run this with bare
+    `python3`, no heavy venv required.
+    """
+    parser = argparse.ArgumentParser(description="Render a Pandoc-markdown or LaTeX draft to tex/pdf/docx.")
+    parser.add_argument("input", help="Path to the draft file (Markdown or LaTeX)")
+    parser.add_argument("--format", dest="output_format", default="pdf", help="Output format (default: pdf)")
+    parser.add_argument("--documentclass", default="article", help="LaTeX documentclass (default: article)")
+    args = parser.parse_args()
+
+    try:
+        out_path = render(args.input, args.output_format, args.documentclass)
+    except MissingBinary as exc:
+        print(f"[missing-binary] {exc}")
+        return 1
+    except subprocess.CalledProcessError as exc:
+        print(f"[error] pandoc failed: {exc.stderr or exc}")
+        return 1
+
+    print(str(out_path))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

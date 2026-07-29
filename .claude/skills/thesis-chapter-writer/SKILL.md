@@ -1,6 +1,6 @@
 ---
 name: thesis-chapter-writer
-description: Drafts a thesis/dissertation chapter in LaTeX, with narrative framing tied to a specific research question, grounded in citekeys pulled from the synced corpus (content/ledger.sqlite via src.retrieval.search()) -- never a fabricated one. Triggers when the user asks to write or draft a thesis chapter, dissertation section, or an RQ-driven narrative chapter. Outputs a standalone .tex fragment (\citep/\citet, no document preamble) intended to be \input by the user's own thesis document. Must run `python -m src.citation_gate` on its own output and only present the draft once it passes. Refuses if the ledger is empty until `python -m src.sync` has been run.
+description: Drafts a thesis/dissertation chapter in LaTeX, with narrative framing tied to a specific research question, grounded in citekeys pulled from the synced corpus (content/ledger.sqlite via src.retrieval.search()) -- never a fabricated one. Triggers when the user asks to write or draft a thesis chapter, dissertation section, or an RQ-driven narrative chapter. Outputs a standalone .tex fragment (\citep/\citet, no document preamble) intended to be \input by the user's own thesis document, plus a rendered .md/.pdf preview when pandoc/pdflatex are available. Must run `python -m src.citation_gate` on its own output and only present the draft once it passes. Refuses if the ledger is empty until `python -m src.sync` has been run.
 tags: [thesis, dissertation, latex, citation]
 ---
 
@@ -56,24 +56,37 @@ what it found before drafting.
    only from your scored-evidence file:
    - Section/subsection structure that builds an argument toward the RQ
    - Citations via `\citep{key}` / `\citet{key}` — never a bare invented key
-   - Where the existing `papers/DT-Simulation-Patterns/main.tex` /
-     `IEEEtran.cls` in this workspace is structurally relevant as a formatting
-     reference, follow its conventions for consistency; it is a *reference*,
-     not something to copy content from
 6. **Never write a citekey you didn't get from `search()`.** If a citation
    would strengthen the argument but isn't in the synced library, tell the
-   user in prose rather than inventing a key. This project's own
-   `papers/DT-Simulation-Patterns/main.bib` already has entries marked
-   `WARNING: UNVERIFIABLE` from a past fabrication incident -- that failure
-   mode is exactly what this rule exists to prevent.
+   user in prose rather than inventing a key -- see CLAUDE.md's citekey
+   invariant (fabricated placeholder references are exactly the failure
+   mode this rule exists to prevent).
 7. **Log provenance.** Write `content/provenance/<slug>.json`:
    `{"section": "...", "citekeys": [...]}` per section, for later audit (in
    addition to the evidence file from step 2).
-8. **Gate before presenting.**
+8. **Gate before presenting.** Save the fragment as `content/drafts/<slug>.tex`
+   (this remains the canonical deliverable -- the one meant to be `\input`-ed),
+   then run:
    ```
-   python -m src.citation_gate <draft.tex>
+   python -m src.citation_gate content/drafts/<slug>.tex
    ```
    Fix and re-run until `OK`. Never present a draft that hasn't passed.
-9. This machine has no TeX Live installed -- do not attempt to compile the
-   `.tex` output. Present it as source for the user to `\input` and compile
-   themselves (or use the Docker path in `docker/` which does have LaTeX).
+9. **Render md and pdf previews.** The `.tex` fragment stays the canonical
+   deliverable exactly as-is -- don't wrap it in a preamble or change its
+   `\input`-able shape. In addition, render an `.md` and a `.pdf` preview
+   from that same fragment (pandoc's LaTeX reader handles a preamble-less
+   fragment fine):
+   ```
+   python3 -m src.heavy.render_output content/drafts/<slug>.tex --format md
+   python3 -m src.heavy.render_output content/drafts/<slug>.tex --format pdf
+   ```
+   This needs only bare `python3` plus `pandoc`/`pdflatex` on PATH -- don't
+   assume either is present or absent without checking; probe (or just try
+   the command and read the result) rather than assuming from a prior run
+   on a different host. If either command reports `[missing-binary]` or
+   `[error]`, print a one-line warning in chat with that message and
+   continue anyway -- a rendering failure never blocks presenting the
+   `.tex` fragment.
+10. Present the `.tex` fragment (the deliverable to `\input`) plus, if
+    rendering succeeded, the `.md`/`.pdf` preview paths -- or the warning
+    if it didn't.

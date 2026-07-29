@@ -87,12 +87,25 @@ before drafting anything.
    `{"section": "...", "citekeys": [...]}` so citation choices are auditable
    later without re-reading the whole draft (in addition to the evidence file
    from step 2).
-9. **Gate before presenting.** Run:
+9. **Gate before presenting.** Save the draft as `content/drafts/<slug>.md`
+   (this is the canonical, source-of-truth format), then run:
    ```
-   python -m src.citation_gate <draft-file>
+   python -m src.citation_gate content/drafts/<slug>.md
    ```
    If it reports `FAIL`, fix the offending line(s) — either correct the citekey
    or remove the claim — and re-run until it reports `OK`. Never show the user
    a draft that hasn't passed.
-10. Present the draft plus a one-paragraph summary of thin-coverage areas and
-    any unresolved cross-source disagreement.
+10. **Render tex and pdf.** Once the gate passes, also render the other two
+    formats:
+    ```
+    python3 -m src.heavy.render_output content/drafts/<slug>.md --format tex
+    python3 -m src.heavy.render_output content/drafts/<slug>.md --format pdf
+    ```
+    This needs only bare `python3` plus `pandoc`/`pdflatex` on PATH — no
+    heavy venv required. If either command reports `[missing-binary]` or
+    `[error]`, print a one-line warning in chat with that message and
+    continue anyway — a rendering failure never blocks presenting the
+    `.md` draft.
+11. Present the draft plus a one-paragraph summary of thin-coverage areas and
+    any unresolved cross-source disagreement, and report the render outcome
+    (paths to the `.tex`/`.pdf` if they succeeded, or the warning if not).
