@@ -1021,3 +1021,30 @@ absence. But a beginner's mental model of a digital twin shouldn't stop
 at "sensors talk to a model and the model talks back"; it should include
 "and every one of those steps is still an open engineering and research
 problem for anyone pushing past a toy example."
+
+## References
+
+- **abbiati_modelling_2024** -- Modelling for Digital Twins (2024).
+- **branlard_digital_2024** -- A digital twin solution for floating offshore wind turbines validated using a full-scale prototype (2024).
+- **cavalieri_proposal_2023** -- Proposal of Mapping Digital Twins Definition Language to Open Platform Communications Unified Architecture (2023).
+- **chacon_digital_2024** -- Digital twinning during load tests of railway bridges - case study: the high-speed railway network, Extremadura, Spain (2024).
+- **ferko_standardisation_2023** -- Standardisation in Digital Twin Architectures in Manufacturing (2023).
+- **gomes_digital_2025** -- Digital Twin Tutorial: The Incubator Case Study (2025).
+- **grieves_digital_2017** -- Digital Twin: Mitigating Unpredictable, Undesirable Emergent Behavior in Complex Systems (2017).
+- **hakiri_comprehensive_2024** -- A comprehensive survey on digital twin for future networks and emerging Internet of Things industry (2024).
+- **iliuta_digital_2024** -- Digital Twin—A Review of the Evolution from Concept to Technology and Its Analytical Perspectives on Applications in Various Fields (2024).
+- **jacoby_open-source_2023** -- Open-Source Implementations of the Reactive Asset Administration Shell: A Survey (2023).
+- **kapteyn_toward_2020** -- Toward predictive digital twins via component-based reduced-order models and interpretable machine learning (2020).
+- **kritzinger_digital_2018** -- Digital Twin in manufacturing: A categorical literature review and classification (2018).
+- **minerva_digital_2020** -- Digital twin in the IoT context: A survey on technical features, scenarios, and architectural models (2020).
+- **noauthor_asset_nodate** -- Asset Administration Shell Part - 1 (n.d.).
+- **noauthor_digital_nodate-1** -- Digital Twin: Definition & Value – An AIAA and AIA Position Paper (n.d.).
+- **picone_wldt_2021** -- WLDT: A general purpose library to build IoT digital twins (2021).
+- **rasheed_digital_2020** -- Digital Twin: Values, Challenges and Enablers From a Modeling Perspective (2020).
+- **sieve_bedreflyt_2025** -- BedreFlyt: Improving Patient Flows through Hospital Wards with Digital Twins (2025).
+- **talasila_realising_2024** -- Realising Digital Twins (2024).
+- **tao_five-dimension_2019-1** -- Five-Dimension Digital Twin Modeling and Its Key Technologies (2019).
+- **thelen_comprehensive_2022** -- A comprehensive review of digital twin — part 1: modeling and twinning enabling technologies (2022).
+- **torzoni_digital_2024** -- A digital twin framework for civil engineering structures (2024).
+- **wu_comprehensive_2023** -- A Comprehensive Review of Digital Twin from the Perspective of Total Process: Data, Models, Networks and Applications (2023).
+- **xu_survey_2023** -- A Survey on Digital Twin for Industrial Internet of Things: Applications, Technologies and Tools (2023).
