@@ -51,22 +51,53 @@ Citations here are optional, not the point. Don't force them in.
    citation just to have one, and don't feel obligated to search at all if
    you already have a good example. Anything you do cite still must be a
    real citekey from a `search()` result -- never a fabricated one.
-3. **Worked example(s).** Concrete, step-by-step, with enough detail a student
+3. **Diversify sources within a section.** Citing at all stays optional
+   (step 2), but once a section ends up citing more than one paper, don't
+   let a single citekey carry every paragraph in it just because it was the
+   first good hit.
+   When `search()` turns up more than one paper that plausibly
+   supports a paragraph, actually compare them and prefer whichever adds a
+   distinct angle, rather than defaulting to whichever key you already used
+   a paragraph or two ago. Before reusing the same citekey a third time
+   within one section, do one more `search()` pass specifically to check
+   whether a different paper in the corpus covers the same point -- if it
+   does, cite that one instead (or alongside it) so the section's point of
+   view doesn't narrow to a single author's framing. It's fine for one
+   source to genuinely be the only one that covers a niche point -- don't
+   force in a second citation where none fits -- but repeated, unexamined
+   reuse of the same key across a whole section is the failure mode to
+   watch for, not deliberate reliance on a source that really is the best
+   fit every time.
+4. **Worked example(s).** Concrete, step-by-step, with enough detail a student
    could reproduce it. Prefer originally-constructed examples suited to the
    target course level over lifting directly from a paper's (likely more
    advanced) treatment.
-4. **Exercises.** Include a mix of difficulty, and either solutions or hints
+5. **Exercises.** Include a mix of difficulty, and either solutions or hints
    -- state which. Exercises should exercise the stated learning objectives,
    not just the reading.
-5. **Never write a citekey you didn't get from `search()`.** If you do include
+6. **Never write a citekey you didn't get from `search()`.** If you do include
    any citations, save the draft as `content/drafts/<slug>.md` and gate it:
    ```
    python -m src.citation_gate content/drafts/<slug>.md
    ```
    Fix and re-run until `OK` before presenting. If there are no citations at
    all, the gate step is unnecessary — just save to `content/drafts/<slug>.md`.
-6. **Render tex and pdf.** Once saved (and gated, if it has citations), also
-   render the other two formats:
+7. **Build the References section.** Once the gate passes, generate it from
+   exactly the gated citekeys rather than writing it by hand:
+   ```
+   python -m src.references content/drafts/<slug>.md
+   ```
+   Stdlib-only, like the citation gate -- bare `python3`, no venv. Lists
+   each citekey next to its title/year pulled straight from
+   `content/ledger.sqlite`, so a reader can trace every `[@citekey]` marker
+   in the body back to a labeled entry by that same key. If this chapter's
+   other section headings are manually numbered (e.g. `## 6. Challenges and
+   Open Issues`), pass `--heading "N. References"` with the next number so
+   the new section matches the draft's own numbering instead of the bare
+   `## References` default. Skip this step entirely if there are no
+   citations at all — same as the gate step.
+8. **Render tex and pdf.** Once saved (and gated/referenced, if it has
+   citations), also render the other two formats:
    ```
    python3 -m src.heavy.render_output content/drafts/<slug>.md --format tex
    python3 -m src.heavy.render_output content/drafts/<slug>.md --format pdf

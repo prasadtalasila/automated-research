@@ -87,6 +87,15 @@ what it found before drafting.
    `[error]`, print a one-line warning in chat with that message and
    continue anyway -- a rendering failure never blocks presenting the
    `.tex` fragment.
+
+   Unlike the Markdown-native genre skills, don't run `python -m
+   src.references` on this fragment and don't add a manual References
+   section to it -- the fragment is designed to inherit the thesis's own
+   document-wide `\addbibresource`/`\bibliography` (step 1's shared
+   content layer), and a per-chapter list would duplicate that. The `.pdf`
+   preview still gets a real bibliography for free: `--citeproc` resolves
+   `\citep`/`\citet` against `bibliography.bib` and appends one
+   automatically, same as before this feature existed.
 10. Present the `.tex` fragment (the deliverable to `\input`) plus, if
     rendering succeeded, the `.md`/`.pdf` preview paths -- or the warning
     if it didn't.

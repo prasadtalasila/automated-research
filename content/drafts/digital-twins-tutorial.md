@@ -74,29 +74,26 @@ what you have is merely a *digital shadow*. Only when the loop closes,
 and the model's output changes the physical object's behavior
 automatically, do you get a real digital twin [@kritzinger_digital_2018].
 
-It's worth knowing that "digital twin" isn't the only name this idea goes
-by, and that the name arrived well before most of the technology needed
-to build one. Grieves first sketched the concept in 2003, in a product
-lifecycle management course, years before cheap sensors, cloud computing,
-and machine learning made it practical to actually build one at scale; in
-the meantime, industries that needed something like it just built it
-under a different name -- a *device shadow*, a *mirrored system*, an
-*avatar*, a *synchronized virtual prototype*, or a *computational
-megamodel* [@rasheed_digital_2020]. Some of the earliest real systems that
-match the pattern predate the term entirely: electronic patient health
-records tracked over time, online monitoring of chemical process plants,
-traffic and logistics management systems, weather forecasting systems
-that continuously assimilate new observations into a running model, leak
-detection in oil and water pipelines, and remote monitoring and control of
-satellites all count, in hindsight, as early digital twins, even though
-none of their builders would have called them that at the time
-[@rasheed_digital_2020]. The lesson for a beginner is not to get too
-attached to the word itself: the useful thing to recognize is the
-*pattern* -- physical asset, virtual model, closed two-way loop -- and
-that pattern shows up under a lot of different names across a lot of
-different industries and decades, this tutorial's chosen term being only
-the one that happened to stick in the literature after roughly 2017
+"Digital twin" is not the only name this idea goes by, and the name
+arrived well after the idea. Grieves sketched the concept in a 2002
+University of Michigan presentation, then taught it in that university's
+first product lifecycle management courses in early 2003 -- under a
+different name, the *Mirrored Spaces Model*. The term "digital twin" was
+attached to it only years later [@grieves_digital_2017]. Meanwhile
+industries that needed something like it built it under names of their
+own: a *computational megamodel*, a *device shadow*, a *mirrored system*,
+an *avatar*, or a *synchronized virtual prototype*. Several of the
+earliest systems matching the pattern predate the term entirely. Logs of
+patient health history, online operation monitoring of process plants,
+traffic and logistics management, weather forecasting driven by dynamic
+data assimilation, remote monitoring of satellites, and real-time
+detection of leaks in oil and water pipelines all qualify in hindsight,
+though none of their builders would have used the word
 [@rasheed_digital_2020].
+
+The lesson for a beginner is to hold the word loosely. What matters is
+the *pattern* -- physical asset, virtual model, closed two-way loop. That
+pattern recurs under many names, across many industries and decades.
 
 Two examples make the loop concrete. One incubator case study, built
 specifically to teach this idea, walks through a controller model that
@@ -115,14 +112,14 @@ researchers have sliced up the concept. Grieves and Vickers, who coined
 the term, split digital twins by what they're *for*: a **predictive
 digital twin** forecasts how the physical asset will behave next, while
 an **interrogative digital twin** is simply queried for the asset's
-current status, no forecasting involved [@iliuta_digital_2024]. A
-separate, complementary split looks at *what part of the lifecycle* the
-twin focuses on: a **product digital twin** prototypes and validates a
-design before it's built; a **production digital twin** validates the
-manufacturing process itself, ahead of and during actual production; and
-a **performance digital twin** tracks the finished product and process
-together during operation, feeding what it learns back into the next
-design cycle [@iliuta_digital_2024].
+current status, no forecasting involved. A separate, complementary split
+looks at *what part of the lifecycle* the twin focuses on: a **product
+digital twin** prototypes and validates a design before it's built; a
+**production digital twin** validates the manufacturing process itself,
+ahead of and during actual production; and a **performance digital twin**
+tracks the finished product and process together during operation,
+feeding what it learns back into the next design cycle
+[@iliuta_digital_2024].
 
 Scale is a third axis, and it's the same one Section 3.5 comes back to
 when discussing digital twin architecture: a **unit-level** twin models a
@@ -142,7 +139,7 @@ digital twin** starts with just a few tracked parameters (say, temperature
 and pressure) used to prove out basic connectivity; a **digital twin
 clone** adds a fuller, data-backed replica of the product; an **augmented
 digital twin** starts correlating current data against historical data to
-draw conclusions the clone alone couldn't [@iliuta_digital_2024]. A
+draw conclusions the clone alone couldn't. A
 second, independent ladder tracks *how autonomous the twin is*: a
 **pre-digital twin** exists before the physical asset does, informing
 early design decisions; a plain **digital twin** exchanges data with the
@@ -182,32 +179,32 @@ experiments, and machine learning to characterize how a material behaves
 under uncertainty, while a digital twin of a flight-test vehicle --
 including the individual test pilot's characteristics -- can be used to
 plan test flights that extract the most engineering knowledge per flight
-hour [@noauthor_digital_nodate-1]. In medicine, an *organ-on-a-chip*
-combines microfluidic hardware with a digital twin of the organ's tissue
-response to test how a drug behaves without needing a human trial, and
-stacking several such twins together produces a *body-on-a-chip* view of
-an entire simulated organism [@iliuta_digital_2024]. Wearable sensors
-feeding a digital twin of an individual patient's cardiac rhythm can flag
-an arrhythmia from raw ECG data using the same machine-learning algorithms
-from Section 3.2, while emotion-recognition digital twins built from
-webcam data have been proposed to catch early signs of stress or
-depression so treatment can be adjusted before a crisis
-[@iliuta_digital_2024]. And the surveyed application list keeps going. In
-automotive manufacturing, a digital twin of an entire bodywork production
-line can check whether production is tracking the plan, flag abnormal
-scenarios, and evaluate proposed changes to product ordering before
-/committing to them on the real line [@iliuta_digital_2024]. At city scale,
-a smart-city digital twin can fuse Building Information Modeling (BIM) --
-the same building-information-modeling approach whose IFC format already
-appeared in Section 5.2's railway bridge -- with Geographic Information
-System (GIS) data, combining a building's detailed engineering model with
-a city's geospatial context to support more sustainable urban planning
-decisions [@iliuta_digital_2024]. BIM shows up twice in this tutorial for
-unrelated reasons, in other words: once as the IFC format carrying a
-single bridge's geometry, and once as one half of an entire city's
-digital twin -- a small, concrete reminder that "standards for digital
-twins" (Section 4) and "standards a digital twin project happens to
-inherit from its own industry" genuinely overlap in practice.
+hour [@noauthor_digital_nodate-1].
+
+A survey of digital twins across many fields shows the same pattern
+spreading much further. In medicine, an *organ-on-a-chip* studies how
+different drugs affect human tissue, substituting a digital twin for the
+human test subject to obtain the same information; combining several such
+chips yields a *body-on-a-chip* overview of the whole organism. Neural
+networks trained on electrocardiogram (ECG) data can classify heart
+rhythms and diagnose circulatory pathologies -- the same
+machine-learning family from Section 3.2. Emotion-recognition twins built
+from webcam images have been proposed to detect stress and depression
+early, so medication can be given in advance of a crisis. In automotive
+manufacturing, a digital twin of a bodywork production line can check
+whether production can proceed according to plan, test the line's
+adaptability to abnormal scenarios, and evaluate proposed changes to
+product ordering. At city scale, a smart-city twin integrates Building
+Information Modeling (BIM) with Geographic Information System (GIS) data:
+GIS supplies the city's geospatial context, BIM the detailed engineering
+models, and the pair together supports sustainable urban design
+[@iliuta_digital_2024].
+
+BIM appears twice in this tutorial for unrelated reasons: once as the IFC
+format carrying a single bridge's geometry (Section 5.2), and once as half
+of an entire city's digital twin. That overlap is worth noting. "Standards
+for digital twins" (Section 4) and "standards a digital twin project
+inherits from its own industry" are not separate categories in practice.
 
 Zoom out from individual examples and a survey of industrial IoT digital
 twins reports the same handful of use cases recurring across almost every
@@ -275,12 +272,12 @@ Fahrenheit when the model expects Celsius; a vibration sensor might spit
 out noisy readings that need filtering before anything downstream can
 trust them; a firehose of per-second measurements might need batching
 into slightly larger chunks before a model can digest them efficiently.
-None of that cleanup logic is specific to any one digital twin -- a
-unit-conversion routine works the same whether it's cleaning turbine data
-or hospital data -- so in practice these small, unglamorous data-handling
-routines tend to get written once and reused across many twins, often via
-off-the-shelf tool chains built for exactly this kind of heavy lifting
-rather than hand-rolled for each new project [@talasila_realising_2024].
+None of that cleanup logic is specific to any one digital twin; a
+unit-conversion routine works the same whether it cleans turbine data or
+hospital data. So these small, unglamorous routines tend to get written
+once and reused across many twins, usually through off-the-shelf tool
+chains built for exactly this kind of heavy lifting rather than
+hand-rolled per project [@talasila_realising_2024].
 It's easy to skip past this step when you're first learning about digital
 twins, since "data cleanup" sounds far less interesting than "physics
 simulation" -- but a beautifully built model fed garbage data will
@@ -297,13 +294,13 @@ well-formed information to the rest of the stack; a *service layer* that
 chains services together and manages the twins themselves; and a
 *business layer* that connects the whole pipeline to the actual business
 logic driving decisions [@minerva_digital_2020]. Two further data problems
-are easy to overlook until they bite: *data fusion*, merging readings from
-sensors that measure overlapping or complementary things into one
-consistent picture instead of several disagreeing ones, and *data
-security*, since a twin that faithfully mirrors a physical asset is also
-faithfully mirroring an attack surface -- tampering with the data feeding
-a twin, or with the twin's own stored history, can corrupt every decision
-made downstream of it [@wu_comprehensive_2023].
+are easy to overlook until they bite. The first is *data fusion*: merging
+readings from sensors that measure overlapping or complementary things
+into one consistent picture rather than several disagreeing ones. The
+second is *data security*. A twin that faithfully mirrors a physical asset
+also faithfully mirrors an attack surface, and tampering with the data
+feeding a twin -- or with the twin's stored history -- corrupts every
+decision made downstream of it [@wu_comprehensive_2023].
 
 Not all of a twin's data comes from the same place, either. It's useful
 to separate *static modeling data* (the asset's fixed design parameters),
@@ -330,12 +327,11 @@ mechanics, fluid dynamics, the equations describing how a solid bends or
 a fluid flows -- and simulate them directly. A finite element model of a
 beam bending under load, or a computational-fluid-dynamics model of
 airflow around a wing, are typical examples. The trade-off is always
-fidelity against computational cost: a model detailed enough to capture
-every bolt and weld is usually far too expensive to run in anything close
-to real time, so practical digital twins tend to use a deliberately
-lower-fidelity physics-based model instead, accepting a small, quantified
-loss of accuracy in exchange for a model that can actually keep up with
-live sensor data [@thelen_comprehensive_2022].
+fidelity against computational cost. A model detailed enough to capture
+every bolt and weld is far too expensive to run in real time. Practical
+digital twins therefore use a deliberately lower-fidelity physics-based
+model, accepting a small, quantified loss of accuracy in exchange for one
+that keeps up with live sensor data [@thelen_comprehensive_2022].
 
 **Statistical models** take a different approach: instead of encoding
 physical laws, they fit a mathematical structure -- an autoregressive
@@ -390,11 +386,11 @@ model has never seen [@abbiati_modelling_2024]. Whichever family is
 chosen, a model built once and never touched again will slowly drift from
 the real asset it's supposed to represent -- through wear, repairs, or
 simply conditions the original model never anticipated -- so a production
-digital twin needs a plan for *updating* its model over time, whether
-that means periodically retraining a machine-learning model on fresh
-data, or using a Kalman-filter-style approach (Section 3.3) to
-continuously nudge a physics-based model's internal state back toward
-what the sensors are actually reporting [@wu_comprehensive_2023].
+digital twin needs a plan for *updating* its model over time. That may
+mean periodically retraining a machine-learning model on fresh data, or
+using one of the state-estimation methods in Section 3.3 to nudge a
+physics-based model's internal state back toward what the sensors report
+[@wu_comprehensive_2023].
 
 ### 3.3 Algorithms
 
@@ -497,21 +493,31 @@ Not every combination problem is solved by wrapping separate tools,
 though. Some systems are inherently **hybrid**: they mix genuinely
 continuous behavior (a temperature drifting smoothly) with genuinely
 discrete behavior (a thermostat switching a heater on or off) within a
-*single* sub-system, not across two separately built ones. The incubator
-running example from Section 2 is a case in point: heat transfer inside
-the box is continuous physics, while the controller deciding when to
-switch the heater is a discrete state machine [@abbiati_modelling_2024]. A
-**hybrid automaton** captures both at once: the system moves between a
-small number of discrete *modes* (heater on, heater off), and within each
-mode its continuous state evolves according to a set of differential
-equations that apply only in that mode; crossing a threshold triggers a
-discrete transition to a different mode with different equations
-[@abbiati_modelling_2024]. Where co-simulation coordinates separate
-models across a shared interface, a hybrid automaton is a single,
-self-contained way of describing one system that genuinely has both kinds
-of behavior baked in -- which formalism fits depends on whether a system's
-continuous and discrete parts were built by different people using
-different tools, or were always one integrated whole.
+*single* sub-system, not across two separately built ones.
+
+The incubator mentioned in Section 2 is a case in point, and it is worth
+describing concretely, since one modelling text uses it as a running
+example throughout. The device is a Styrofoam box fitted with an electric
+heater, a fan, and two temperature sensors, holding its contents at a
+controlled temperature anywhere between 20 and 60 °C. Its controller reads
+those temperature measurements and decides whether to switch the heater
+on or off; the heater in turn injects thermal power into the air enclosed
+by the box, raising its temperature [@abbiati_modelling_2024].
+
+Heat transfer inside the box is continuous physics, while the controller
+deciding when to switch the heater is a discrete state machine. Neither
+description alone is enough. A **hybrid automaton** captures both at once:
+the system moves
+between a small number of discrete *modes* (heater on, heater off), and
+within each mode its continuous state evolves according to a set of
+differential equations that apply only in that mode; crossing a threshold
+triggers a discrete transition to a different mode with different
+equations [@abbiati_modelling_2024]. Co-simulation coordinates separate
+models across a shared interface. A hybrid automaton, by contrast,
+describes one system that has both kinds of behavior built in. Which
+formalism fits depends on whether a system's continuous and discrete parts
+were built by different people using different tools, or were always one
+integrated whole.
 
 ### 3.5 Architecture: Putting the Blocks Together
 
@@ -599,16 +605,14 @@ of an observable manufacturing element with synchronisation between the
 element and its digital representation" that spans the element's entire
 product life cycle [@ferko_standardisation_2023]. The standard calls
 whatever physical thing is being twinned an *Observable Manufacturing
-Element* (OME) -- a product, a process, or a piece of equipment -- and
-organizes a compliant implementation around four entities: a **Device
-Communication** entity that collects data from the OME and sends it
-control commands; a **Digital Twin** entity that models that data and
-provides realization, management, and simulation services; a **User**
-entity that hosts whatever application actually consumes the twin; and a
-**Cross-System** entity that spans the other three to provide
-functionality -- chiefly security and data-translation guarantees -- that
-every entity needs rather than any one of them owning outright
-[@ferko_standardisation_2023].
+Element* (OME) -- a product, a process, or a piece of equipment. It then
+organizes a compliant implementation around four entities. A **Device
+Communication** entity collects data from the OME and sends it control
+commands. A **Digital Twin** entity models that data and provides
+realization, management, and simulation services. A **User** entity hosts
+whatever application consumes the twin. Finally, a **Cross-System** entity
+spans the other three, supplying what all of them need -- chiefly security
+and data translation -- rather than leaving any one of them to own it.
 
 Rather than describing one asset at a time the way AAS does, ISO 23247
 implies a *functional* architecture layered on top of those four
@@ -730,13 +734,12 @@ real thing. Still a promising result overall, though the paper is candid
 that turning these estimates into actual maintenance decisions is still
 future work [@branlard_digital_2024].
 
-The choice to build the tower model twice was deliberate, not redundant:
-the dedicated Python toolset, built to mirror OpenFAST's own structural,
-hydrodynamic, and mooring modules, gave the team an independent way to
-check that OpenFAST's own built-in linearization was producing a
-trustworthy result before either was trusted alone, and the two were
-combined only after the team confirmed the pathways agreed with each
-other [@branlard_digital_2024]. That two-pathway habit is itself a
+The choice to build the tower model twice was deliberate, not redundant.
+The dedicated Python toolset mirrored OpenFAST's own structural,
+hydrodynamic, and mooring modules, which gave the team an independent way
+to check that OpenFAST's built-in linearization produced a trustworthy
+result. The two were combined only after the team confirmed the pathways
+agreed with each other [@branlard_digital_2024]. That two-pathway habit is itself a
 *composability* argument: rather than committing to one monolithic tower
 model, the project treated the model as an assembly of swappable,
 independently checkable pieces -- the same spirit behind the co-simulation
@@ -757,13 +760,40 @@ the project works from the same information [@chacon_digital_2024]. Its
 *model* is a finite element model of the bridge -- the same physics-based
 model family introduced in Section 3.2 -- built during design and then
 checked, and where necessary corrected, against what the load test
-actually measured [@chacon_digital_2024]. There's no single named
-*algorithm* paper here the way the wind turbine has its Kalman filter, but
-the underlying procedure is the calibration idea from Section 3.3:
-compare the finite element model's predicted response to the measured
-one, and adjust the model until the two agree within tolerance -- which is
-precisely what a Diagnostic or Proof Load Test is designed to verify
-[@chacon_digital_2024]. Unlike the wind turbine, this case study also
+actually measured [@chacon_digital_2024].
+
+The project does name its *algorithms*, and there are two, one per kind of
+load test. For the static tests it uses **CONS**, a previously developed
+numerical model for nonlinear, time-dependent analysis of
+three-dimensional reinforced and prestressed concrete. CONS was wrapped in
+parametric modeling software, so an engineer can vary the cross-section
+geometry, the material constitutive models, and the prestressing loads and
+watch the results update immediately. That responsive feedback loop is
+what makes calibration practical: by matching the strains measured at each
+sensor against the corresponding strains in a fibre-based model of the
+cross section, it becomes feasible to calibrate the concrete's elastic
+modulus by reverse engineering. Calibration matters here for a specific
+physical reason. Concrete is heterogeneous and changes over time, so the
+mechanical properties assumed at the design stage may simply not match the
+ones the finished bridge has [@chacon_digital_2024].
+
+For the dynamic tests, the acceleration data goes through **MOMAP**, the
+Multiple Operational Modal Analysis Platform -- a Python signal-analysis
+tool. It first cleans the signal with a high-pass filter, downsampling,
+and noise reduction based on singular value decomposition, then extracts
+the bridge's vibration frequencies, mode shapes, and damping. For that
+last step MOMAP offers a menu of *operational modal analysis* methods,
+among them an enhanced version of frequency-domain decomposition and
+covariance-driven stochastic subspace identification. Operational modal
+analysis earns its place for a practical reason: it needs only the
+structure's measured response, not a controlled known load, so the data
+can be gathered without interrupting the asset's regular operation
+[@chacon_digital_2024]. That second method should look familiar --
+stochastic subspace identification (SSI) is one of the
+system-identification methods from Section 3.3, here doing real work on a
+real bridge.
+
+Unlike the wind turbine, this case study also
 shows a *standard* from Section 4 in action, just not one of the
 digital-twin-specific ones: IFC, a building-information-modeling
 standard, is what lets the bridge's geometry travel between the different
@@ -796,19 +826,19 @@ bridge's response as trains cross it at speeds between 160 and 215 km/h,
 sampled fast enough (400 Hz) to resolve the bridge's motion even at the
 highest train speed, and deliberately corrupted with realistic sensor
 noise to test the approach honestly rather than against a clean signal
-[@torzoni_digital_2024]. Its *model* combines a finite element model of
-the bridge -- almost 17,300 degrees of freedom at full resolution, then
-reduced to a much cheaper approximate version offline so it can run fast
-enough to generate the huge number of training examples the approach
-needs -- with a deep-learning classifier that turns noisy real-time sensor
-readings into a diagnosis of the bridge's current structural health,
-expressed as a probability spread across six possible damage locations
-plus a healthy state [@torzoni_digital_2024]. Its *algorithm* is
+[@torzoni_digital_2024]. Its *model* has two halves. The first is a finite
+element model of the bridge with almost 17,300 degrees of freedom at full
+resolution, reduced offline to a much cheaper approximation so it can
+generate the huge number of training examples the approach needs. The
+second is a deep-learning classifier that turns noisy real-time sensor
+readings into a diagnosis of the bridge's structural health, expressed as
+a probability spread across six possible damage locations plus a healthy
+state [@torzoni_digital_2024]. Its *algorithm* is
 sequential Bayesian inference: each new batch of sensor data updates the
-twin's belief about which of those states is most likely, the same
-continuous "blend prediction with new measurement" idea behind the Kalman
-filter in Section 3.3, just applied to a discrete set of health states
-instead of a continuous physical quantity. That belief then feeds a
+twin's belief about which of those states is most likely. This is the
+blend-the-prediction-with-the-new-measurement idea from Section 3.3,
+applied to a discrete set of health states rather than a continuous
+physical quantity. That belief then feeds a
 decision-making layer that recommends a maintenance action -- do nothing,
 or one of several levels of repair -- chosen to balance the bridge's
 safety against the cost of unnecessary maintenance [@torzoni_digital_2024].
@@ -863,20 +893,20 @@ accumulating structural damage -- taking the fast path while it safely
 could, and the cautious path once it couldn't -- without a human ever
 manually re-assessing the aircraft [@kapteyn_toward_2020].
 
-This case study is a useful bookend to Section 5.1's wind turbine: both
+This case study is a useful bookend to Section 5.1's wind turbine. Both
 use a physics-based model plus a data-driven layer to estimate a
-structure's internal state from sensors that can't directly see inside
-it, but where the turbine's Kalman filter continuously tracks one
-evolving numerical state, the UAV's classification tree instead picks out
-which one of a discrete library of pre-built states best fits right now
--- two different, equally valid answers to the same underlying "how do I
-know what's happening inside my structure" question from Section 3.
+structure's internal state from sensors that cannot see inside it
+directly. But the turbine's filter tracks one continuously evolving
+numerical state, while the UAV's classification tree picks whichever of a
+discrete library of pre-built states best fits right now. Two different,
+equally valid answers to the same question from Section 3: how do I know
+what is happening inside my structure?
 
 Four case studies, four industries, four different combinations of data,
-model, and algorithm -- a Kalman filter tracking a continuous state, a
-finite element model calibrated once against a load test, a Bayesian
-network tracking a discrete probability distribution, and a
-classification tree picking from a library of pre-built models. Yet the
+model, and algorithm -- a recursive filter tracking a continuous state, a
+finite element model calibrated by reverse engineering against a load
+test, a Bayesian network tracking a discrete probability distribution, and
+a classification tree picking from a library of pre-built models. Yet the
 same three-part shape from Section 3 holds every time: data comes in from
 real sensors, an algorithm evaluates it against a model, and the result
 either estimates something you couldn't measure directly (the turbine's
@@ -917,20 +947,20 @@ categories where digital twin research still needs enabling technology to
 catch up with the ambition [@rasheed_digital_2020].
 
 **Security** deserves
-its own callout: a twin that faithfully mirrors a physical asset's state
-is also a faithful attack surface, and a compromised twin can issue
-plausible-looking commands back to the real asset it's supposed to
-protect, not just leak information about it -- exactly the failure mode
-Section 4's ISO 23247 discussion flagged when noting how few published
-architectures actually implement its security and data-assurance
+its own callout. A twin that faithfully mirrors a physical asset's state
+is also a faithful attack surface. Worse, a compromised twin does not
+merely leak information about the asset it is supposed to protect; it can
+issue plausible-looking commands back to it. That is exactly the failure
+mode Section 4 flagged in noting how few published ISO 23247
+architectures implement the standard's security and data-assurance
 functional entities [@ferko_standardisation_2023]. Industrial IoT
-researchers have argued the fix has to run in both directions at once:
-rather than bolting security on as a separate concern, the same digital
-twin that monitors an asset's physical health can be extended to
-continuously monitor, analyze, and model the asset's *cyber* state too,
-using the twin's own historical and real-time data to assess security
-risk and trigger a mitigation response, the same closed loop from Section
-2 applied to attacks instead of wear and tear [@xu_survey_2023]. That
+researchers have argued the fix has to run in both directions at once.
+Rather than bolting security on as a separate concern, extend the twin
+that already monitors an asset's physical health so it monitors,
+analyzes, and models the asset's *cyber* state too. Its own historical
+and real-time data then assess security risk and trigger a mitigation
+response -- the closed loop from Section 2, applied to attacks instead of
+wear and tear [@xu_survey_2023]. That
 approach is still described as an open research direction rather than a
 solved problem, precisely because it asks a digital twin to defend the
 very channel it depends on to function [@xu_survey_2023].
@@ -972,19 +1002,18 @@ ecosystems of twins that can't interoperate remain a real, unsolved
 problem in practice, not just a hypothetical one [@minerva_digital_2020].
 
 Not every challenge is technical, either. Automating the monitoring and
-management of a physical asset naturally raises workforce concerns --
-studies of automation more broadly suggest it tends to redistribute jobs
-rather than simply eliminate them, and is often best used to hand off the
-dirty, dull, and dangerous tasks to machines while leaving humans free for
-more creative work, provided the transition is handled with deliberate
-training and career support rather than left to happen on its own
-[@rasheed_digital_2020]. There's a sharper version of this worth
-remembering, sometimes called the "ironies of automation": as a digital
-twin takes over more of the routine monitoring and decision-making, the
-remaining human role shifts toward handling the rare, unpredictable
-situations the twin wasn't built for -- which is a *harder* job, not an
-easier one, and one that's difficult to stay sharp at if it's only called
-on once the twin has already run out of ideas [@rasheed_digital_2020].
+management of a physical asset naturally raises workforce concerns.
+Studies of automation more broadly suggest it redistributes jobs rather
+than simply eliminating them. Used well, it hands the dirty, dull, and
+dangerous tasks to machines and leaves humans free for more creative work
+-- but only if the transition comes with deliberate training and career
+support instead of being left to happen on its own. There is a sharper
+version of this, sometimes called the "ironies of automation." As a
+digital twin takes over the routine monitoring and decision-making, the
+remaining human role shifts toward the rare, unpredictable situations the
+twin was never built for. That is a *harder* job, not an easier one, and a
+difficult one to stay sharp at when it is called on only after the twin
+has run out of ideas [@rasheed_digital_2020].
 
 None of this is a reason to be discouraged -- every case study in Section
 5 is a real, working system built despite these challenges, not in their

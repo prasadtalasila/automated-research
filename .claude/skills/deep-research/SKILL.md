@@ -192,7 +192,14 @@ python -m src.citation_gate <output-file>
 Fix and re-run until `OK`. Never present a draft that hasn't passed.
 
 **(d) Save and render.** Write to `content/drafts/deep-research-<slug>.md`
-(the canonical, source-of-truth format). Then render the other two formats:
+(the canonical, source-of-truth format). Then fill in the `## References`
+section (reference.md §5's template) from exactly the gated citekeys,
+rather than hand-assembling it:
+```
+python -m src.references content/drafts/deep-research-<slug>.md
+```
+Stdlib-only, like the citation gate -- bare `python3`, no venv. Then render
+the other two formats:
 ```
 python3 -m src.heavy.render_output content/drafts/deep-research-<slug>.md --format tex
 python3 -m src.heavy.render_output content/drafts/deep-research-<slug>.md --format pdf

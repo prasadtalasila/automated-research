@@ -95,8 +95,17 @@ before drafting anything.
    If it reports `FAIL`, fix the offending line(s) — either correct the citekey
    or remove the claim — and re-run until it reports `OK`. Never show the user
    a draft that hasn't passed.
-10. **Render tex and pdf.** Once the gate passes, also render the other two
-    formats:
+10. **Build the References section.** Once the gate passes, generate it from
+    exactly the gated citekeys rather than writing it by hand:
+    ```
+    python -m src.references content/drafts/<slug>.md
+    ```
+    Stdlib-only, like the citation gate — bare `python3`, no venv. Lists
+    each citekey next to its title/year pulled straight from
+    `content/ledger.sqlite`, so a reader can trace every `[@citekey]`
+    marker in the body back to a labeled entry by that same key.
+11. **Render tex and pdf.** Once the gate passes and the references section
+    is built, also render the other two formats:
     ```
     python3 -m src.heavy.render_output content/drafts/<slug>.md --format tex
     python3 -m src.heavy.render_output content/drafts/<slug>.md --format pdf
@@ -106,6 +115,6 @@ before drafting anything.
     `[error]`, print a one-line warning in chat with that message and
     continue anyway — a rendering failure never blocks presenting the
     `.md` draft.
-11. Present the draft plus a one-paragraph summary of thin-coverage areas and
+12. Present the draft plus a one-paragraph summary of thin-coverage areas and
     any unresolved cross-source disagreement, and report the render outcome
     (paths to the `.tex`/`.pdf` if they succeeded, or the warning if not).

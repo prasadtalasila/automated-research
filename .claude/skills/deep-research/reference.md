@@ -141,8 +141,10 @@ confidence scores, weakest link, bias check, missing perspective, overall
 grade, no panel verdicts row.>
 
 ## References
-<Every citekey actually cited above, as "citekey -- Title (Year)", pulled
-from content/ledger.sqlite -- not a URL list.>
+<Leave this heading bare -- `python -m src.references` (SKILL.md Phase 7d)
+fills it in automatically from exactly the citekeys cited above, as
+"citekey -- Title (Year)", pulled from content/ledger.sqlite. Don't
+hand-assemble this list.>
 ```
 
 Save as `content/drafts/deep-research-<kebab-topic>.md` (canonical format),
