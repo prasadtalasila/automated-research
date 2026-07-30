@@ -3,7 +3,8 @@
 **Disclaimer** This tutorial has been generated using LLM with fact checking
 done by Prasad Talasila, who is working in this research area.
 Despite some potential for hallicination, the ideas communicated in
-this tutorial are accurate.
+this tutorial are accurate. Please send your corrections and suggestions to
+<prasad.talasila@gmail.com>
 
 > **Summary.** A digital twin links a physical asset to a virtual model
 > through a continuous, two-way flow of data.
@@ -195,7 +196,7 @@ depression so treatment can be adjusted before a crisis
 automotive manufacturing, a digital twin of an entire bodywork production
 line can check whether production is tracking the plan, flag abnormal
 scenarios, and evaluate proposed changes to product ordering before
-committing to them on the real line [@iliuta_digital_2024]. At city scale,
+/committing to them on the real line [@iliuta_digital_2024]. At city scale,
 a smart-city digital twin can fuse Building Information Modeling (BIM) --
 the same building-information-modeling approach whose IFC format already
 appeared in Section 5.2's railway bridge -- with Geographic Information
@@ -262,8 +263,8 @@ before that: MQTT and CoAP for lightweight publish/subscribe messaging
 between small, low-power devices, HTTP and HTTPS where a heavier
 request/response exchange is acceptable, and LoRaWAN where the sensor is
 far away and battery life matters more than bandwidth
-[@hakiri_comprehensive_2024]. None of these protocols is "the" digital
-twin protocol; picking one is mostly a question of how much power,
+[@hakiri_comprehensive_2024]. None of these protocols is "the" protocol
+for digital twins; picking one is mostly a question of how much power,
 bandwidth, and latency the physical side of the twin can spare, and real
 deployments often mix several -- MQTT from a nearby gauge, LoRaWAN from a
 remote one, all landing in the same streaming pipeline.
@@ -318,26 +319,11 @@ trick -- a digital twin of the sensing device itself, compensating for
 gaps in the very data the main digital twin depends on -- shows up as its
 own small, nested digital twin problem sitting inside the larger one.
 
-One proposed answer to the data-security problem borrows a technology
-with no other connection to digital twins at all: a **blockchain**. A few
-proposed architectures store a twin's data across a peer-to-peer network
-and use blockchain smart contracts to authenticate who's allowed to read
-or write it, so no single central server has to be trusted (or can become
-a single point of compromise), and a cryptographic hash of the stored
-data makes any later tampering detectable after the fact
-[@wu_comprehensive_2023]. It's not a free lunch: extracting data back out
-of a blockchain-backed store is markedly more complex than a plain
-database, and a system built this way can still trust unreliable data if
-the participant supplying it was unreliable to begin with -- blockchain
-protects the integrity of data *once it's in the system*, not the honesty
-of whoever collected it in the first place [@wu_comprehensive_2023].
-
 ### 3.2 Models
 
 The model is where the twin actually knows something about the physical
-world -- a description of relationships, not a data feed. There isn't
-just one kind, though, and the literature on digital twins tends to sort
-them into a small number of recurring families.
+world. There isn't just one kind, though, and the literature on
+digital twins tends to sort them into a small number of recurring families.
 
 **Physics-based models** start from known physical laws -- structural
 mechanics, fluid dynamics, the equations describing how a solid bends or
@@ -395,8 +381,8 @@ data-driven model's ability to run fast [@thelen_comprehensive_2022].
 | Hybrid | A physics-based model combined with a data-driven one | Improving generalization over pure ML while staying cheaper than full physics-based simulation [@thelen_comprehensive_2022] |
 
 Choosing among these four families is itself a design decision, not
-something forced by the physics alone: the same incubator system from
-Section 2 can be modeled with first-principles heat-transfer equations,
+something forced by the physics alone: A digital twin can be modeled
+with first-principles heat-transfer equations,
 with a data-driven regression fit to logged temperatures, or with a
 hybrid of both, and picking one over another trades off precision,
 development cost, and how well the result generalizes to conditions the
@@ -412,10 +398,11 @@ what the sensors are actually reporting [@wu_comprehensive_2023].
 
 ### 3.3 Algorithms
 
-A model by itself doesn't *do* anything; it just sits there describing
-relationships. Something has to actually run the numbers, and that
-something is what the literature -- depending on which paper you're
-reading -- calls an *algorithm*, a *tool*, or a *method*. All three names
+A model by itself doesn't *do* anything; it just sits there providing
+simplified abstraction of a physical system. Something has to actually
+run the numbers, and that something is what the literature -- depending
+on which paper you're reading -- calls an *algorithm*, a *tool*, or
+a *method*. All three names
 point at the same idea: a software implementation of a domain-specific
 procedure that takes a model and some data and evaluates it
 [@talasila_realising_2024]. Each model type from Section 3.2 tends to
@@ -462,16 +449,12 @@ whatever the physics-based model gets wrong [@thelen_comprehensive_2022].
 Not every machine-learning algorithm trades away interpretability for
 accuracy, either. **Optimal classification trees** are a good example: a
 more recent, exact optimization approach to building decision trees,
-rather than the older, greedy approach used by classic methods, which has
-been shown across dozens of practical benchmark problems to reach the
-out-of-sample accuracy of an ensemble method like Random Forests while
-remaining a single, small, human-readable tree that an engineer can
-inspect decision by decision [@kapteyn_toward_2020]. That combination --
-competitive accuracy without giving up the ability to explain *why* the
-algorithm decided what it decided -- matters more in a digital twin
-context than in most machine-learning applications, since a twin's output
-often feeds directly into a real-world safety decision, and Section 5.4
-shows exactly that algorithm at work.
+has been used to predict damage to aircraft blades [@kapteyn_toward_2020].
+That combination -- competitive accuracy without giving up the ability
+to explain *why* the algorithm decided what it decided -- matters more
+in a digital twin context than in most machine-learning applications,
+since a twin's output often feeds directly into a real-world
+safety decision, and Section 5.4 shows exactly that algorithm at work.
 
 Put the three pieces together and you get the whole loop from Section 2
 back again: data flows in, an algorithm evaluates it against a model, and
@@ -504,9 +487,8 @@ interface is the *Functional Mock-up Interface* (FMI), maintained by the
 Modelica Association and supported by more than 140 modeling and
 simulation tools, including Simulink, Dymola, OpenModelica, and 20-sim; a
 model packaged to this standard is called a *Functional Mock-up Unit*
-(FMU) [@abbiati_modelling_2024]. The appeal is the same one AAS and ISO
-23247 chase in Section 4, just aimed at models instead of assets:
-co-simulation lets a structural engineer's finite-element model and a
+(FMU) [@abbiati_modelling_2024].
+Co-simulation lets a structural engineer's finite-element model and a
 controls engineer's statechart be combined into one digital twin without
 either engineer needing to learn the other's tool, or disclose the
 proprietary internals of their own.
@@ -544,10 +526,7 @@ physical entity, a virtual entity, and a connection between them) into a
 *digital twin data* (the twin's own accumulated data, distinct from live
 sensor readings), and *services* (the functions -- simulation,
 prediction, decision support -- that the twin exposes to the humans and
-software around it) [@tao_five-dimension_2019-1]. That same proposal
-organizes twins into the unit/system/system-of-systems hierarchy already
-introduced in Section 2.1, giving a consistent vocabulary for both "how
-big is this twin" and "what pieces is it made of" at once.
+software around it) [@tao_five-dimension_2019-1].
 
 A second proposal, aimed specifically at industrial IoT deployments,
 arranges a twin into three layers instead of five: a **virtual asset
@@ -571,25 +550,13 @@ three architectures is simply "correct" while the others are wrong --
 they're different lenses on the same underlying idea, chosen depending on
 whether the person drawing the diagram cares more about a twin's internal
 structure, its runtime behavior, or its place in a factory's existing IT
-stack. ISO 23247's own functional architecture in Section 4 is a fourth
+stack. ISO 23247's own functional architecture is a fourth
 lens again, this time organized around which named responsibilities
 (collecting data, controlling the asset, keeping things secure) a
 compliant implementation must cover -- a reminder that "architecture," in
 the digital twin literature, usually means "the thing this particular
 paper's authors found most useful to draw a box around," not a single
 settled blueprint.
-
-A fifth influence is worth a beginner's notice even though it predates the
-term "digital twin" entirely: **multiagent systems**, in which independent
-software agents each represent and act on behalf of one real-world entity,
-coordinating with each other to simulate or manage a larger environment
-[@minerva_digital_2020]. The parallel to a digital twin's *logical object*
-representing one physical asset is direct enough that identity management
-(uniquely naming and addressing each agent), allocation, and
-coordination between agents map onto exactly the same problems a
-system-of-systems-level digital twin (Section 2.1) has to solve when it's
-really a coordinated collection of many smaller twins rather than one
-monolithic model [@minerva_digital_2020].
 
 ## 4. Why Standards Matter: Industry 4.0, AAS, and Friends
 
@@ -617,7 +584,8 @@ Plattform Industrie 4.0 was designed for factories where thousands of
 assets from many different vendors need to interoperate without any one
 vendor's cloud service becoming a single point of failure for the whole
 plant. The AAS itself is just a paper specification, though; somebody
-still has to write the software that reads and writes it. Eclipse BaSyX is exactly that: an open-source
+still has to write the software that reads and writes it. 
+Eclipse BaSyX is exactly that: an open-source
 *implementation* of the AAS standard, providing a registry, a client
 library, and visualization tools already built, so engineers don't have
 to write that plumbing themselves [@jacoby_open-source_2023]. BaSyX
@@ -651,34 +619,15 @@ simulation, analytic service, reporting, security support, and
 plug-and-play support for dynamically connecting a new OME
 [@ferko_standardisation_2023]. A real implementation is judged by how
 many of these it actually covers, and in practice most published
-architectures only implement a handful. A systematic review of documented
-architectures found data collection and digital representation close to
-universal, but security support present in only about a fifth of them
-(21%), data translation in less than a third (31%), and three FEs --
-plug-and-play support, peer interface (letting one twin talk to another),
-and data assurance -- missing entirely from every architecture surveyed
-[@ferko_standardisation_2023]. That gap is worth sitting with for a
-moment: a standard can specify exactly what a compliant architecture
+architectures only implement a handful.
+A standard can specify exactly what a compliant architecture
 ought to include, and real-world implementations can still quietly skip
-the harder, less immediately rewarding parts. The review also flags a
-sharper version of Section 2's twin-versus-shadow distinction: an
-architecture that never implements the control and actuation FEs is, by
-the standard's own logic, describing a *digital shadow*, not a digital
-twin, no matter what its authors call it [@ferko_standardisation_2023] --
-which is precisely the kind of gap a reference architecture like ISO
-23247 is meant to surface and make comparable across projects, rather
-than silently paper over.
+the harder, less immediately rewarding parts.
 
-That gap isn't just a quirk of one systematic review, either. Surveying
-practitioners and experts directly, a majority (67%) agreed that most
-published digital twin architectures are, on inspection, describing
-digital shadows rather than true digital twins -- one respondent
-summarized the position bluntly: "without a bidirectional interaction
-there is no digital twin" [@ferko_standardisation_2023]. The same experts
-independently pointed at AAS from earlier in this section as a plausible
+Some experts point at AAS from earlier in this section as a plausible
 fix for one of ISO 23247's specific gaps: standardizing the Peer Interface
 functional entity that lets one digital twin talk to another, something
-several respondents flagged as pivotal for scaling digital twins across a
+pivotal for scaling digital twins across a
 whole flexible production system rather than one machine at a time
 [@ferko_standardisation_2023]. That's worth noticing on its own terms: AAS
 and ISO 23247 were developed independently, aimed at different problems,
@@ -776,7 +725,7 @@ generated by the same simulator, the digital twin's estimates came within
 roughly 5-10% of the truth. Checked against real measurements from the
 full-scale prototype instead, that error grew to roughly 10-15% -- a
 reminder that a digital twin's accuracy on synthetic test data is always
-an optimistic upper bound on how well it will do against the messier
+an optimistic on how well it will do against the messier
 real thing. Still a promising result overall, though the paper is candid
 that turning these estimates into actual maintenance decisions is still
 future work [@branlard_digital_2024].
@@ -949,7 +898,9 @@ physics is actually understood and how much of it can be captured before
 the equations become too expensive to solve in real time; data-driven
 models are limited by how much good-quality training data is actually
 available, and can fail badly outside the conditions they were trained on
-[@rasheed_digital_2020]. A further, less obvious challenge sits underneath
+[@rasheed_digital_2020].
+
+A further, less obvious challenge sits underneath
 both: **interoperability**, which itself splits into *composability* (can
 independently built models actually be assembled together, as in Section
 3.4), *scalability* (does an approach that works for one component still
@@ -957,13 +908,15 @@ work for a whole system-of-systems, per Section 2.1's hierarchy), and
 *heterogeneity* (can models built in completely different formalisms be
 reconciled at all) [@rasheed_digital_2020].
 
-**Infrastructure challenges** are just as real as modeling ones. Big-data
-cybernetics -- moving, storing, and securing the volume of data a live
+**Infrastructure challenges** are just as real as modeling ones. 
+Big-data -- moving, storing, and securing the volume of data a live
 digital twin generates -- and human-machine interface design, making a
 twin's output something a person can actually act on rather than a wall
 of numbers, round out Rasheed, San, and Kvamsdal's list of the five major
 categories where digital twin research still needs enabling technology to
-catch up with the ambition [@rasheed_digital_2020]. **Security** deserves
+catch up with the ambition [@rasheed_digital_2020].
+
+**Security** deserves
 its own callout: a twin that faithfully mirrors a physical asset's state
 is also a faithful attack surface, and a compromised twin can issue
 plausible-looking commands back to the real asset it's supposed to
@@ -1009,7 +962,7 @@ represents and what the physical world is actually doing
 [@minerva_digital_2020]. Large systems introduce a further complexity:
 representing hundreds or thousands of interacting parts and their dynamic
 behavior is qualitatively harder than representing one part in isolation,
-which is exactly why Section 2.1's unit/system/system-of-systems
+which is exactly why unit/system/system-of-systems
 hierarchy exists as a way to manage that complexity rather than eliminate
 it [@minerva_digital_2020]. And proprietary, closed interfaces between
 different vendors' equipment can quietly undermine everything Section 4's
