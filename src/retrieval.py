@@ -116,9 +116,10 @@ def _load_cache() -> dict:
             data = json.load(f)
     except (OSError, json.JSONDecodeError):
         return {}
-    if data.get("version") != _INDEX_SCHEMA_VERSION:
+    if not isinstance(data, dict) or data.get("version") != _INDEX_SCHEMA_VERSION:
         return {}
-    return data.get("items", {})
+    items = data.get("items")
+    return items if isinstance(items, dict) else {}
 
 
 def _save_cache(items_index: dict) -> None:
@@ -142,8 +143,9 @@ def _load_index(items: list[sqlite3.Row]) -> dict:
     per-document stats for anything whose fingerprint hasn't changed.
 
     Any cache read/schema problem (missing file, corrupt JSON, stale
-    schema version) is treated as a cache miss -- rebuild from scratch
-    rather than fail the search.
+    schema version, or valid JSON in an unexpected shape -- a bare array,
+    an "items"/per-citekey entry that isn't a dict) is treated as a cache
+    miss -- rebuild from scratch rather than fail the search.
     """
     cached = _load_cache()
     current_citekeys = {item["citekey"] for item in items}
@@ -153,7 +155,7 @@ def _load_index(items: list[sqlite3.Row]) -> dict:
         citekey = item["citekey"]
         fp = _fingerprint(item)
         cached_entry = cached.get(citekey)
-        if cached_entry is not None and cached_entry.get("fingerprint") == fp:
+        if isinstance(cached_entry, dict) and cached_entry.get("fingerprint") == fp:
             new_index[citekey] = cached_entry
         else:
             new_index[citekey] = {"fingerprint": fp, **_tokenize_item(item)}

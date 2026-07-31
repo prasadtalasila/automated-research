@@ -192,6 +192,43 @@ class TestIndexCaching:
         results = retrieval.search("digital")
         assert [r.citekey for r in results] == ["a2024"]
 
+    def test_cache_that_is_valid_json_but_wrong_top_level_shape_is_rebuilt(
+        self, ledger_con, tmp_path
+    ):
+        # Regression (PR #6 review): _load_cache only checked data.get("version"),
+        # so valid JSON that isn't a dict at all (a bare array here) would
+        # crash on that .get() call instead of being treated as a cache miss.
+        config.RETRIEVAL_INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
+        config.RETRIEVAL_INDEX_PATH.write_text(json.dumps([1, 2, 3]))
+        ledger.upsert_reference(ledger_con, make_reference(citekey="a2024", title="Digital Twin"))
+
+        results = retrieval.search("digital")
+        assert [r.citekey for r in results] == ["a2024"]
+
+    def test_cache_whose_items_value_is_the_wrong_shape_is_rebuilt(self, ledger_con):
+        # Same class of bug one level deeper: "items" present but not a
+        # dict (e.g. a list) -- cached.get(citekey) in _load_index() would
+        # otherwise crash on it instead of treating it as a cache miss.
+        config.RETRIEVAL_INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
+        config.RETRIEVAL_INDEX_PATH.write_text(json.dumps({"version": 1, "items": ["not", "a", "dict"]}))
+        ledger.upsert_reference(ledger_con, make_reference(citekey="a2024", title="Digital Twin"))
+
+        results = retrieval.search("digital")
+        assert [r.citekey for r in results] == ["a2024"]
+
+    def test_cache_entry_for_one_citekey_that_is_the_wrong_shape_is_rebuilt(self, ledger_con):
+        # A single cached per-document entry that isn't a dict (rather
+        # than the whole cache) must not crash cached_entry.get(...) in
+        # _load_index() either.
+        config.RETRIEVAL_INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
+        config.RETRIEVAL_INDEX_PATH.write_text(
+            json.dumps({"version": 1, "items": {"a2024": "not-a-dict"}})
+        )
+        ledger.upsert_reference(ledger_con, make_reference(citekey="a2024", title="Digital Twin"))
+
+        results = retrieval.search("digital")
+        assert [r.citekey for r in results] == ["a2024"]
+
     def test_removed_citekey_is_dropped_from_the_cache(self, ledger_con):
         ledger.upsert_reference(ledger_con, make_reference(citekey="a2024", title="Digital Twin"))
         retrieval.search("digital")

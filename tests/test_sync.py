@@ -304,16 +304,15 @@ class TestRun:
             con.close()
         assert known == {"smith_example_2024", "noauthor_page_nodate", "doe_broken_2023"}
 
-
     def test_no_pdf_breakdown_distinguishes_the_failure_reasons(
         self, isolated_config, monkeypatch, capsys
     ):
-        # Regression: all of "no file field", "PDF path gone", "HTML-only
-        # snapshot", and "malformed file field" used to collapse into one
-        # opaque "N without a PDF attachment" bucket -- masking which
-        # items were silently missing a PDF the bib file still claims to
-        # have, and which were invisible to retrieval because only an
-        # HTML snapshot was ever saved.
+        # Regression: all of "no file field", "PDF path gone", "non-PDF
+        # attachment only", and "malformed file field" used to collapse
+        # into one opaque "N without a PDF attachment" bucket -- masking
+        # which items were silently missing a PDF the bib file still
+        # claims to have, and which were invisible to retrieval because
+        # only a non-PDF (e.g. HTML) attachment was ever saved.
         write_bib(isolated_config.BIB_FILE_PATH, """
 @misc{no_file_field_2024,
   title = {No File Field At All},
@@ -350,12 +349,12 @@ class TestRun:
         assert "4 without a PDF attachment" in out
         assert "no-pdf  no_file_field_2024: no file field in bib entry" in out
         assert "no-pdf  pdf_gone_2024: PDF path no longer exists on disk" in out
-        assert "no-pdf  html_only_2024: HTML-only snapshot, no PDF attachment" in out
+        assert "no-pdf  html_only_2024: non-PDF attachment only (e.g. an HTML snapshot)" in out
         assert "no-pdf  malformed_2024: malformed file field" in out
         assert (
             "no-PDF breakdown: 1 no file field in bib entry, "
             "1 PDF path no longer exists on disk, "
-            "1 HTML-only snapshot, no PDF attachment, "
+            "1 non-PDF attachment only (e.g. an HTML snapshot), "
             "1 malformed file field (couldn't parse mime/path)"
         ) in out
 

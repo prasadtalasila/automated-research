@@ -60,11 +60,25 @@ class TestResolvePdfPath:
         field = "paper.pdf:missing.pdf:application/pdf"
         assert bib_reader._resolve_pdf_path(field, tmp_path) == (None, bib_reader.PDF_PATH_GONE)
 
-    def test_non_pdf_mime_reports_html_only(self, tmp_path):
+    def test_non_pdf_mime_reports_non_pdf_attachment(self, tmp_path):
         html = tmp_path / "page.html"
         html.write_text("<html></html>")
         field = "page.html:page.html:text/html"
-        assert bib_reader._resolve_pdf_path(field, tmp_path) == (None, bib_reader.PDF_HTML_ONLY)
+        assert bib_reader._resolve_pdf_path(field, tmp_path) == (
+            None, bib_reader.PDF_NON_PDF_ATTACHMENT,
+        )
+
+    def test_non_html_non_pdf_mime_also_reports_non_pdf_attachment(self, tmp_path):
+        # Regression (PR #6 review): detection only ever checked for the
+        # *absence* of a pdf-mime entry, never the presence of text/html
+        # specifically -- any other non-PDF mime (plain text here) must
+        # land in the same bucket, not be silently unclassified.
+        note = tmp_path / "notes.txt"
+        note.write_text("some notes")
+        field = "notes.txt:notes.txt:text/plain"
+        assert bib_reader._resolve_pdf_path(field, tmp_path) == (
+            None, bib_reader.PDF_NON_PDF_ATTACHMENT,
+        )
 
     def test_multiple_attachments_picks_the_pdf(self, tmp_path):
         pdf = tmp_path / "paper.pdf"
@@ -79,10 +93,10 @@ class TestResolvePdfPath:
             None, bib_reader.PDF_MALFORMED_FILE_FIELD,
         )
 
-    def test_pdf_mime_but_missing_file_wins_over_html_only(self, tmp_path):
+    def test_pdf_mime_but_missing_file_wins_over_non_pdf_attachment(self, tmp_path):
         # A pdf-mime attachment whose file has since moved/been deleted is
         # a more actionable signal (this item once had a real PDF) than
-        # "only ever had an HTML snapshot" -- when both are present,
+        # "only ever had a non-PDF attachment" -- when both are present,
         # report the former.
         html = tmp_path / "page.html"
         html.write_text("<html></html>")
@@ -179,7 +193,7 @@ class TestReadLibrary:
         assert refs[0].pdf_path is None
         assert refs[0].pdf_resolution == bib_reader.PDF_NO_FILE_FIELD
 
-    def test_entry_with_html_only_snapshot_reports_html_only(self, isolated_config):
+    def test_entry_with_html_only_snapshot_reports_non_pdf_attachment(self, isolated_config):
         html = isolated_config.BIB_FILE_PATH.parent / "page.html"
         html.write_text("<html></html>")
         write_bib(
@@ -195,7 +209,7 @@ class TestReadLibrary:
         )
         refs = bib_reader.read_library()
         assert refs[0].pdf_path is None
-        assert refs[0].pdf_resolution == bib_reader.PDF_HTML_ONLY
+        assert refs[0].pdf_resolution == bib_reader.PDF_NON_PDF_ATTACHMENT
 
     def test_entry_with_pdf_path_gone_reports_pdf_path_gone(self, isolated_config):
         # bib file references a PDF that isn't actually on disk (moved,
