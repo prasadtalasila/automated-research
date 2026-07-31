@@ -22,6 +22,13 @@ script's own fixed location (<repo_root>/.claude/hooks/) rather than from
 the target path, so a relative file_path is resolved against it instead
 of just being ignored, and containment is checked via resolved path
 parts (is_relative_to), not string matching.
+
+Malformed stdin fails open (return 0, no block) rather than crashing:
+invalid JSON syntax, valid JSON that isn't an object (e.g. a bare
+array), and a "tool_input" that isn't itself an object are all treated
+as "no file_path given" -- any of them previously reached a bare
+`.get()` call on something that isn't a dict and crashed with an
+uncaught AttributeError instead.
 """
 
 import json
@@ -37,7 +44,12 @@ def main() -> int:
         payload = json.load(sys.stdin)
     except (json.JSONDecodeError, ValueError):
         return 0  # can't identify a target file from this -- fail open, not loud
-    raw_path = (payload.get("tool_input") or {}).get("file_path", "")
+    if not isinstance(payload, dict):
+        return 0  # valid JSON (e.g. a bare array/string/number) but not the expected object shape
+    tool_input = payload.get("tool_input")
+    if not isinstance(tool_input, dict):
+        tool_input = {}  # missing, null, or the wrong shape -- same as "no file_path given"
+    raw_path = tool_input.get("file_path", "")
     if not raw_path:
         return 0
 
