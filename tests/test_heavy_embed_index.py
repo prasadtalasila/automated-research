@@ -8,12 +8,14 @@ functions shadows the real packages for the duration of the test
 without needing them uninstalled.
 """
 
+import re
 import subprocess
 import sys
 import types
 
 import pytest
 
+from src import config
 from src.heavy import embed_index
 from src.heavy.corpus import CorpusDoc
 
@@ -177,7 +179,7 @@ class TestBuildIndex:
         assert counts["b2024"] == 0
 
         client = FakeChromaClient.instances[-1]
-        collection = client.collections["corpus"]
+        collection = client.collections[embed_index._collection_name()]
         assert len(collection.upserted) == 1
         upsert_call = collection.upserted[0]
         assert upsert_call["ids"] == ["a2024::0"]
@@ -205,7 +207,7 @@ class TestBuildIndexIncremental:
         embed_index.build_index([doc])
 
         client = FakeChromaClient.instances[-1]
-        collection = client.collections["corpus"]
+        collection = client.collections[embed_index._collection_name()]
         upserts_before = len(collection.upserted)
 
         counts = embed_index.build_index([doc])
@@ -222,7 +224,7 @@ class TestBuildIndexIncremental:
         counts = embed_index.build_index([doc2])
 
         client = FakeChromaClient.instances[-1]
-        collection = client.collections["corpus"]
+        collection = client.collections[embed_index._collection_name()]
         remaining = collection.get(where={"doc_id": "a2024"})
 
         assert counts["a2024"] == len(remaining["ids"]) > 1
@@ -233,7 +235,7 @@ class TestBuildIndexIncremental:
         doc_long = self.make_doc(tmp_path, "word " * 300)
         embed_index.build_index([doc_long])
         client = FakeChromaClient.instances[-1]
-        collection = client.collections["corpus"]
+        collection = client.collections[embed_index._collection_name()]
         long_chunk_count = len(collection.get(where={"doc_id": "a2024"})["ids"])
         assert long_chunk_count > 1
 
@@ -244,10 +246,60 @@ class TestBuildIndexIncremental:
         assert len(remaining["ids"]) == counts["a2024"] == 1
 
 
+class TestCollectionName:
+    def test_sanitizes_model_name_into_a_valid_chroma_collection_name(self, isolated_config, monkeypatch):
+        monkeypatch.setattr(config, "EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+        name = embed_index._collection_name()
+        assert name == "corpus-sentence-transformers-all-MiniLM-L6-v2"
+        assert re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]", name)
+
+    def test_different_models_get_different_collection_names(self, isolated_config, monkeypatch):
+        monkeypatch.setattr(config, "EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+        name_a = embed_index._collection_name()
+        monkeypatch.setattr(config, "EMBEDDING_MODEL", "sentence-transformers/all-mpnet-base-v2")
+        name_b = embed_index._collection_name()
+        assert name_a != name_b
+
+
+class TestBuildIndexModelChange:
+    def make_doc(self, tmp_path, text, doc_id="a2024"):
+        parsed = tmp_path / f"{doc_id}.txt"
+        parsed.write_text(text)
+        return CorpusDoc(doc_id=doc_id, citekey=doc_id, source="bib", title="A", pdf_path=None, text_path=str(parsed))
+
+    def test_model_swap_re_embeds_into_a_separate_collection_despite_unchanged_text(
+        self, isolated_config, fake_heavy_deps, tmp_path, monkeypatch
+    ):
+        # Regression test: build_index()'s incremental skip previously keyed
+        # only off the doc's text hash, so swapping config.toml's
+        # embedding_model (e.g. MiniLM-L6-v2 -> mpnet-base-v2, a real change
+        # made in this repo) on a doc whose *text* hadn't changed would skip
+        # re-embedding and keep serving the old model's now-wrong-dimension
+        # vectors under the new model.
+        monkeypatch.setattr(config, "EMBEDDING_MODEL", "model-a")
+        doc = self.make_doc(tmp_path, "word " * 10)
+        embed_index.build_index([doc])
+
+        client = FakeChromaClient.instances[-1]
+        collection_a = client.collections[embed_index._collection_name()]
+        assert len(collection_a.upserted) == 1
+
+        monkeypatch.setattr(config, "EMBEDDING_MODEL", "model-b")
+        counts = embed_index.build_index([doc])
+
+        client2 = FakeChromaClient.instances[-1]
+        collection_b = client2.collections[embed_index._collection_name()]
+
+        assert collection_b is not collection_a
+        assert len(collection_b.upserted) == 1  # freshly re-embedded, not skipped
+        assert counts["a2024"] == 1
+        assert len(collection_a.upserted) == 1  # model-a's collection untouched
+
+
 class TestSearch:
     def test_combines_metadata_snippet_and_distance(self, isolated_config, fake_heavy_deps):
         client, _ = embed_index.get_client_and_model()
-        collection = client.get_or_create_collection("corpus")
+        collection = client.get_or_create_collection(embed_index._collection_name())
         collection.query_response = {
             "documents": [["some long document text " * 5]],
             "metadatas": [[{"doc_id": "a2024", "citekey": "a2024", "source": "bib", "title": "A"}]],

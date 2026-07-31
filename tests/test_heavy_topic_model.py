@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from src import config
 from src.heavy import embed_index, topic_model
 from src.heavy.corpus import CorpusDoc
 
@@ -203,6 +204,29 @@ class TestEmbeddingCache:
         cache = json.loads(isolated_config.TOPIC_EMBED_CACHE_PATH.read_text())
         assert set(cache) == {d.doc_id for d in docs}
         assert all("hash" in v and "embedding" in v for v in cache.values())
+
+    def test_model_change_re_embeds_every_cached_doc(
+        self, isolated_config, fake_bertopic_stack, tmp_path, monkeypatch
+    ):
+        # Regression test: the cache previously keyed staleness only off the
+        # doc's text hash, so swapping config.toml's embedding_model (e.g.
+        # MiniLM-L6-v2 -> mpnet-base-v2, a real change made in this repo)
+        # would keep serving cached vectors from the old model -- silently
+        # mixing dimensions in the `embeddings` array BERTopic is fit on.
+        monkeypatch.setattr(config, "EMBEDDING_MODEL", "model-a")
+        docs = make_docs_with_text(6, tmp_path)
+        topic_model.run_topic_model(docs)
+        assert len(FakeModel.encode_call_texts) == 1
+        assert len(FakeModel.encode_call_texts[0]) == 6
+
+        monkeypatch.setattr(config, "EMBEDDING_MODEL", "model-b")
+        topic_model.run_topic_model(docs)
+
+        assert len(FakeModel.encode_call_texts) == 2
+        assert len(FakeModel.encode_call_texts[1]) == 6  # every doc re-embedded, not just changed ones
+
+        cache = json.loads(isolated_config.TOPIC_EMBED_CACHE_PATH.read_text())
+        assert all(v["model"] == "model-b" for v in cache.values())
 
     def test_new_doc_added_to_existing_corpus_only_encodes_the_new_one(
         self, isolated_config, fake_bertopic_stack, tmp_path

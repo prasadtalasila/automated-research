@@ -60,14 +60,24 @@ def run_topic_model(docs: list[CorpusDoc]) -> dict:
 
     cache = _load_embed_cache()
     doc_hashes = {doc_id: embed_index.hash_text(text) for doc_id, text in doc_texts.items()}
+    # Track which model produced each cached vector, not just the text hash
+    # that produced it: swapping config.toml's embedding_model changes every
+    # vector's dimensionality without changing any doc's text, and mixing
+    # dimensions in the same `embeddings` array below breaks BERTopic outright.
     stale_doc_ids = [
         doc_id for doc_id in doc_texts
-        if doc_id not in cache or cache[doc_id]["hash"] != doc_hashes[doc_id]
+        if doc_id not in cache
+        or cache[doc_id]["hash"] != doc_hashes[doc_id]
+        or cache[doc_id].get("model") != config.EMBEDDING_MODEL
     ]
     if stale_doc_ids:
         new_vecs = model.encode([doc_texts[d] for d in stale_doc_ids], show_progress_bar=False)
         for doc_id, vec in zip(stale_doc_ids, new_vecs):
-            cache[doc_id] = {"hash": doc_hashes[doc_id], "embedding": vec.tolist()}
+            cache[doc_id] = {
+                "hash": doc_hashes[doc_id],
+                "model": config.EMBEDDING_MODEL,
+                "embedding": vec.tolist(),
+            }
         _save_embed_cache(cache)
 
     doc_ids = list(doc_texts)

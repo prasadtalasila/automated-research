@@ -36,4 +36,4 @@ grobid_health_timeout = 3.0
 # Seconds. GROBID's header extraction on a real PDF is not instant;
 # this must outlast that, not just a health check.
 grobid_extract_timeout = 60.0
-embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
+embedding_model = "sentence-transformers/all-mpnet-base-v2"
