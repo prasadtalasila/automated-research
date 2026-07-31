@@ -116,7 +116,7 @@ class TestRealBibliographySmoke:
         monkeypatch.setattr(config, "BIB_FILE_PATH", real_bib)
 
         refs = bib_reader.read_library()
-        assert len(refs) == 642
+        assert len(refs) == 646
 
         citekeys = {r.citekey for r in refs}
         assert len(citekeys) == len(refs), "citekeys must be unique"
