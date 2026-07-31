@@ -97,6 +97,14 @@ class TestFullPipelineNoMocks:
             references.apply(draft)
 
 
+real_bib_available = (config.REPO_ROOT / "papers" / "bibliography.bib").exists()
+
+
+@pytest.mark.skipif(
+    not real_bib_available,
+    reason="papers/bibliography.bib is gitignored, per-host data (CLAUDE.md) -- "
+           "absent on a fresh clone/CI checkout until someone exports their own",
+)
 class TestRealBibliographySmoke:
     """Parses this repo's actual bibliography.bib (read-only) -- catches
     a regression against real export data that a synthetic 1-3 entry

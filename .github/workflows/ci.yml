@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Dogfoods the project's own single install path (CLAUDE.md: "don't
+      # add a second install path") rather than hand-rolling equivalent
+      # steps here -- this is also, itself, a real end-to-end test that
+      # the install script still works on a clean host.
+      - name: Install OS + Python dependencies (os-deps + python-deps)
+        run: bash scripts/install_full_pipeline.sh all
+
+      - name: Install dev dependencies (pytest/pytest-cov)
+        run: bash scripts/install_full_pipeline.sh dev-deps
+
+      - name: Run test suite with coverage
+        run: .venv-full/bin/python -m pytest --cov=src --cov=scripts --cov-report=term-missing
+
+      - name: poetry check
+        run: |
+          export VIRTUAL_ENV="$PWD/.venv-full"
+          poetry check
