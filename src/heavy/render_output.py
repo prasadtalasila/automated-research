@@ -111,6 +111,50 @@ def _safe_render_inputs(input_path: Path, bib_path: Path, tmp_dir: Path) -> tupl
     return safe_md, safe_bib
 
 
+# Matches Markdown image syntax: ![alt](path) or ![alt](path "title").
+_MD_IMAGE_RE = re.compile(r'!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)')
+# A URI scheme prefix (http:, https:, data:, ...) -- pandoc fetches these
+# itself; nothing local to copy.
+_URI_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+
+
+def _local_image_refs(text: str) -> list[str]:
+    """Every local (non-URL) image path a Markdown draft references."""
+    return [
+        ref for ref in (m.group(1) for m in _MD_IMAGE_RE.finditer(text))
+        if not _URI_SCHEME_RE.match(ref)
+    ]
+
+
+def _copy_local_images(input_path: Path, dest_dir: Path) -> None:
+    """Copies every local image `input_path` references alongside the
+    rendered output in `dest_dir`, so a `tex` output is actually
+    self-contained and compilable on its own (`cd content/rendered &&
+    pdflatex *.tex`).
+
+    Without this, pandoc's LaTeX writer emits `\\includegraphics{path}`
+    verbatim, unresolved and uncopied -- the `pdf` format only looks fine
+    because pandoc's own internal pdflatex pass reads the image directly
+    via `--resource-path` below, in a temp dir this function never touches.
+    A relative `path` an image reference doesn't resolve to a real file
+    under `input_path`'s own directory is silently skipped here (letting
+    pandoc's own missing-resource handling surface it, same as today), as
+    is any reference that would resolve outside `input_path`'s directory
+    (absolute, or `..`-escaping) -- a draft's image references are never a
+    reason to write outside `dest_dir`.
+    """
+    for ref in _local_image_refs(input_path.read_text()):
+        ref_path = Path(ref)
+        if ref_path.is_absolute() or ".." in ref_path.parts:
+            continue
+        src = input_path.parent / ref_path
+        if not src.is_file():
+            continue
+        dst = dest_dir / ref_path
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+
+
 def render(
     input_path: str,
     output_format: str = "pdf",
@@ -138,6 +182,7 @@ def render(
 
     config.RENDERED_DIR.mkdir(parents=True, exist_ok=True)
     input_path = Path(input_path)
+    _copy_local_images(input_path, config.RENDERED_DIR)
     out_path = config.RENDERED_DIR / f"{input_path.stem}.{output_format}"
     has_manual_refs = references.has_section(input_path.read_text())
 
@@ -146,6 +191,15 @@ def render(
         cmd = [
             "pandoc", str(safe_md),
             "--standalone",
+            # Local image references (`![...](figure.png)`) in the draft are
+            # relative to input_path's own directory, not whatever directory
+            # this CLI happened to be invoked from. Without this, pandoc's
+            # PDF/DOCX writers (which read the image file themselves, unlike
+            # the tex writer, which just emits an unverified \includegraphics
+            # path) can't find it, and silently replace the image with its
+            # alt-text caption instead of erroring -- a wrong-but-successful
+            # render that's easy to miss without diffing file sizes.
+            "--resource-path", str(input_path.resolve().parent),
             "--variable", f"documentclass={documentclass}",
             "--variable", f"fontsize={fontsize}",
             # Pandoc's own default LaTeX template appends "paper" itself

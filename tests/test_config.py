@@ -82,7 +82,7 @@ class TestRealConfigToml:
         assert config.GROBID_EXTRACT_TIMEOUT == 60.0
 
     def test_embedding_model_default(self):
-        assert config.EMBEDDING_MODEL == "sentence-transformers/all-MiniLM-L6-v2"
+        assert config.EMBEDDING_MODEL == "sentence-transformers/all-mpnet-base-v2"
 
 
 class TestModuleReloadWithEnvOverrides:

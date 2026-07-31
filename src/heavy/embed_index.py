@@ -20,6 +20,7 @@ closes that gap too.
 """
 
 import hashlib
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -27,7 +28,24 @@ from pathlib import Path
 from src import config
 from src.heavy.corpus import CorpusDoc, safe_filename
 
-_COLLECTION_NAME = "corpus"
+_COLLECTION_PREFIX = "corpus"
+
+
+def _collection_name() -> str:
+    """Chroma collection name for the currently configured embedding model.
+
+    Different models produce different-dimensioned vectors (e.g.
+    MiniLM-L6-v2's 384 vs mpnet-base-v2's 768). A single shared collection
+    would either raise a dimension-mismatch error from Chroma on the first
+    upsert after a model swap, or -- since the skip logic below only keys
+    off the text hash -- silently keep serving stale vectors from the old
+    model for any doc whose text hasn't changed. Namespacing the collection
+    by model sidesteps both: switching `embedding_model` in config.toml
+    starts a fresh, empty collection instead of corrupting or stale-skipping
+    the old one.
+    """
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", config.EMBEDDING_MODEL).strip("-.")
+    return f"{_COLLECTION_PREFIX}-{slug}"[:63].rstrip("-.")
 
 
 def hash_text(text: str) -> str:
@@ -74,7 +92,7 @@ def build_index(docs: list[CorpusDoc]) -> dict[str, int]:
     """Embeds and upserts each doc's chunks, skipping docs whose text is
     unchanged since the last call. Returns {doc_id: n_chunks}."""
     client, model = get_client_and_model()
-    collection = client.get_or_create_collection(_COLLECTION_NAME)
+    collection = client.get_or_create_collection(_collection_name())
 
     counts = {}
     for doc in docs:
@@ -116,7 +134,7 @@ def search(query: str, k: int = 5, snippet_chars: int = 500) -> list[dict]:
     """`snippet_chars` defaults to enough context for a caller to judge
     relevance itself before citing, rather than trusting distance alone."""
     client, model = get_client_and_model()
-    collection = client.get_or_create_collection(_COLLECTION_NAME)
+    collection = client.get_or_create_collection(_collection_name())
     query_embedding = model.encode([query], show_progress_bar=False).tolist()
     raw = collection.query(query_embeddings=query_embedding, n_results=k)
 

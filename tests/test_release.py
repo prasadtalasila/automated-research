@@ -28,8 +28,16 @@ def make_repo(tmp_path):
     (repo / "tests").mkdir()
     (repo / "tests" / "test_foo.py").write_text("def test_x(): pass")
     (repo / "DEVELOPER.md").write_text("dev notes")
+    (repo / ".github" / "workflows").mkdir(parents=True)
+    (repo / ".github" / "workflows" / "ci.yml").write_text("name: ci")
+    (repo / ".gitignore").write_text("content/parsed/\n")
+    (repo / "AGENTS.md").write_text("agent guidance")
+    (repo / "content" / "drafts").mkdir(parents=True)
+    (repo / "content" / "drafts" / "example-tutorial.md").write_text("# Example")
+    (repo / "papers" / "pdfs").mkdir(parents=True)
+    (repo / "papers" / "pdfs" / "manifest.json").write_text("{}")
 
-    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "add", "-A", "-f"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=repo, check=True)
     return repo
 
@@ -55,6 +63,17 @@ class TestTrackedFiles:
         assert not any(p.startswith("tests/") for p in paths)
         assert "DEVELOPER.md" not in paths
 
+    def test_excludes_github_gitignore_and_agents_md(self, repo):
+        paths = release.tracked_files()
+        assert not any(p.startswith(".github/") for p in paths)
+        assert ".gitignore" not in paths
+        assert "AGENTS.md" not in paths
+
+    def test_excludes_tracked_files_under_content_and_papers(self, repo):
+        paths = release.tracked_files()
+        assert not any(p.startswith("content/") for p in paths)
+        assert not any(p.startswith("papers/") for p in paths)
+
 
 class TestBuildRelease:
     def test_zip_contains_only_non_dev_files(self, repo):
@@ -72,6 +91,31 @@ class TestBuildRelease:
         assert "automated-research-9.9.9/src/foo.py" in names
         assert not any("tests/" in n for n in names)
         assert not any(n.endswith("DEVELOPER.md") for n in names)
+
+    def test_zip_excludes_github_gitignore_and_agents_md(self, repo):
+        import zipfile
+
+        zip_path, _ = release.build_release()
+
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+        assert not any(".github/" in n for n in names)
+        assert not any(n.endswith("/.gitignore") for n in names)
+        assert not any(n.endswith("/AGENTS.md") for n in names)
+
+    def test_zip_ships_content_and_papers_as_empty_directories(self, repo):
+        import zipfile
+
+        zip_path, _ = release.build_release()
+
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+        assert "automated-research-9.9.9/content/" in names
+        assert "automated-research-9.9.9/papers/" in names
+        # The directory placeholder is present, but none of the real,
+        # per-host tracked files that used to live under it are.
+        assert not any(n.startswith("automated-research-9.9.9/content/") and n != "automated-research-9.9.9/content/" for n in names)
+        assert not any(n.startswith("automated-research-9.9.9/papers/") and n != "automated-research-9.9.9/papers/" for n in names)
 
         # Staging directory is cleaned up; only the zip remains under release/.
         assert list((repo / "release").iterdir()) == [zip_path]
