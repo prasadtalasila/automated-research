@@ -33,6 +33,7 @@ def isolated_config(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "GROBID_DIR", content_dir / "grobid")
     monkeypatch.setattr(config, "CHROMA_DIR", content_dir / "chroma")
     monkeypatch.setattr(config, "TOPICS_PATH", content_dir / "topics.json")
+    monkeypatch.setattr(config, "TOPIC_EMBED_CACHE_PATH", content_dir / "topic_embed_cache.json")
     monkeypatch.setattr(config, "RENDERED_DIR", content_dir / "rendered")
     return config
 
@@ -72,7 +73,7 @@ def make_ref():
 @pytest.fixture
 def system_python():
     """A python3 that can't import bibtexparser, to verify the documented
-    invariant (CLAUDE.md) that citation_gate.py/references.py/
+    invariant (AGENTS.md) that citation_gate.py/references.py/
     render_output.py run with the bare system interpreter, no venv
     required. A venv's python is typically just a symlink to the same
     system binary (`file` on it resolves identically to /usr/bin/python3),

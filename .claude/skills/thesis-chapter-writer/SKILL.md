@@ -58,7 +58,7 @@ what it found before drafting.
    - Citations via `\citep{key}` / `\citet{key}` — never a bare invented key
 6. **Never write a citekey you didn't get from `search()`.** If a citation
    would strengthen the argument but isn't in the synced library, tell the
-   user in prose rather than inventing a key -- see CLAUDE.md's citekey
+   user in prose rather than inventing a key -- see AGENTS.md's citekey
    invariant (fabricated placeholder references are exactly the failure
    mode this rule exists to prevent).
 7. **Log provenance.** Write `content/provenance/<slug>.json`:

@@ -2,6 +2,8 @@ name: CI
 
 on:
   push:
+    tags-ignore:
+      - 'v*'
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -15,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Dogfoods the project's own single install path (CLAUDE.md: "don't
+      # Dogfoods the project's own single install path (AGENTS.md: "don't
       # add a second install path") rather than hand-rolling equivalent
       # steps here -- this is also, itself, a real end-to-end test that
       # the install script still works on a clean host.

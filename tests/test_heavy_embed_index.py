@@ -36,14 +36,36 @@ class FakeSentenceTransformer:
 
 
 class FakeCollection:
+    """Models enough of a real chromadb.Collection's get/upsert/delete
+    persistence semantics for build_index()'s incremental skip logic to
+    exercise for real, not just record calls."""
+
     def __init__(self):
         self.upserted = []
         self.query_response = None
+        self._store = {}  # id -> {"document":..., "embedding":..., "metadata":...}
 
     def upsert(self, ids, documents, embeddings, metadatas):
         self.upserted.append({
             "ids": ids, "documents": documents, "embeddings": embeddings, "metadatas": metadatas,
         })
+        for i, doc, emb, meta in zip(ids, documents, embeddings, metadatas):
+            self._store[i] = {"document": doc, "embedding": emb, "metadata": meta}
+
+    def get(self, where=None):
+        items = list(self._store.items())
+        if where:
+            key, value = next(iter(where.items()))
+            items = [(i, v) for i, v in items if v["metadata"].get(key) == value]
+        return {
+            "ids": [i for i, _ in items],
+            "documents": [v["document"] for _, v in items],
+            "metadatas": [v["metadata"] for _, v in items],
+        }
+
+    def delete(self, ids):
+        for i in ids:
+            self._store.pop(i, None)
 
     def query(self, query_embeddings, n_results):
         return self.query_response
@@ -161,6 +183,7 @@ class TestBuildIndex:
         assert upsert_call["ids"] == ["a2024::0"]
         assert upsert_call["metadatas"][0] == {
             "doc_id": "a2024", "citekey": "a2024", "source": "bib", "title": "A",
+            "text_hash": embed_index.hash_text(" ".join(["word"] * 10)),
         }
 
     def test_empty_chunks_from_whitespace_only_text(self, isolated_config, fake_heavy_deps, tmp_path):
@@ -169,6 +192,56 @@ class TestBuildIndex:
         doc = CorpusDoc(doc_id="a2024", citekey="a2024", source="bib", title="A", pdf_path=None, text_path=str(parsed))
         counts = embed_index.build_index([doc])
         assert counts["a2024"] == 0
+
+
+class TestBuildIndexIncremental:
+    def make_doc(self, tmp_path, text, doc_id="a2024"):
+        parsed = tmp_path / f"{doc_id}.txt"
+        parsed.write_text(text)
+        return CorpusDoc(doc_id=doc_id, citekey=doc_id, source="bib", title="A", pdf_path=None, text_path=str(parsed))
+
+    def test_second_call_with_unchanged_text_skips_encode(self, isolated_config, fake_heavy_deps, tmp_path):
+        doc = self.make_doc(tmp_path, "word " * 10)
+        embed_index.build_index([doc])
+
+        client = FakeChromaClient.instances[-1]
+        collection = client.collections["corpus"]
+        upserts_before = len(collection.upserted)
+
+        counts = embed_index.build_index([doc])
+
+        assert counts["a2024"] == 1
+        assert len(collection.upserted) == upserts_before  # no new upsert -- encode was skipped
+
+    def test_changed_text_re_embeds_and_replaces_chunks(self, isolated_config, fake_heavy_deps, tmp_path):
+        doc = self.make_doc(tmp_path, "word " * 10)
+        embed_index.build_index([doc])
+
+        # Same doc_id, different (longer) text -> different hash, different chunk count.
+        doc2 = self.make_doc(tmp_path, "different word " * 300, doc_id="a2024")
+        counts = embed_index.build_index([doc2])
+
+        client = FakeChromaClient.instances[-1]
+        collection = client.collections["corpus"]
+        remaining = collection.get(where={"doc_id": "a2024"})
+
+        assert counts["a2024"] == len(remaining["ids"]) > 1
+        # No stale chunks left over from the first, shorter version.
+        assert all(m["text_hash"] == embed_index.hash_text("different word " * 300) for m in remaining["metadatas"])
+
+    def test_shrinking_chunk_count_leaves_no_orphaned_chunks(self, isolated_config, fake_heavy_deps, tmp_path):
+        doc_long = self.make_doc(tmp_path, "word " * 300)
+        embed_index.build_index([doc_long])
+        client = FakeChromaClient.instances[-1]
+        collection = client.collections["corpus"]
+        long_chunk_count = len(collection.get(where={"doc_id": "a2024"})["ids"])
+        assert long_chunk_count > 1
+
+        doc_short = self.make_doc(tmp_path, "word " * 10, doc_id="a2024")
+        counts = embed_index.build_index([doc_short])
+
+        remaining = collection.get(where={"doc_id": "a2024"})
+        assert len(remaining["ids"]) == counts["a2024"] == 1
 
 
 class TestSearch:

@@ -11,7 +11,7 @@
 # auto-synced -- re-export after adding papers, then re-run
 # `python -m src.sync`. Lives under papers/ and is gitignored (personal,
 # per-host data, not shippable source -- decision: 2026-07-31); see
-# CLAUDE.md.
+# AGENTS.md.
 # Relative to the repo root.
 path = "papers/bibliography.bib"
 

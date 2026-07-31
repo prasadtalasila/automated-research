@@ -58,6 +58,10 @@ DOCLING_DIR = CONTENT_DIR / "docling"
 GROBID_DIR = CONTENT_DIR / "grobid"
 CHROMA_DIR = CONTENT_DIR / "chroma"
 TOPICS_PATH = CONTENT_DIR / "topics.json"
+# Per-doc whole-text embedding cache keyed by content hash, so
+# topic_model.run_topic_model() only re-encodes docs whose text actually
+# changed since the last run -- see that module's docstring.
+TOPIC_EMBED_CACHE_PATH = CONTENT_DIR / "topic_embed_cache.json"
 RENDERED_DIR = CONTENT_DIR / "rendered"
 
 GROBID_URL = _get("GROBID_URL", "heavy", "grobid_url", default="http://localhost:8070")

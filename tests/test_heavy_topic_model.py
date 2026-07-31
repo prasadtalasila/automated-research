@@ -13,6 +13,7 @@ duplicated here.
 import json
 import sys
 import types
+from pathlib import Path
 
 import pytest
 
@@ -52,9 +53,17 @@ class FakeBERTopic:
         return FakeTopicInfo()
 
 
+class FakeArray(list):
+    def tolist(self):
+        return list(self)
+
+
 class FakeModel:
+    encode_call_texts = []  # records each call's input, for cache-hit assertions
+
     def encode(self, texts, show_progress_bar=False):
-        return [[float(len(t))] for t in texts]
+        FakeModel.encode_call_texts.append(list(texts))
+        return FakeArray([FakeArray([float(len(t))]) for t in texts])
 
 
 @pytest.fixture
@@ -62,6 +71,7 @@ def fake_bertopic_stack(monkeypatch):
     FakeUMAP.last_kwargs = None
     FakeHDBSCAN.last_kwargs = None
     FakeBERTopic.last_kwargs = None
+    FakeModel.encode_call_texts = []
 
     umap_module = types.ModuleType("umap")
     umap_module.UMAP = FakeUMAP
@@ -164,3 +174,49 @@ class TestRunTopicModel:
         result = topic_model.run_topic_model(docs)
         assert "no_text" not in result["assignments"]
         assert result["n_docs"] == 6
+
+
+class TestEmbeddingCache:
+    def test_second_run_with_unchanged_docs_encodes_nothing(self, isolated_config, fake_bertopic_stack, tmp_path):
+        docs = make_docs_with_text(6, tmp_path)
+        topic_model.run_topic_model(docs)
+        assert len(FakeModel.encode_call_texts) == 1  # one batch call for all 6 new docs
+
+        topic_model.run_topic_model(docs)
+        assert len(FakeModel.encode_call_texts) == 1  # no second call -- every doc was cache-hit
+
+    def test_changed_doc_triggers_encode_for_only_that_doc(self, isolated_config, fake_bertopic_stack, tmp_path):
+        docs = make_docs_with_text(6, tmp_path)
+        topic_model.run_topic_model(docs)
+
+        Path(docs[0].text_path).write_text("completely different content now")
+        topic_model.run_topic_model(docs)
+
+        assert len(FakeModel.encode_call_texts) == 2
+        assert FakeModel.encode_call_texts[1] == ["completely different content now"]
+
+    def test_cache_persisted_to_disk_between_calls(self, isolated_config, fake_bertopic_stack, tmp_path):
+        docs = make_docs_with_text(6, tmp_path)
+        topic_model.run_topic_model(docs)
+
+        assert isolated_config.TOPIC_EMBED_CACHE_PATH.exists()
+        cache = json.loads(isolated_config.TOPIC_EMBED_CACHE_PATH.read_text())
+        assert set(cache) == {d.doc_id for d in docs}
+        assert all("hash" in v and "embedding" in v for v in cache.values())
+
+    def test_new_doc_added_to_existing_corpus_only_encodes_the_new_one(
+        self, isolated_config, fake_bertopic_stack, tmp_path
+    ):
+        docs = make_docs_with_text(6, tmp_path)
+        topic_model.run_topic_model(docs)
+
+        new_doc_path = tmp_path / "doc_new.txt"
+        new_doc_path.write_text("a brand new document")
+        new_doc = CorpusDoc(
+            doc_id="doc_new", citekey="doc_new", source="bib", title="New",
+            pdf_path=None, text_path=str(new_doc_path),
+        )
+        topic_model.run_topic_model(docs + [new_doc])
+
+        assert len(FakeModel.encode_call_texts) == 2
+        assert FakeModel.encode_call_texts[1] == ["a brand new document"]

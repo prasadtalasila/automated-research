@@ -1,5 +1,5 @@
 """src/sync.py: the deterministic bib -> ledger -> parsed-text entrypoint
-("job 1" -- CLAUDE.md). No LLM calls, must be idempotent."""
+("job 1" -- AGENTS.md). No LLM calls, must be idempotent."""
 
 import subprocess
 

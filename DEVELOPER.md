@@ -38,11 +38,15 @@ aren't on `PATH`.
 
 ```
 README.md                 you are here
-CLAUDE.md                 project instructions for Claude Code sessions -- hard invariants, install notes
+AGENTS.md                 instructions for coding agents working in this repo -- hard invariants, install
+                          notes, dev process, commit/PR/release conventions
 DEVELOPER.md              this file -- test running, repo layout, open questions
 DOCKER.md                 running this repo in a container (docker/Dockerfile + docker/setup.sh)
 GROBID.md                 building/running GROBID standalone on a bare host, step by step
 LICENSE                   MIT
+.github/workflows/        ci.yml (test suite + coverage + poetry check, on push/PR) and release.yml
+                          (on a v* tag: verifies tag matches pyproject.toml's version, builds
+                          scripts/release.py's zip, publishes it to a GitHub Release)
 config.toml               central config -- paths, GROBID URL/timeouts, embedding model (see README's "Configuration")
 papers/                   gitignored, per-host data -- not shipped in the repo
   bibliography.bib          BibTeX export -- source of truth for citekeys/metadata (config.toml's [bib].path default)
@@ -78,7 +82,7 @@ scripts/
 tests/                    pytest suite -- unit tests per module + end-to-end feature tests (see "Running tests")
 content/                  generated, gitignored (regenerate with sync)
   ledger.sqlite, parsed/<citekey>.txt, provenance/,
-  docling/, chroma/, topics.json, rendered/  (src/heavy/ outputs)
+  docling/, chroma/, topics.json, topic_embed_cache.json, rendered/  (src/heavy/ outputs)
 .claude/skills/           genre layer: survey-writer, thesis-chapter-writer, tutorial-writer, deep-research
 .claude/agents/           deep-research's subagents: deep-research-interviewer, deep-research-writer, peer-reviewer
 docker/                   Dockerfile + setup.sh (GROBID/TeX Live/Pandoc/Poetry) -- unverified end-to-end, see DOCKER.md
@@ -93,16 +97,15 @@ the following tasks need to be completed in priority order:
    continuous auto-export, `bibliography.bib` is a manual, point-in-time
    snapshot -- a cron job watching only its mtime does nothing until a
    human re-exports it.
-2. **The heavy stages have no incremental skip logic.** `python -m
-   src.sync` already is incremental (a paper is only re-parsed if its PDF
-   hash changed) -- safe to run every few minutes. `src/heavy/embed_index.py`
-   and `src/heavy/topic_model.py` are **not**: they rebuild/reprocess
-   every document on every call. A cron job that also re-runs
-   `full_pipeline.py --stages docling,embed,bertopic` on a schedule would
-   re-run Docling over all 5 PDFs every tick -- 373 seconds and the same
-   swap pressure documented above, for zero new information. This needs
-   the same content-hash-based skip logic `ledger.py` already has for the
-   core pipeline, extended to the heavy stages.
+2. ~~The heavy stages have no incremental skip logic.~~ **Done for
+   embed/bertopic** (`src/heavy/embed_index.py`'s `build_index()` skips
+   `model.encode()` for docs whose text hash is unchanged since the last
+   call; `src/heavy/topic_model.py` caches per-doc whole-text embeddings
+   the same way, re-clustering the full corpus but only re-encoding
+   changed docs). **Docling is still not incremental** -- `full_pipeline.py
+   --stages docling` reprocesses every PDF on every call (373 seconds for
+   5 PDFs, documented above), the same problem this item originally
+   described, just not yet fixed for that one stage.
 3. **No scheduling mechanism exists yet** -- no crontab entry, no systemd
    timer. Given `sync` is already cheap and idempotent, a stateless cron
    entry polling every N minutes is the right shape (survives reboots

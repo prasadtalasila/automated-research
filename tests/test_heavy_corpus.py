@@ -1,5 +1,5 @@
 """src/heavy/corpus.py: unifies bib-sourced docs (real citekeys) and
-source-pdfs docs (never citekey-shaped -- CLAUDE.md's "doc:" namespace
+source-pdfs docs (never citekey-shaped -- AGENTS.md's "doc:" namespace
 invariant)."""
 
 import json

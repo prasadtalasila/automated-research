@@ -82,7 +82,7 @@ install_os_deps() {
         texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended latexmk \
         lmodern
     # python3-poetry (apt), not `pip install poetry`: PEP 668 blocks bare
-    # pip on this host regardless of root (see CLAUDE.md), and Poetry is
+    # pip on this host regardless of root (see AGENTS.md), and Poetry is
     # itself the thing python-deps below shells out to -- it can't
     # bootstrap itself via the same pip it's meant to replace.
     # lmodern (the LaTeX package providing lmodern.sty) is a separate

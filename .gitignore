@@ -6,6 +6,7 @@ content/docling/
 content/grobid/
 content/chroma/
 content/topics.json
+content/topic_embed_cache.json
 content/rendered/
 content/drafts/
 content/provenance/
@@ -26,7 +27,7 @@ htmlcov/
 .DS_Store
 release/
 # papers/bibliography.bib is a manual, per-host export from a personal
-# reference manager (see CLAUDE.md) -- not shippable source, so it's
+# reference manager (see AGENTS.md) -- not shippable source, so it's
 # gitignored rather than tracked. papers/pdfs/ is the [source_pdfs].dir
 # default in config.toml (migrated 2026-07-31 from source-pdfs/, now
 # retired); manifest.json/reading-notes.md there are hand-written and

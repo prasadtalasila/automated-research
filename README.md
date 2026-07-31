@@ -93,7 +93,7 @@ This is a **different mechanism from `papers/pdfs/`** (`config.toml`'s
 `[source_pdfs].dir`): that directory is for raw PDFs gathered *outside*
 Zotero entirely (e.g. an OpenAlex/Semantic Scholar/arXiv metadata-API
 search with no reference-manager entry at all) -- see
-[`src/heavy/corpus.py`](src/heavy/corpus.py) and CLAUDE.md's citekey
+[`src/heavy/corpus.py`](src/heavy/corpus.py) and AGENTS.md's citekey
 invariant. Zotero's own exported attachments never belong there.
 
 To add more papers later: add the entry in Zotero, re-export the same way
@@ -171,7 +171,7 @@ file, e.g. `BIB_FILE=/path/to/other.bib python -m src.sync`.
 
 | Section | Key | Env var | Default | What it controls |
 |---|---|---|---|---|
-| `[bib]` | `path` | `BIB_FILE` | `papers/bibliography.bib` | The BibTeX export `src/bib_reader.py` parses -- the only source of citekeys (CLAUDE.md's hard invariant). Gitignored, per-host -- see DEVELOPER.md's "Repository layout" |
+| `[bib]` | `path` | `BIB_FILE` | `papers/bibliography.bib` | The BibTeX export `src/bib_reader.py` parses -- the only source of citekeys (AGENTS.md's hard invariant). Gitignored, per-host -- see DEVELOPER.md's "Repository layout" |
 | `[content]` | `dir` | `CONTENT_DIR` | `content` | Where `sync`/heavy-pipeline outputs live: `ledger.sqlite`, `parsed/`, `docling/`, `chroma/`, `topics.json`, `rendered/` |
 | `[source_pdfs]` | `dir` | `SOURCE_PDFS_DIR` | `papers/pdfs` | Raw PDFs gathered outside the bib file, no citekey -- see `src/heavy/corpus.py` |
 | `[heavy]` | `grobid_url` | `GROBID_URL` | `http://localhost:8070` | Where `src/heavy/grobid_extract.py` looks for a running GROBID instance |
@@ -272,7 +272,7 @@ you're prepared to rebuild the index.
 ## Architecture
 
 Two layers -- job 1 (deterministic) and job 2 (generative) in
-[CLAUDE.md](CLAUDE.md)'s terms -- with an optional heavy-pipeline
+[AGENTS.md](AGENTS.md)'s terms -- with an optional heavy-pipeline
 extension of job 2:
 
 - **Content layer** (job 1: shared, deterministic, safe to run
@@ -344,12 +344,12 @@ JOB 1 -- deterministic, unattended-safe     JOB 2 -- generative, on demand, revi
 metadata -- this pipeline parses it, it does not generate its own citekeys
 or its own copy of the bibliography. It's a per-host, gitignored file (see
 "Configuration" below), not shipped in the repo, since the PDFs it points
-to aren't either. See [CLAUDE.md](CLAUDE.md) for why, and what changed if
+to aren't either. See [AGENTS.md](AGENTS.md) for why, and what changed if
 you're looking at content written before 2026-07-28.
 
 Every genre skill runs `python -m src.citation_gate` on its own output
 before presenting a draft, and refuses to invent a citekey. See
-[CLAUDE.md](CLAUDE.md) for why this is a hard gate rather than a style
+[AGENTS.md](AGENTS.md) for why this is a hard gate rather than a style
 suggestion. Once a draft passes, `python -m src.references` appends (or
 idempotently replaces) a "## References" section built only from citekeys
 the draft already cites, and `python -m src.heavy.render_output

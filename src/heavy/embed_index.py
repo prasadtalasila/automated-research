@@ -4,8 +4,22 @@ This is the real embedding-based retrieval the core pipeline's
 src/retrieval.py deliberately deferred (keyword overlap only, pending a
 larger corpus). Needs `sentence-transformers` and `chromadb` from
 pyproject.toml's "heavy" Poetry group, in a venv.
+
+build_index() is incremental, mirroring src/ledger.py's own
+content-hash-based skip logic for the core pipeline: each chunk's stored
+metadata carries a hash of the *text that produced it* (not the PDF
+bytes -- Docling reprocessing the same PDF, or a manually edited parsed
+.txt, can change the embedded text without the PDF itself changing), and
+a doc whose current text hashes the same as what's already indexed skips
+model.encode() entirely. Only genuinely new/changed docs pay the encode
+cost. This also fixes a latent bug: previously, a doc whose chunk count
+*shrank* between runs left its old, now-orphaned trailing chunks in
+Chroma forever (upsert only ever adds/overwrites, never removes) -- an
+unchanged-vs-changed check that deletes-then-reinserts on a real change
+closes that gap too.
 """
 
+import hashlib
 import subprocess
 import tempfile
 from pathlib import Path
@@ -14,6 +28,10 @@ from src import config
 from src.heavy.corpus import CorpusDoc, safe_filename
 
 _COLLECTION_NAME = "corpus"
+
+
+def hash_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8", errors="ignore")).hexdigest()
 
 
 def get_text(doc: CorpusDoc) -> str | None:
@@ -53,7 +71,8 @@ def get_client_and_model():
 
 
 def build_index(docs: list[CorpusDoc]) -> dict[str, int]:
-    """Embeds and upserts every doc's chunks. Returns {doc_id: n_chunks}."""
+    """Embeds and upserts each doc's chunks, skipping docs whose text is
+    unchanged since the last call. Returns {doc_id: n_chunks}."""
     client, model = get_client_and_model()
     collection = client.get_or_create_collection(_COLLECTION_NAME)
 
@@ -63,6 +82,15 @@ def build_index(docs: list[CorpusDoc]) -> dict[str, int]:
         if not text:
             counts[doc.doc_id] = 0
             continue
+
+        text_hash = hash_text(text)
+        existing = collection.get(where={"doc_id": doc.doc_id})
+        if existing["ids"] and all(m.get("text_hash") == text_hash for m in existing["metadatas"]):
+            counts[doc.doc_id] = len(existing["ids"])
+            continue
+        if existing["ids"]:
+            collection.delete(ids=existing["ids"])
+
         chunks = chunk_text(text)
         if not chunks:
             counts[doc.doc_id] = 0
@@ -75,6 +103,7 @@ def build_index(docs: list[CorpusDoc]) -> dict[str, int]:
                 "citekey": doc.citekey or "",
                 "source": doc.source,
                 "title": doc.title,
+                "text_hash": text_hash,
             }
             for _ in chunks
         ]

@@ -50,7 +50,7 @@ synced corpus, simulating one editorial angle on the topic.
 - Every claim requires a real citekey pulled from a `search()` result --
   never fabricate one, and never cite a `source-pdfs` `doc:`-prefixed
   result as if it were a citekey (discuss it by title in prose instead,
-  explicitly marked not-yet-citable, per CLAUDE.md's invariant).
+  explicitly marked not-yet-citable, per AGENTS.md's invariant).
 - Document genuine disagreement between sources rather than picking one.
 - No fabricated citekeys, quotes, statistics, or attributions, ever.
 

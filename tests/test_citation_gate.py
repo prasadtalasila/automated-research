@@ -1,4 +1,4 @@
-"""src/citation_gate.py: the hard invariant (CLAUDE.md) -- a citekey may
+"""src/citation_gate.py: the hard invariant (AGENTS.md) -- a citekey may
 only be used if it's actually in the ledger. This is the single most
 important module in the repo to test thoroughly."""
 
@@ -158,7 +158,7 @@ class TestCliEntrypoint:
         assert "usage:" in result.stderr
 
     def test_runs_with_bare_system_python3_no_bibtexparser(self, system_python, isolated_config, tmp_path):
-        """CLAUDE.md's hard requirement: citation_gate must run with the
+        """AGENTS.md's hard requirement: citation_gate must run with the
         bare system interpreter, no bibtexparser/venv needed."""
         con = ledger.connect()
         ledger.upsert_reference(con, make_reference(citekey="smith2024"))
