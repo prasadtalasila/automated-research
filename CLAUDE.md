@@ -10,7 +10,7 @@ machine) already contains entries a prior review marked
 into a real paper. That is the failure mode this pipeline is built to
 prevent.
 
-Rule: a citekey may only be used if it appears in `bibliography.bib`
+Rule: a citekey may only be used if it appears in `papers/bibliography.bib`
 (source of truth -- see below) and was picked up into `content/ledger.sqlite`
 by `python -m src.sync`. If a citation would help an argument but isn't in
 the bib file, say so in prose to the user -- do not invent a key for it, and
@@ -24,9 +24,11 @@ lint suggestion -- treat a `FAIL` the same way you'd treat a failing test.
 
 ## The bib file is the source of truth (not this pipeline)
 
-`bibliography.bib` (repo root, path configurable via `config.toml`'s
-`[bib].path` or the `BIB_FILE` env var) is a manual export from your
-reference manager's BibTeX export feature -- no auto-sync plugin is
+`papers/bibliography.bib` (path configurable via `config.toml`'s
+`[bib].path` or the `BIB_FILE` env var; default changed from repo-root
+`bibliography.bib` to `papers/bibliography.bib` on 2026-07-31, and it's
+gitignored -- see "Configuration" in README.md) is a manual export from
+your reference manager's BibTeX export feature -- no auto-sync plugin is
 installed, so it is not continuously auto-synced. Whatever citekey BibTeX
 assigns there (e.g. `talasila_composable_2025`, or `noauthor_digital_nodate`
 for an item with no discoverable author) is the citekey everywhere
@@ -100,26 +102,32 @@ probe, not assume, in either direction:
 Install everything with:
 ```
 bash scripts/install_full_pipeline.sh              # Python deps only (default) -- what every host needs regardless of OS packages
-bash scripts/install_full_pipeline.sh os-deps      # apt-get: JDK 21, TeX Live, Pandoc, poppler-utils -- needs root, opt-in
+bash scripts/install_full_pipeline.sh os-deps      # apt-get: JDK 21, TeX Live, Pandoc, poppler-utils, Poetry -- needs root, opt-in
 bash scripts/install_full_pipeline.sh grobid       # fetch + build GROBID standalone -- multi-GB, opt-in
+bash scripts/install_full_pipeline.sh dev-deps     # pytest/pytest-cov, to run the test suite -- opt-in
 bash scripts/install_full_pipeline.sh all          # os-deps + python-deps (not grobid -- too heavy to bundle by default)
 ```
 This is **the single install script for both the host and Docker** --
 `docker/Dockerfile` calls it once per stage (`os-deps`, `grobid`,
 `python-deps` with `SKIP_VENV=1`) as separate `RUN` lines, each its own
 cached layer, rather than having its own separate apt-get/pip install
-logic. If you find a dependency-order issue, fix it once in
-`docker/requirements-full.txt` and both targets pick it up. Don't add a
-second install path.
+logic. Python dependencies are managed by Poetry as a lockfile/venv
+manager only (`package-mode = false` in `pyproject.toml` -- nothing here
+is published or pip-installable; see the packaging pros/cons write-up in
+this project's history for why that's a separate, larger decision this
+repo explicitly isn't making). If you find a dependency-order issue, fix
+it once in `pyproject.toml` (+ `poetry lock` to update `poetry.lock`) and
+both targets pick it up. Don't add a second install path.
 
 `docker/` (Dockerfile + `docker/setup.sh`) builds the same GROBID/TeX
 Live/Pandoc stack inside a container instead, for hosts where the
 `os-deps` assumption above doesn't hold (no root, or root deliberately
 withheld). **It has still not been built or run in this environment** (no
 Docker daemon here) -- treat it as a draft to validate, not a tested
-artifact, except for the parts of `docker/requirements-full.txt` that were
-verified in a host venv (see its header comment for exactly what was and
-wasn't).
+artifact, except for the parts of `pyproject.toml`'s heavy dependency
+group that were verified in a host venv (see its own comment there for
+exactly what was and wasn't, carried over from the old
+`docker/requirements-full.txt` this replaced).
 
 ## The heavy pipeline (`src/heavy/`, `scripts/full_pipeline.py`)
 
@@ -141,11 +149,15 @@ layer, invoked through a Claude Code session rather than a standalone
 API call.)
 
 `src/heavy/corpus.py` unifies two identifier namespaces: ledger items get
-`doc_id == citekey` (real, citable); `source-pdfs/*.pdf` (raw PDFs gathered
-outside the bib file, e.g. an open metadata-API search) get `doc:<filename stem>`,
-which can never collide with a bib citekey (those never contain a colon)
-and which `citation_gate.py` will always reject. Keep it that way -- don't
-give a `source-pdfs` doc anything citekey-shaped.
+`doc_id == citekey` (real, citable); raw PDFs gathered outside the bib file
+(e.g. an open metadata-API search, under `config.toml`'s `[source_pdfs].dir`
+default `papers/pdfs/*.pdf`) get `doc:<filename stem>`, which can never
+collide with a bib citekey (those never contain a colon) and which
+`citation_gate.py` will always reject. Keep it that way -- don't give a
+`source-pdfs`-sourced doc anything citekey-shaped. (`source-pdfs` here is
+`CorpusDoc.source`'s internal tag value, unchanged since before the
+2026-07-31 path move above and independent of it -- not the name of a
+directory you should expect to find on disk.)
 
 ## Retrieval
 
@@ -156,10 +168,15 @@ Chroma) is a verified, working upgrade path once that stops being true;
 its `search(query, k)` shape matches `src/retrieval.py`'s so callers don't
 need to change when you swap one for the other.
 
-## Don't touch `papers/`
+## Don't touch the external `papers/DT-Simulation-Patterns/`
 
-`papers/DT-Simulation-Patterns/` is a separate, already-written paper (not
-this pipeline's input or output) -- it happens to sit on the same machine
-and is referenced above only as a cautionary example and, in
-`thesis-chapter-writer`, as a LaTeX structural reference. Don't ingest it
-into `content/` or treat it as part of this repo's corpus.
+This is a different `papers/` from the one at this repo's own root (added
+2026-07-31 to hold `bibliography.bib` and raw source PDFs -- see
+"Configuration" in README.md). `papers/DT-Simulation-Patterns/` is a
+sibling project's directory that happens to sit elsewhere on the same
+machine, not inside this repo -- a separate, already-written paper (not
+this pipeline's input or output), referenced above only as a cautionary
+example and, in `thesis-chapter-writer`, as a LaTeX structural reference.
+Don't ingest it into `content/` or treat it as part of this repo's corpus
+-- and don't confuse it with this repo's own `papers/`, which *is* part of
+this pipeline's input.

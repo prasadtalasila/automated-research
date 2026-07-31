@@ -7,8 +7,9 @@ Two sources, two identifier namespaces, on purpose:
   file is the source of truth, this project doesn't generate its own).
   These are real, citable references that `python -m src.sync` pulled
   from it.
-- `source-pdfs/*.pdf`: raw PDFs gathered outside the bib file (e.g. an
-  open metadata-API search), with no citekey. `doc_id` is
+- `papers/pdfs/*.pdf` (config.toml's `[source_pdfs].dir` default): raw
+  PDFs gathered outside the bib file (e.g. an open metadata-API search),
+  with no citekey. `doc_id` is
   `doc:<filename stem>` -- a shape that can never be a real bib citekey
   (those never contain a colon) and that `citation_gate.py` will always
   reject, since it only checks membership in the ledger. Per CLAUDE.md's

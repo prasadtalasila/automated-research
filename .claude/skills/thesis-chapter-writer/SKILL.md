@@ -13,7 +13,7 @@ on-demand, user-reviewed) in the two-job pipeline split -- distinct from
 ## Shared content layer (read, don't regenerate)
 
 - `content/ledger.sqlite` -- per-citekey status, populated by `sync`
-- `bibliography.bib` (repo root) -- the source of truth for citekeys/metadata;
+- `papers/bibliography.bib` (gitignored, per-host) -- the source of truth for citekeys/metadata;
   point the thesis document's `\addbibresource` (biblatex) or `\bibliography`
   (bibtex) at this file directly rather than a copy
 - `content/parsed/<citekey>.txt` -- extracted PDF text

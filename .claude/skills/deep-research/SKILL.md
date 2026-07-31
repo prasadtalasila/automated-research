@@ -25,7 +25,7 @@ It reads the same shared content layer as the other genre skills.
 ## Shared content layer (read, don't regenerate)
 
 - `content/ledger.sqlite` -- per-citekey status, populated by `sync`
-- `bibliography.bib` (repo root) -- source of truth for citekeys/metadata
+- `papers/bibliography.bib` (gitignored, per-host) -- source of truth for citekeys/metadata
 - `src/retrieval.py` -- `search(query, k, snippet_chars)`, keyword overlap
 - `src/heavy/embed_index.py` -- `search(query, k, snippet_chars)`, semantic
   (if built for this corpus -- check `content/chroma/` first)

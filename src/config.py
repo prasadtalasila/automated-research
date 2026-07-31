@@ -43,17 +43,17 @@ def _get_float(env_var: str, *toml_path: str, default: float) -> float:
 
 # REPO_ROOT / <absolute path> correctly collapses to the absolute path
 # (pathlib behavior), so env var overrides may be absolute or relative.
-BIB_FILE_PATH = REPO_ROOT / _get("BIB_FILE", "bib", "path", default="bibliography.bib")
+BIB_FILE_PATH = REPO_ROOT / _get("BIB_FILE", "bib", "path", default="papers/bibliography.bib")
 
 CONTENT_DIR = REPO_ROOT / _get("CONTENT_DIR", "content", "dir", default="content")
 PARSED_DIR = CONTENT_DIR / "parsed"
 LEDGER_PATH = CONTENT_DIR / "ledger.sqlite"
 PROVENANCE_DIR = CONTENT_DIR / "provenance"
 
-SOURCE_PDFS_DIR = REPO_ROOT / _get("SOURCE_PDFS_DIR", "source_pdfs", "dir", default="source-pdfs")
+SOURCE_PDFS_DIR = REPO_ROOT / _get("SOURCE_PDFS_DIR", "source_pdfs", "dir", default="papers/pdfs")
 SOURCE_PDFS_MANIFEST = SOURCE_PDFS_DIR / "manifest.json"
 
-# Heavier optional pipeline (docker/requirements-full.txt), per src/heavy/.
+# Heavier optional pipeline (pyproject.toml's "heavy" Poetry group), per src/heavy/.
 DOCLING_DIR = CONTENT_DIR / "docling"
 GROBID_DIR = CONTENT_DIR / "grobid"
 CHROMA_DIR = CONTENT_DIR / "chroma"

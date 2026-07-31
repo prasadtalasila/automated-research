@@ -17,6 +17,8 @@ venv/
 env/
 .pytest_cache/
 .mypy_cache/
+.coverage
+htmlcov/
 *.egg-info/
 *.log
 *.tmp
@@ -25,3 +27,12 @@ env/
 source-pdfs/*
 !source-pdfs/manifest.json
 !source-pdfs/reading-notes.md
+
+# papers/bibliography.bib is a manual, per-host export from a personal
+# reference manager (see CLAUDE.md) -- not shippable source, so it's
+# gitignored rather than tracked. papers/pdfs/ is the [source_pdfs].dir
+# default in config.toml; keep it around (via .gitkeep) even though it
+# starts empty, but don't track raw PDFs dropped into it.
+papers/bibliography.bib
+papers/pdfs/*
+!papers/pdfs/.gitkeep
