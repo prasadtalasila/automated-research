@@ -52,6 +52,44 @@ class TestExtractTextMocked:
             pdf_text.extract_text(str(tmp_path / "in.pdf"), "key")
 
 
+class TestIsAvailable:
+    def test_true_when_pdftotext_on_path(self, monkeypatch):
+        monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/pdftotext")
+        assert pdf_text.is_available() is True
+
+    def test_false_when_pdftotext_missing(self, monkeypatch):
+        monkeypatch.setattr(shutil, "which", lambda name: None)
+        assert pdf_text.is_available() is False
+
+
+class TestExtractTextMissingBinary:
+    """Regression coverage: a host without poppler-utils installed used to
+    surface this as an uncaught FileNotFoundError traceback out of
+    subprocess.run (src/sync.py caught only CalledProcessError) instead of
+    a reported, honest result -- the same probe-and-report shape every
+    src/heavy/* stage already follows (e.g. src/heavy/render_output.py's
+    MissingBinary)."""
+
+    def test_raises_missing_binary_instead_of_file_not_found(
+        self, isolated_config, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(shutil, "which", lambda name: None)
+        with pytest.raises(pdf_text.MissingBinary, match="pdftotext"):
+            pdf_text.extract_text(str(tmp_path / "in.pdf"), "key")
+
+    def test_does_not_invoke_subprocess_when_binary_missing(
+        self, isolated_config, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(shutil, "which", lambda name: None)
+
+        def fail_if_called(cmd, **kwargs):
+            raise AssertionError("subprocess.run should not be called when pdftotext is missing")
+
+        monkeypatch.setattr(subprocess, "run", fail_if_called)
+        with pytest.raises(pdf_text.MissingBinary):
+            pdf_text.extract_text(str(tmp_path / "in.pdf"), "key")
+
+
 @pytest.mark.skipif(shutil.which("pdftotext") is None, reason="pdftotext not installed")
 class TestExtractTextReal:
     def test_real_pdftotext_on_a_real_pdf(self, isolated_config, tmp_path):

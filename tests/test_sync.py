@@ -290,6 +290,45 @@ class TestRun:
         assert known == {"smith_example_2024", "noauthor_page_nodate", "doe_broken_2023"}
 
 
+    def test_missing_pdftotext_is_reported_not_raised(self, basic_corpus, monkeypatch, capsys):
+        # Regression: a host without poppler-utils installed used to
+        # propagate subprocess.run's bare FileNotFoundError as an
+        # uncaught traceback (only CalledProcessError was ever caught
+        # here) instead of being probed and reported honestly, the way
+        # every src/heavy/* stage already handles a missing binary.
+        monkeypatch.setattr(pdf_text, "is_available", lambda: False)
+        rc = sync.run()
+        out = capsys.readouterr().out
+
+        assert rc == 1  # items needed parsing but couldn't -- not a silent success
+        assert "WARNING: 'pdftotext' not found on PATH" in out
+        assert "2 skipped (pdftotext not installed)" in out
+        con = ledger.connect()
+        try:
+            rows = {r["citekey"]: r for r in ledger.all_items(con)}
+        finally:
+            con.close()
+        # Bibliographic metadata is still synced even though parsing was skipped.
+        assert rows["smith_example_2024"]["status"] == "discovered"
+        assert rows["doe_broken_2023"]["status"] == "discovered"
+
+    def test_missing_pdftotext_with_nothing_needing_parse_is_a_clean_run(
+        self, basic_corpus, monkeypatch, capsys
+    ):
+        monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
+        sync.run()
+        capsys.readouterr()
+
+        monkeypatch.setattr(pdf_text, "is_available", lambda: False)
+        rc = sync.run()
+        out = capsys.readouterr().out
+
+        assert rc == 0  # nothing actually needed pdftotext this run
+        assert "WARNING: 'pdftotext' not found on PATH" in out
+        assert "0 skipped (pdftotext not installed)" not in out
+        assert "skipped (pdftotext not installed)" not in out
+
+
 class TestCliEntrypoint:
     def test_remove_stale_flag_is_registered(self, isolated_config):
         result = subprocess.run(

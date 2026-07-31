@@ -51,8 +51,17 @@ def run(remove_stale: bool = False) -> int:
             citekeys = " / ".join(ref.citekey for ref in group)
             print(f"    {citekeys}: {group[0].title[:80]!r}")
 
+    pdftotext_available = pdf_text.is_available()
+    if not pdftotext_available:
+        print(
+            "  WARNING: 'pdftotext' not found on PATH -- PDF text extraction will be "
+            "skipped for every item that needs it this run (install poppler-utils: "
+            "scripts/install_full_pipeline.sh os-deps). Bibliographic metadata is "
+            "still synced to the ledger."
+        )
+
     con = ledger.connect()
-    parsed, failed, skipped, no_pdf = 0, 0, 0, 0
+    parsed, failed, skipped, no_pdf, missing_binary = 0, 0, 0, 0, 0
     pruned: list[tuple[str, str | None]] = []
     stale: list[tuple[str, str | None]] = []
     suspicious = False
@@ -64,6 +73,9 @@ def run(remove_stale: bool = False) -> int:
                 continue
             if not needs_parse:
                 skipped += 1
+                continue
+            if not pdftotext_available:
+                missing_binary += 1
                 continue
             try:
                 out_path = pdf_text.extract_text(ref.pdf_path, ref.citekey)
@@ -121,16 +133,19 @@ def run(remove_stale: bool = False) -> int:
 
     stale_count = len(pruned) if remove_stale else len(stale)
     stale_label = "pruned" if remove_stale else "stale (not removed)"
-    print(
+    summary = (
         f"Sync complete: {parsed} parsed, {skipped} unchanged, "
         f"{no_pdf} without a PDF attachment, {failed} failed, {stale_count} {stale_label}."
     )
+    if missing_binary:
+        summary += f" {missing_binary} skipped (pdftotext not installed)."
+    print(summary)
     if stale_count and not remove_stale and not suspicious:
         print(f"Review the {stale_count} stale item(s) above, then re-run with "
               "--remove-stale to delete them from the ledger.")
     print(f"Ledger:      {config.LEDGER_PATH}")
     print(f"Parsed text: {config.PARSED_DIR}/")
-    return 1 if failed else 0
+    return 1 if failed or missing_binary else 0
 
 
 if __name__ == "__main__":
