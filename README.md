@@ -102,8 +102,9 @@ To add more papers later: add the entry in Zotero, re-export the same way
 
 Removing a paper: delete the entry in Zotero, re-export, re-run `sync`.
 By default `sync` only *reports* citekeys that dropped out of the bib file
-(`stale   <citekey> (... -- not removed, pass --remove-stale to remove)`)
--- it doesn't delete their `content/ledger.sqlite` row until you re-run with
+(`stale   <citekey> (no longer in bibliography.bib)`, one line per
+citekey, plus a single summary note pointing at `--remove-stale`) -- it
+doesn't delete their `content/ledger.sqlite` row until you re-run with
 `--remove-stale`. This is deliberate: a bib export that comes back short a
 citekey is far more often a botched re-export or `BIB_FILE` pointing at the
 wrong path than an intentional deletion, so the default keeps the ledger

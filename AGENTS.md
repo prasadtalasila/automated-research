@@ -65,13 +65,15 @@ watch/auto-export step here.
 Removing a paper works the same way (delete it, re-export, re-run `sync`),
 but deletion of the corresponding `content/ledger.sqlite` row is opt-in:
 `sync` by default only reports a citekey that's dropped out of the bib
-file (`stale   <citekey> ... -- not removed, pass --remove-stale to
-remove`); pass `--remove-stale` to actually delete it. A bib export
-that comes back short a citekey is far more often a botched re-export or
-`BIB_FILE` pointing at the wrong path than an intentional removal, so
-the default leaves the ledger untouched until a human confirms with the
-flag. Even with `--remove-stale`, `sync` refuses (raises) rather than
-pruning if the bib file comes back *completely* empty against a
+file (`stale   <citekey> (no longer in bibliography.bib)`, one line per
+citekey, then a single summary note -- "Review the N stale item(s)
+above, then re-run with --remove-stale..."); pass `--remove-stale` to
+actually delete it. A bib export that comes back short a citekey is far
+more often a botched re-export or `BIB_FILE` pointing at the wrong path
+than an intentional removal, so the default leaves the ledger untouched
+until a human confirms with the flag. Even with `--remove-stale`, `sync`
+refuses (raises) rather than pruning if the bib file comes back
+*completely* empty against a
 non-empty ledger, for the same reason at the extreme -- see
 `src/ledger.py`'s `prune_missing`.
 
