@@ -127,6 +127,17 @@ class TestExtractCitekeysWholeDocument:
         text = "line one\nline two \\citep{smith2024}\nline three\n"
         assert citation_gate.extract_citekeys(text) == [(2, "smith2024")]
 
+    def test_results_are_in_document_order_not_regex_pass_order(self):
+        # LaTeX and Pandoc citations are matched in two separate passes;
+        # results must still come out in the order they actually appear in
+        # the document (not "every LaTeX match, then every Pandoc match"),
+        # or a FAIL report lists an out-of-order citekey, making it harder
+        # to locate by reading top-to-bottom.
+        text = "[@later_pandoc]\nprose\n\\citep{earlier_latex}\nmore\n[@even_later]\n"
+        assert citation_gate.extract_citekeys(text) == [
+            (1, "later_pandoc"), (3, "earlier_latex"), (5, "even_later"),
+        ]
+
 
 class TestCodeAndVerbatimExclusion:
     """tutorial-writer's whole job is worked code examples, and code

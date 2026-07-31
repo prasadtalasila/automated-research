@@ -124,13 +124,29 @@ def extract_citekeys(text: str) -> list[tuple[int, str]]:
     would match on neither line and silently drop every key inside it.
     """
     text = _blank_code(text)
-    keys: list[tuple[int, str]] = []
+
+    # (start_offset, key) from both regexes, sorted into true document
+    # order first -- LaTeX and Pandoc matches were previously collected in
+    # two separate passes and concatenated, so a FAIL report could list a
+    # later-in-file LaTeX citation before an earlier Pandoc one, making it
+    # harder to locate by reading top-to-bottom.
+    matches: list[tuple[int, str]] = []
     for match in _LATEX_CITE_RE.finditer(text):
-        line_no = text.count("\n", 0, match.start()) + 1
-        keys.extend((line_no, k.strip()) for k in match.group(1).split(",") if k.strip())
+        matches.extend((match.start(), k.strip()) for k in match.group(1).split(",") if k.strip())
     for match in _PANDOC_CITE_RE.finditer(text):
-        line_no = text.count("\n", 0, match.start()) + 1
-        keys.append((line_no, match.group(1)))
+        matches.append((match.start(), match.group(1)))
+    matches.sort(key=lambda m: m[0])
+
+    # One forward sweep instead of a fresh text.count("\n", 0, ...) per
+    # match (previously O(text length) per citation, so O(N*M) overall) --
+    # each match only needs the newlines since the previous match's start.
+    keys: list[tuple[int, str]] = []
+    line_no = 1
+    pos = 0
+    for start, key in matches:
+        line_no += text.count("\n", pos, start)
+        pos = start
+        keys.append((line_no, key))
     return keys
 
 

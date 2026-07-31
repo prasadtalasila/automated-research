@@ -33,7 +33,10 @@ GATED_EXTENSIONS = (".md", ".tex")
 
 
 def main() -> int:
-    payload = json.load(sys.stdin)
+    try:
+        payload = json.load(sys.stdin)
+    except (json.JSONDecodeError, ValueError):
+        return 0  # can't identify a target file from this -- fail open, not loud
     raw_path = (payload.get("tool_input") or {}).get("file_path", "")
     if not raw_path:
         return 0
