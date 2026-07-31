@@ -356,10 +356,15 @@ succeeded -- not merely started:
 4. Wait for `.github/workflows/ci.yml` to complete on the PR and confirm
    it's green -- if it fails, fix the actual cause (see "Before claiming a
    task complete") and push again; don't merge past a red check.
-5. Squash-merge the PR.
-6. Tag `v<version>` (matching what's now in `main`'s `pyproject.toml`) and
+5. Request review from Copilot, resolve every issue it identifies, and
+   mark each as resolved; iterate (push a fix, let it re-review) until
+   none remain. Use judgement on a genuinely trivial finding rather than
+   treating every comment as mandatory -- but "trivial" means actually
+   inconsequential (a wording nit), not "inconvenient to fix."
+6. Squash-merge the PR.
+7. Tag `v<version>` (matching what's now in `main`'s `pyproject.toml`) and
    push the tag.
-7. Confirm `.github/workflows/release.yml` completed and the resulting
+8. Confirm `.github/workflows/release.yml` completed and the resulting
    GitHub Release has its `automated-research-<version>.zip` asset
    attached -- this is the actual deliverable, not the tag or the merge
    by itself.
