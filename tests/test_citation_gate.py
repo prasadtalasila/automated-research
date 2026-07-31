@@ -54,6 +54,23 @@ class TestExtractLatexCitations:
     def test_plain_text_no_match(self):
         assert citation_gate.extract_citekeys_from_line("Just some prose.") == []
 
+    @pytest.mark.parametrize("text", [
+        # TeX itself skips whitespace between a control word and its
+        # arguments -- \citep {key} is valid and equivalent to
+        # \citep{key}. Without \s* in the regex, any of these silently
+        # missed a real (or fabricated) citekey -- same false-negative
+        # class as test_all_recognized_commands above. Cases where the
+        # whitespace itself contains a newline (\citep\n{key}) are covered
+        # separately in TestExtractCitekeysWholeDocument, since a per-line
+        # caller like citation_coverage.py never hands this wrapper a
+        # string spanning two real lines in the first place.
+        "\\citep {smith2024}",
+        "\\citep [see]{smith2024}",
+        "\\citep *{smith2024}",
+    ])
+    def test_whitespace_between_command_and_arguments(self, text):
+        assert citation_gate.extract_citekeys_from_line(text) == ["smith2024"]
+
 
 class TestExtractPandocCitations:
     def test_bracketed_single_key(self):
@@ -126,6 +143,18 @@ class TestExtractCitekeysWholeDocument:
     def test_line_number_points_at_match_start(self):
         text = "line one\nline two \\citep{smith2024}\nline three\n"
         assert citation_gate.extract_citekeys(text) == [(2, "smith2024")]
+
+    def test_whitespace_including_newline_between_command_and_brace(self):
+        # TeX skips whitespace -- including a newline -- between a control
+        # word and its argument, so \citep on one line and {key} on the
+        # next is valid source and equivalent to \citep{key}. Only the
+        # whole-document scan can catch this: citation_coverage.py's
+        # per-line caller (extract_citekeys_from_line) would see "\citep"
+        # and "{key}" as two separate, independently-unmatchable strings,
+        # since splitlines() has already severed them before either one
+        # reaches the wrapper.
+        text = "See \\citep\n{smith2024} for details.\n"
+        assert citation_gate.extract_citekeys(text) == [(1, "smith2024")]
 
     def test_results_are_in_document_order_not_regex_pass_order(self):
         # LaTeX and Pandoc citations are matched in two separate passes;

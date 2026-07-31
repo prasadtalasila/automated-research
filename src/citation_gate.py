@@ -41,9 +41,15 @@ from src import ledger
 # this gate exists to enforce (a fabricated key in an unrecognized command
 # reads as "0 citations" instead of "unresolved"), so err toward matching
 # too much (a stray "\path{cite-me}"-shaped command) over too little.
+# \s* before the star, each [...] option group, and the final {...}: TeX
+# itself skips whitespace (including a newline) between a control word and
+# its arguments, so `\citep {key}` and `\citep\n{key}` are both valid and
+# equivalent to `\citep{key}` -- without this, either would silently miss
+# a real (or fabricated) citekey, the same false-negative class the rest
+# of this regex already exists to close.
 _LATEX_CITE_RE = re.compile(
     r"\\[A-Za-z]*[Cc]ite[A-Za-z]*"
-    r"\*?(?:\[[^\]]*\])*\{([^}]+)\}"
+    r"\s*\*?(?:\s*\[[^\]]*\])*\s*\{([^}]+)\}"
 )
 # Pandoc only treats @ as a citation marker when it isn't part of a larger
 # token -- otherwise `\href{mailto:name@example.com}` (this project's own
@@ -107,18 +113,27 @@ def extract_citekeys_from_line(line: str) -> list[str]:
     call extract_citekeys() directly in this same change) and for the
     existing test suite, which exercises this shape extensively.
 
-    This is complete for citation syntax specifically: no multi-line
-    \\citep{...} wrapping is possible within a single line, so nothing is
-    lost there. It is NOT complete for the code/verbatim exclusion zones
-    (_blank_code) -- a fenced code block spanning multiple lines needs
-    both its opening and closing ``` in the same string to be recognized,
-    so a caller feeding one line at a time (like citation_coverage.py's
-    cited_citekeys()) can still pick up an in-code @token as a false
-    positive; that caller is informational-only, never a gate, so this is
-    a known, low-stakes gap rather than something worth complicating this
-    wrapper's contract to close. See extract_citekeys() for the
-    whole-document scan that gets both properties right -- prefer it for
-    any new caller that has the whole document available.
+    This is NOT complete in two ways, both stemming from the same cause:
+    a caller feeding one line at a time only ever hands this wrapper text
+    that already had its newlines cut out by something like str.splitlines().
+    - False positive: a fenced code block spanning multiple lines needs
+      both its opening and closing ``` in the same string for _blank_code
+      to recognize it, so an in-code @token on its own line can still read
+      as a citation.
+    - False negative: TeX allows whitespace -- including a newline --
+      between a control word and its argument (\\citep\n{key} is valid,
+      equivalent to \\citep{key}), but a command on one line and its
+      {key} argument on the next arrive at this wrapper as two separate,
+      independently-unmatchable calls; neither one contains the whole
+      pattern. extract_citekeys(text) run on the whole document catches
+      this (see test_whitespace_including_newline_between_command_and_brace)
+      because the newline between them is still present in its input.
+    citation_coverage.py (the only remaining per-line caller) is
+    informational-only, never a gate, so both gaps are known and
+    low-stakes rather than worth complicating this wrapper's contract to
+    close. See extract_citekeys() for the whole-document scan that gets
+    all of this right -- prefer it for any new caller that has the whole
+    document available.
     """
     return [key for _, key in extract_citekeys(line)]
 
