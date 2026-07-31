@@ -105,12 +105,20 @@ def extract_citekeys_from_line(line: str) -> list[str]:
     Kept for src/citation_coverage.py (the remaining caller that only ever
     hands this one line at a time -- src/references.py was switched to
     call extract_citekeys() directly in this same change) and for the
-    existing test suite, which exercises this shape extensively. No
-    multi-line \\citep{...} wrapping is possible within a single line, so
-    there's nothing this shape loses for that caller. See
-    extract_citekeys() for the whole-document scan that also catches a
-    citation's {...} argument wrapped across lines -- prefer it for any
-    new caller that has the whole document available.
+    existing test suite, which exercises this shape extensively.
+
+    This is complete for citation syntax specifically: no multi-line
+    \\citep{...} wrapping is possible within a single line, so nothing is
+    lost there. It is NOT complete for the code/verbatim exclusion zones
+    (_blank_code) -- a fenced code block spanning multiple lines needs
+    both its opening and closing ``` in the same string to be recognized,
+    so a caller feeding one line at a time (like citation_coverage.py's
+    cited_citekeys()) can still pick up an in-code @token as a false
+    positive; that caller is informational-only, never a gate, so this is
+    a known, low-stakes gap rather than something worth complicating this
+    wrapper's contract to close. See extract_citekeys() for the
+    whole-document scan that gets both properties right -- prefer it for
+    any new caller that has the whole document available.
     """
     return [key for _, key in extract_citekeys(line)]
 
