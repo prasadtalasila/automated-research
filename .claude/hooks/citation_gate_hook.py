@@ -13,30 +13,43 @@ automatically, and a failure is surfaced back to Claude as blocking
 feedback (not a silent/advisory warning).
 
 Reads the PostToolUse JSON payload on stdin (schema: {"tool_input":
-{"file_path": "..."}, ...}). Derives the repo root from the file path
-itself (splitting on "/content/drafts/") rather than trusting cwd or an
-env var, so this keeps working regardless of what directory the hook
-happens to be invoked from.
+{"file_path": "..."}, ...}). Claude Code's own Write/Edit tools document
+file_path as always absolute, and this hook has been proven live against
+that -- but a substring match on "/content/drafts/" would silently skip
+gating if a payload ever carried a relative "content/drafts/<slug>.md"
+instead (no leading slash to match). Repo root is derived from this
+script's own fixed location (<repo_root>/.claude/hooks/) rather than from
+the target path, so a relative file_path is resolved against it instead
+of just being ignored, and containment is checked via resolved path
+parts (is_relative_to), not string matching.
 """
 
 import json
 import subprocess
 import sys
+from pathlib import Path
 
-MARKER = "/content/drafts/"
 GATED_EXTENSIONS = (".md", ".tex")
 
 
 def main() -> int:
     payload = json.load(sys.stdin)
-    file_path = (payload.get("tool_input") or {}).get("file_path", "")
+    raw_path = (payload.get("tool_input") or {}).get("file_path", "")
+    if not raw_path:
+        return 0
 
-    if MARKER not in file_path or not file_path.endswith(GATED_EXTENSIONS):
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    file_path = Path(raw_path)
+    if not file_path.is_absolute():
+        file_path = repo_root / file_path
+    file_path = file_path.resolve()
+
+    drafts_dir = (repo_root / "content" / "drafts").resolve()
+    if not file_path.is_relative_to(drafts_dir) or file_path.suffix not in GATED_EXTENSIONS:
         return 0  # not a genre-skill draft -- nothing to gate
 
-    repo_root = file_path.split(MARKER)[0]
     result = subprocess.run(
-        ["python3", "-m", "src.citation_gate", file_path],
+        ["python3", "-m", "src.citation_gate", str(file_path)],
         cwd=repo_root,
         capture_output=True,
         text=True,

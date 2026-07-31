@@ -102,12 +102,15 @@ class GateResult:
 def extract_citekeys_from_line(line: str) -> list[str]:
     """Back-compat, single-line-scoped wrapper around extract_citekeys().
 
-    Kept for callers (src/citation_coverage.py, src/references.py) that
-    only ever hand this one line at a time -- no multi-line \\citep{...}
-    wrapping is possible within a single line, so there's nothing this
-    shape loses for that case. See extract_citekeys() for the
-    whole-document scan that also catches a citation's {...} argument
-    wrapped across lines.
+    Kept for src/citation_coverage.py (the remaining caller that only ever
+    hands this one line at a time -- src/references.py was switched to
+    call extract_citekeys() directly in this same change) and for the
+    existing test suite, which exercises this shape extensively. No
+    multi-line \\citep{...} wrapping is possible within a single line, so
+    there's nothing this shape loses for that caller. See
+    extract_citekeys() for the whole-document scan that also catches a
+    citation's {...} argument wrapped across lines -- prefer it for any
+    new caller that has the whole document available.
     """
     return [key for _, key in extract_citekeys(line)]
 
