@@ -26,6 +26,29 @@ from bibtexparser.customization import convert_to_unicode
 
 from src import config
 
+# Reference.pdf_resolution values -- *why* a PDF did or didn't resolve.
+# Previously sync.py only ever saw a bare pdf_path of None and reported
+# every one of these as one "no PDF attachment" bucket, which masked two
+# very different problems: an item with only an HTML snapshot saved
+# (invisible to retrieval/citation-gate the same as any other no-PDF
+# item, but not surfaced as such) and an item whose PDF the bib file
+# still points at, but which has since moved or been deleted (a silent
+# data-loss failure, not a "never had a PDF" one).
+PDF_RESOLVED = "resolved"
+PDF_NO_FILE_FIELD = "no_file_field"
+PDF_MALFORMED_FILE_FIELD = "malformed_file_field"
+PDF_PATH_GONE = "pdf_path_gone"
+PDF_HTML_ONLY = "html_only"
+
+# Dict order doubles as the fixed, deterministic order sync.py's
+# no-PDF breakdown reports these in.
+PDF_RESOLUTION_LABELS = {
+    PDF_NO_FILE_FIELD: "no file field in bib entry",
+    PDF_PATH_GONE: "PDF path no longer exists on disk",
+    PDF_HTML_ONLY: "HTML-only snapshot, no PDF attachment",
+    PDF_MALFORMED_FILE_FIELD: "malformed file field (couldn't parse mime/path)",
+}
+
 
 @dataclass
 class Reference:
@@ -38,6 +61,7 @@ class Reference:
     url: str | None
     fields: dict[str, str] = field(default_factory=dict)
     pdf_path: str | None = None
+    pdf_resolution: str = PDF_NO_FILE_FIELD
 
 
 def _parse_authors(author_field: str) -> list[tuple[str, str]]:
@@ -55,25 +79,45 @@ def _parse_authors(author_field: str) -> list[tuple[str, str]]:
     return authors
 
 
-def _resolve_pdf_path(file_field: str, bib_dir: Path) -> str | None:
+def _resolve_pdf_path(file_field: str, bib_dir: Path) -> tuple[str | None, str]:
     """The `file` field format in this project's bib export:
     `Desc:path:mimetype`, `;`-separated for multiple attachments (e.g. an
     HTML snapshot alongside the PDF) -- an export-tool convention, not
-    part of the BibTeX standard itself."""
+    part of the BibTeX standard itself.
+
+    Returns (path, PDF_RESOLVED) on success, or (None, reason) where
+    reason distinguishes *why*: PDF_PATH_GONE (a pdf-mime attachment was
+    listed but its file no longer exists), PDF_HTML_ONLY (every
+    attachment parsed fine but none is pdf-mime -- e.g. an HTML snapshot
+    saved instead of the PDF), or PDF_MALFORMED_FILE_FIELD (not even one
+    `;`-separated segment had the `Desc:path:mimetype` shape). If more
+    than one attachment is present, a PDF path that's gone still wins
+    over reporting HTML-only -- the presence of a pdf-mime entry is the
+    more actionable signal (a paper this project's own bib once had a
+    real PDF for, now missing) than "only ever had a snapshot".
+    """
+    saw_parseable_attachment = False
+    saw_pdf_mime = False
     for attachment in file_field.split(";"):
         parts = attachment.split(":")
         if len(parts) < 3:
             continue
+        saw_parseable_attachment = True
         mime = parts[-1]
         path_str = ":".join(parts[1:-1])
         if "pdf" not in mime.lower():
             continue
+        saw_pdf_mime = True
         path = Path(path_str)
         if not path.is_absolute():
             path = bib_dir / path
         if path.exists():
-            return str(path)
-    return None
+            return str(path), PDF_RESOLVED
+    if saw_pdf_mime:
+        return None, PDF_PATH_GONE
+    if saw_parseable_attachment:
+        return None, PDF_HTML_ONLY
+    return None, PDF_MALFORMED_FILE_FIELD
 
 
 def _clean_title(title: str) -> str:
@@ -96,6 +140,10 @@ def read_library() -> list[Reference]:
     bib_dir = config.BIB_FILE_PATH.resolve().parent
     references = []
     for entry in bib_database.entries:
+        if "file" in entry:
+            pdf_path, pdf_resolution = _resolve_pdf_path(entry["file"], bib_dir)
+        else:
+            pdf_path, pdf_resolution = None, PDF_NO_FILE_FIELD
         references.append(
             Reference(
                 citekey=entry["ID"],
@@ -106,7 +154,8 @@ def read_library() -> list[Reference]:
                 doi=entry.get("doi"),
                 url=entry.get("url"),
                 fields=entry,
-                pdf_path=_resolve_pdf_path(entry["file"], bib_dir) if "file" in entry else None,
+                pdf_path=pdf_path,
+                pdf_resolution=pdf_resolution,
             )
         )
     return references

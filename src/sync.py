@@ -23,6 +23,7 @@ runs with the bare system interpreter.
 import argparse
 import subprocess
 import sys
+from collections import Counter
 
 from src import bib_reader, config, dedup, ledger, pdf_text
 
@@ -62,6 +63,7 @@ def run(remove_stale: bool = False) -> int:
 
     con = ledger.connect()
     parsed, failed, skipped, no_pdf, missing_binary = 0, 0, 0, 0, 0
+    no_pdf_reasons: Counter[str] = Counter()
     pruned: list[tuple[str, str | None]] = []
     stale: list[tuple[str, str | None]] = []
     suspicious = False
@@ -70,6 +72,9 @@ def run(remove_stale: bool = False) -> int:
             needs_parse = ledger.upsert_reference(con, ref)
             if not ref.pdf_path:
                 no_pdf += 1
+                no_pdf_reasons[ref.pdf_resolution] += 1
+                label = bib_reader.PDF_RESOLUTION_LABELS[ref.pdf_resolution]
+                print(f"  no-pdf  {ref.citekey}: {label}")
                 continue
             if not needs_parse:
                 skipped += 1
@@ -140,6 +145,19 @@ def run(remove_stale: bool = False) -> int:
     if missing_binary:
         summary += f" {missing_binary} skipped (pdftotext not installed)."
     print(summary)
+    if no_pdf_reasons:
+        # Least-churn fix for the masking this bucket used to cause: the
+        # aggregate "N without a PDF attachment" count above is unchanged
+        # (existing callers/tests depend on that exact wording), but an
+        # audit no longer has to guess whether that N is "never had a
+        # PDF" (routine) or "PDF path silently went missing"/"only an
+        # HTML snapshot, invisible to retrieval" (both worth fixing).
+        breakdown = ", ".join(
+            f"{no_pdf_reasons[reason]} {label}"
+            for reason, label in bib_reader.PDF_RESOLUTION_LABELS.items()
+            if no_pdf_reasons[reason]
+        )
+        print(f"  no-PDF breakdown: {breakdown}")
     if stale_count and not remove_stale and not suspicious:
         print(f"Review the {stale_count} stale item(s) above, then re-run with "
               "--remove-stale to delete them from the ledger.")
