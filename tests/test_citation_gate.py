@@ -184,6 +184,25 @@ class TestCodeAndVerbatimExclusion:
         assert citation_gate.extract_citekeys("use the `@override` annotation") == []
         assert citation_gate.extract_citekeys("run `npm install @scoped/pkg`") == []
 
+    def test_whitespace_tolerance_does_not_bridge_a_blanked_verbatim_block(self):
+        # _blank_code blanks a verbatim block's contents to spaces but keeps
+        # its newlines, and a verbatim block is always >=2 lines. If the
+        # cite regex's whitespace tolerance (added for \citep\n{key}, see
+        # TestExtractCitekeysWholeDocument) were unbounded (\s*) instead of
+        # capped at one newline, it could bridge straight across the
+        # blanked-out block and read an unrelated \nocite ... {group} on
+        # either side of it as one fake citation -- a false positive that
+        # would push the blocking PostToolUse hook to reject a draft on
+        # invented grounds.
+        text = (
+            "Refer to \\nocite\n"
+            "\\begin{verbatim}\n"
+            "anything\n"
+            "\\end{verbatim}\n"
+            "{\\bfseries note}\n"
+        )
+        assert citation_gate.extract_citekeys(text) == []
+
     def test_latex_verbatim_environment_is_not_scanned(self):
         text = "\\begin{verbatim}\n\\citep{fake_key}\n\\end{verbatim}\n"
         assert citation_gate.extract_citekeys(text) == []

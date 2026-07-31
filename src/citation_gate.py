@@ -41,15 +41,28 @@ from src import ledger
 # this gate exists to enforce (a fabricated key in an unrecognized command
 # reads as "0 citations" instead of "unresolved"), so err toward matching
 # too much (a stray "\path{cite-me}"-shaped command) over too little.
-# \s* before the star, each [...] option group, and the final {...}: TeX
-# itself skips whitespace (including a newline) between a control word and
-# its arguments, so `\citep {key}` and `\citep\n{key}` are both valid and
+# _WS (not bare \s*) before the star, each [...] option group, and the
+# final {...}: TeX itself skips whitespace between a control word and its
+# arguments, so `\citep {key}` and `\citep\n{key}` are both valid and
 # equivalent to `\citep{key}` -- without this, either would silently miss
 # a real (or fabricated) citekey, the same false-negative class the rest
-# of this regex already exists to close.
+# of this regex already exists to close. Capped at a single optional
+# newline rather than bare \s* for two independent reasons that both land
+# on the same fix: (1) a blank line is \par in TeX, which is NOT
+# skippable whitespace when scanning for a macro's argument, so
+# `\citep\n\n{key}` isn't valid LaTeX either; (2) _blank_code (below)
+# replaces a fenced/verbatim block with spaces but preserves its
+# newlines, and a fenced block is always >=2 lines -- so bare \s* could
+# bridge clean across a blanked-out code block and merge two unrelated
+# pieces of text into one fake "citation" (e.g. `\nocite` before a
+# verbatim block plus an unrelated `{...}` group after it), a false
+# positive that would push the PostToolUse hook to block on invented
+# grounds. A single optional newline can never span a whole blanked
+# block, so the bridge is closed while `\citep\n{key}` keeps working.
+_WS = r"[ \t]*\n?[ \t]*"
 _LATEX_CITE_RE = re.compile(
     r"\\[A-Za-z]*[Cc]ite[A-Za-z]*"
-    r"\s*\*?(?:\s*\[[^\]]*\])*\s*\{([^}]+)\}"
+    rf"{_WS}\*?(?:{_WS}\[[^\]]*\])*{_WS}\{{([^}}]+)\}}"
 )
 # Pandoc only treats @ as a citation marker when it isn't part of a larger
 # token -- otherwise `\href{mailto:name@example.com}` (this project's own
