@@ -46,23 +46,50 @@ class TestResolvePdfPath:
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-1.4")
         field = f"paper.pdf:paper.pdf:application/pdf"
-        assert bib_reader._resolve_pdf_path(field, tmp_path) == str(pdf)
+        assert bib_reader._resolve_pdf_path(field, tmp_path) == (str(pdf), bib_reader.PDF_RESOLVED)
 
     def test_absolute_path(self, tmp_path):
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-1.4")
         field = f"paper.pdf:{pdf}:application/pdf"
-        assert bib_reader._resolve_pdf_path(field, tmp_path / "unrelated") == str(pdf)
+        assert bib_reader._resolve_pdf_path(field, tmp_path / "unrelated") == (
+            str(pdf), bib_reader.PDF_RESOLVED,
+        )
 
-    def test_nonexistent_pdf_returns_none(self, tmp_path):
+    def test_nonexistent_pdf_reports_pdf_path_gone(self, tmp_path):
         field = "paper.pdf:missing.pdf:application/pdf"
-        assert bib_reader._resolve_pdf_path(field, tmp_path) is None
+        assert bib_reader._resolve_pdf_path(field, tmp_path) == (None, bib_reader.PDF_PATH_GONE)
 
-    def test_non_pdf_mime_skipped(self, tmp_path):
+    def test_path_pointing_at_a_directory_reports_pdf_path_gone(self, tmp_path):
+        # Regression (PR #6 review): Path.exists() is also true for
+        # directories, not just files -- a bib export with an
+        # empty/incorrect path that happens to resolve to an existing
+        # directory must not be classified as PDF_RESOLVED (sync would
+        # then try to run pdftotext on a directory).
+        a_dir = tmp_path / "not_a_file.pdf"
+        a_dir.mkdir()
+        field = "paper.pdf:not_a_file.pdf:application/pdf"
+        assert bib_reader._resolve_pdf_path(field, tmp_path) == (None, bib_reader.PDF_PATH_GONE)
+
+    def test_non_pdf_mime_reports_non_pdf_attachment(self, tmp_path):
         html = tmp_path / "page.html"
         html.write_text("<html></html>")
         field = "page.html:page.html:text/html"
-        assert bib_reader._resolve_pdf_path(field, tmp_path) is None
+        assert bib_reader._resolve_pdf_path(field, tmp_path) == (
+            None, bib_reader.PDF_NON_PDF_ATTACHMENT,
+        )
+
+    def test_non_html_non_pdf_mime_also_reports_non_pdf_attachment(self, tmp_path):
+        # Regression (PR #6 review): detection only ever checked for the
+        # *absence* of a pdf-mime entry, never the presence of text/html
+        # specifically -- any other non-PDF mime (plain text here) must
+        # land in the same bucket, not be silently unclassified.
+        note = tmp_path / "notes.txt"
+        note.write_text("some notes")
+        field = "notes.txt:notes.txt:text/plain"
+        assert bib_reader._resolve_pdf_path(field, tmp_path) == (
+            None, bib_reader.PDF_NON_PDF_ATTACHMENT,
+        )
 
     def test_multiple_attachments_picks_the_pdf(self, tmp_path):
         pdf = tmp_path / "paper.pdf"
@@ -70,10 +97,22 @@ class TestResolvePdfPath:
         html = tmp_path / "page.html"
         html.write_text("<html></html>")
         field = f"page.html:page.html:text/html;paper.pdf:paper.pdf:application/pdf"
-        assert bib_reader._resolve_pdf_path(field, tmp_path) == str(pdf)
+        assert bib_reader._resolve_pdf_path(field, tmp_path) == (str(pdf), bib_reader.PDF_RESOLVED)
 
-    def test_malformed_field_too_few_parts_skipped(self, tmp_path):
-        assert bib_reader._resolve_pdf_path("just-a-filename.pdf", tmp_path) is None
+    def test_malformed_field_too_few_parts_reports_malformed(self, tmp_path):
+        assert bib_reader._resolve_pdf_path("just-a-filename.pdf", tmp_path) == (
+            None, bib_reader.PDF_MALFORMED_FILE_FIELD,
+        )
+
+    def test_pdf_mime_but_missing_file_wins_over_non_pdf_attachment(self, tmp_path):
+        # A pdf-mime attachment whose file has since moved/been deleted is
+        # a more actionable signal (this item once had a real PDF) than
+        # "only ever had a non-PDF attachment" -- when both are present,
+        # report the former.
+        html = tmp_path / "page.html"
+        html.write_text("<html></html>")
+        field = "page.html:page.html:text/html;paper.pdf:missing.pdf:application/pdf"
+        assert bib_reader._resolve_pdf_path(field, tmp_path) == (None, bib_reader.PDF_PATH_GONE)
 
     def test_path_containing_colons_is_reassembled(self, tmp_path):
         # Windows-style or otherwise colon-bearing paths: the middle
@@ -86,7 +125,7 @@ class TestResolvePdfPath:
         pdf = tmp_path / "a:b.pdf"
         pdf.write_bytes(b"%PDF-1.4")
         field = f"desc:a:b.pdf:application/pdf"
-        assert bib_reader._resolve_pdf_path(field, tmp_path) == str(pdf)
+        assert bib_reader._resolve_pdf_path(field, tmp_path) == (str(pdf), bib_reader.PDF_RESOLVED)
 
 
 class TestReadLibrary:
@@ -148,6 +187,58 @@ class TestReadLibrary:
         )
         refs = bib_reader.read_library()
         assert refs[0].pdf_path == str(pdf)
+        assert refs[0].pdf_resolution == bib_reader.PDF_RESOLVED
+
+    def test_entry_without_file_field_reports_no_file_field(self, isolated_config):
+        write_bib(
+            isolated_config.BIB_FILE_PATH,
+            """
+@article{smith_example_2024,
+  title = {An Example Paper},
+  author = {Smith, Jane},
+  year = {2024},
+}
+""",
+        )
+        refs = bib_reader.read_library()
+        assert refs[0].pdf_path is None
+        assert refs[0].pdf_resolution == bib_reader.PDF_NO_FILE_FIELD
+
+    def test_entry_with_html_only_snapshot_reports_non_pdf_attachment(self, isolated_config):
+        html = isolated_config.BIB_FILE_PATH.parent / "page.html"
+        html.write_text("<html></html>")
+        write_bib(
+            isolated_config.BIB_FILE_PATH,
+            """
+@article{smith_example_2024,
+  title = {An Example Paper},
+  author = {Smith, Jane},
+  year = {2024},
+  file = {page.html:page.html:text/html},
+}
+""",
+        )
+        refs = bib_reader.read_library()
+        assert refs[0].pdf_path is None
+        assert refs[0].pdf_resolution == bib_reader.PDF_NON_PDF_ATTACHMENT
+
+    def test_entry_with_pdf_path_gone_reports_pdf_path_gone(self, isolated_config):
+        # bib file references a PDF that isn't actually on disk (moved,
+        # deleted, or synced from a different machine's file layout).
+        write_bib(
+            isolated_config.BIB_FILE_PATH,
+            """
+@article{smith_example_2024,
+  title = {An Example Paper},
+  author = {Smith, Jane},
+  year = {2024},
+  file = {paper.pdf:paper.pdf:application/pdf},
+}
+""",
+        )
+        refs = bib_reader.read_library()
+        assert refs[0].pdf_path is None
+        assert refs[0].pdf_resolution == bib_reader.PDF_PATH_GONE
 
     def test_multiple_entries(self, isolated_config):
         write_bib(

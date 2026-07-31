@@ -27,6 +27,7 @@ def isolated_config(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "PARSED_DIR", content_dir / "parsed")
     monkeypatch.setattr(config, "LEDGER_PATH", content_dir / "ledger.sqlite")
     monkeypatch.setattr(config, "PROVENANCE_DIR", content_dir / "provenance")
+    monkeypatch.setattr(config, "RETRIEVAL_INDEX_PATH", content_dir / "retrieval_index.json")
     monkeypatch.setattr(config, "SOURCE_PDFS_DIR", source_pdfs_dir)
     monkeypatch.setattr(config, "SOURCE_PDFS_MANIFEST", source_pdfs_dir / "manifest.json")
     monkeypatch.setattr(config, "DOCLING_DIR", content_dir / "docling")

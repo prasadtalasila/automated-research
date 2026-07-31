@@ -32,6 +32,12 @@ questions), [DOCKER.md](DOCKER.md) (running this repo in a container) and
 #    with a clear FileNotFoundError telling you to do exactly this.
 mkdir -p papers && cp /path/to/your/exported-library.bib papers/bibliography.bib
 
+# Optional: also add any raw, not-yet-cataloged PDFs (no reference-manager
+# entry, no citekey) for the heavy pipeline's topic modeling/embeddings to
+# consider -- see "papers/pdfs/" below. NEVER citable this way; add a PDF
+# to your reference manager, re-export, and re-run sync before citing it.
+mkdir -p papers/pdfs && cp /path/to/some-paper.pdf papers/pdfs/
+
 # 2. Install Python dependencies -- creates .venv-full/ and runs `poetry
 #    install --with heavy` into it: bibtexparser (core pipeline) plus the
 #    full src/heavy/ stack. Dependencies/versions live in pyproject.toml +
@@ -41,7 +47,11 @@ mkdir -p papers && cp /path/to/your/exported-library.bib papers/bibliography.bib
 #    stages -- see "What works on this host" below.
 bash scripts/install_full_pipeline.sh
 
-# 3. Sync the content layer from papers/bibliography.bib
+# 3. Sync the content layer from papers/bibliography.bib. A citekey that
+#    later drops out of the bib file (a paper removed from your reference
+#    manager) is only *reported* by default; re-run with --remove-stale
+#    to actually delete its ledger row once you've reviewed the reported
+#    list (see "Removing a paper" below) -- not needed on a first run.
 .venv-full/bin/python -m src.sync
 
 # 4. Inspect what it found
@@ -61,8 +71,8 @@ for row in ledger.all_items(con): print(dict(row))
 
 # 6. Manually re-run any step of that chain yourself (no venv needed for any of these)
 python3 -m src.citation_gate path/to/draft.md
-python3 -m src.references path/to/draft.md
-python3 -m src.heavy.render_output path/to/draft.md --format pdf
+python3 -m src.references path/to/draft.md --heading "References"    # --heading default: "References"
+python3 -m src.heavy.render_output path/to/draft.md --format pdf     # also: --documentclass, --fontsize, --margin (--help for all)
 ```
 
 ### Exporting your library from Zotero
@@ -90,11 +100,13 @@ general feature):
 5. Re-run `python -m src.sync`.
 
 This is a **different mechanism from `papers/pdfs/`** (`config.toml`'s
-`[source_pdfs].dir`): that directory is for raw PDFs gathered *outside*
-Zotero entirely (e.g. an OpenAlex/Semantic Scholar/arXiv metadata-API
-search with no reference-manager entry at all) -- see
-[`src/heavy/corpus.py`](src/heavy/corpus.py) and AGENTS.md's citekey
-invariant. Zotero's own exported attachments never belong there.
+`[source_pdfs].dir`, Quickstart step 1 above): that directory is for any
+raw PDF you already have but haven't cataloged in Zotero yet (just a file
+you drop there by hand -- this project has no automated fetching from any
+external source) -- see [`src/heavy/corpus.py`](src/heavy/corpus.py) and
+AGENTS.md's citekey invariant. Zotero's own exported attachments never
+belong there, and this project's only supported way to catalog a paper
+for citing is a Zotero export.
 
 To add more papers later: add the entry in Zotero, re-export the same way
 (re-check **Export Files** so new attachments are included), then re-run
@@ -379,7 +391,7 @@ page-locating a quoted phrase.
 | Parse bib file, track citekeys + PDF paths | `bibtexparser` (venv, main Poetry group) |
 | Extract PDF text | `pdftotext` (poppler-utils, `os-deps` stage) |
 | Track parse status incrementally | stdlib `sqlite3` |
-| Keyword-based retrieval | stdlib only |
+| BM25-ranked retrieval | stdlib only |
 | Citation verification gate, auto References section, standalone tex/pdf render | stdlib only, no venv needed (see "Venv requirement" above) |
 | Docling layout-aware parsing, embeddings/Chroma, BERTopic | venv, `heavy` Poetry group (`src/heavy/`) |
 | Bibliographic-quality parsing (GROBID: references, sections) | JDK 21 + a standalone GROBID build -- see [GROBID.md](GROBID.md) |
@@ -388,10 +400,13 @@ page-locating a quoted phrase.
 See [GROBID.md](GROBID.md) for the full GROBID build/run/troubleshooting
 walkthrough (previously an inline subsection here).
 
-Retrieval by default is a keyword-overlap ranker (`src/retrieval.py`,
-stdlib only) -- deliberately: the corpus is still small enough that
-embeddings are overhead without payoff for the genre skills' day-to-day
-use. `src/heavy/embed_index.py` (sentence-transformers + Chroma) is a
+Retrieval by default is a BM25 ranker over a disk-cached term-frequency
+index (`src/retrieval.py`, stdlib only) -- deliberately: the corpus is
+still small enough that embeddings are overhead without payoff for the
+genre skills' day-to-day use. The cache is keyed by a cheap per-document
+fingerprint (parsed-file stat, not content), so a `search()` call only
+re-tokenizes documents whose text actually changed since the last call.
+`src/heavy/embed_index.py` (sentence-transformers + Chroma) is a
 verified, working upgrade with a matching `search(query, k)` signature,
 for when that stops being true.
 

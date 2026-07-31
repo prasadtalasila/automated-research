@@ -23,6 +23,7 @@ runs with the bare system interpreter.
 import argparse
 import subprocess
 import sys
+from collections import Counter
 
 from src import bib_reader, config, dedup, ledger, pdf_text
 
@@ -51,8 +52,18 @@ def run(remove_stale: bool = False) -> int:
             citekeys = " / ".join(ref.citekey for ref in group)
             print(f"    {citekeys}: {group[0].title[:80]!r}")
 
+    pdftotext_available = pdf_text.is_available()
+    if not pdftotext_available:
+        print(
+            "  WARNING: 'pdftotext' not found on PATH -- PDF text extraction will be "
+            "skipped for every item that needs it this run (install poppler-utils: "
+            "scripts/install_full_pipeline.sh os-deps). Bibliographic metadata is "
+            "still synced to the ledger."
+        )
+
     con = ledger.connect()
-    parsed, failed, skipped, no_pdf = 0, 0, 0, 0
+    parsed, failed, skipped, no_pdf, missing_binary = 0, 0, 0, 0, 0
+    no_pdf_reasons: Counter[str] = Counter()
     pruned: list[tuple[str, str | None]] = []
     stale: list[tuple[str, str | None]] = []
     suspicious = False
@@ -61,9 +72,15 @@ def run(remove_stale: bool = False) -> int:
             needs_parse = ledger.upsert_reference(con, ref)
             if not ref.pdf_path:
                 no_pdf += 1
+                no_pdf_reasons[ref.pdf_resolution] += 1
+                label = bib_reader.PDF_RESOLUTION_LABELS[ref.pdf_resolution]
+                print(f"  no-pdf  {ref.citekey}: {label}")
                 continue
             if not needs_parse:
                 skipped += 1
+                continue
+            if not pdftotext_available:
+                missing_binary += 1
                 continue
             try:
                 out_path = pdf_text.extract_text(ref.pdf_path, ref.citekey)
@@ -74,6 +91,15 @@ def run(remove_stale: bool = False) -> int:
                 ledger.mark_parse_failed(con, ref.citekey, exc.stderr or str(exc))
                 failed += 1
                 print(f"  FAILED  {ref.citekey}: {exc.stderr}", file=sys.stderr)
+            except pdf_text.MissingBinary:
+                # The up-front probe passed, but pdftotext vanished from
+                # PATH between then and this specific item (or otherwise
+                # disagreed with extract_text's own internal check) --
+                # count and report it the same as the up-front case
+                # instead of letting it crash sync uncaught, which is
+                # exactly the failure mode probing exists to prevent.
+                missing_binary += 1
+                print(f"  no-pdftotext  {ref.citekey}: pdftotext no longer on PATH", file=sys.stderr)
         # Only the ledger row is removed -- see prune_missing's own
         # docstring for why the corresponding content/parsed/<citekey>.txt
         # is deliberately left in place. Deletion only happens with
@@ -121,16 +147,32 @@ def run(remove_stale: bool = False) -> int:
 
     stale_count = len(pruned) if remove_stale else len(stale)
     stale_label = "pruned" if remove_stale else "stale (not removed)"
-    print(
+    summary = (
         f"Sync complete: {parsed} parsed, {skipped} unchanged, "
         f"{no_pdf} without a PDF attachment, {failed} failed, {stale_count} {stale_label}."
     )
+    if missing_binary:
+        summary += f" {missing_binary} skipped (pdftotext not installed)."
+    print(summary)
+    if no_pdf_reasons:
+        # Least-churn fix for the masking this bucket used to cause: the
+        # aggregate "N without a PDF attachment" count above is unchanged
+        # (existing callers/tests depend on that exact wording), but an
+        # audit no longer has to guess whether that N is "never had a
+        # PDF" (routine) or "PDF path silently went missing"/"only an
+        # HTML snapshot, invisible to retrieval" (both worth fixing).
+        breakdown = ", ".join(
+            f"{no_pdf_reasons[reason]} {label}"
+            for reason, label in bib_reader.PDF_RESOLUTION_LABELS.items()
+            if no_pdf_reasons[reason]
+        )
+        print(f"  no-PDF breakdown: {breakdown}")
     if stale_count and not remove_stale and not suspicious:
         print(f"Review the {stale_count} stale item(s) above, then re-run with "
               "--remove-stale to delete them from the ledger.")
     print(f"Ledger:      {config.LEDGER_PATH}")
     print(f"Parsed text: {config.PARSED_DIR}/")
-    return 1 if failed else 0
+    return 1 if failed or missing_binary else 0
 
 
 if __name__ == "__main__":
