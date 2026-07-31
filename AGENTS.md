@@ -193,12 +193,20 @@ should expect to find on disk.)
 
 ## Retrieval
 
-`src/retrieval.py` (keyword overlap, stdlib-only) is what the genre skills
-use by default -- the corpus is still small enough that embeddings are
-overhead without payoff. `src/heavy/embed_index.py` (sentence-transformers +
-Chroma) is a verified, working upgrade path once that stops being true;
-its `search(query, k)` shape matches `src/retrieval.py`'s so callers don't
-need to change when you swap one for the other.
+`src/retrieval.py` (BM25 ranking over a cached term-frequency index,
+stdlib-only) is what the genre skills use by default -- the corpus is
+still small enough that embeddings are overhead without payoff.
+Term-frequency stats per document are cached to disk
+(`config.RETRIEVAL_INDEX_PATH`), keyed by a cheap per-item fingerprint
+(parsed-file stat, not content) so a call only re-tokenizes documents
+whose text actually changed since the last run -- the same incremental
+principle as `src/ledger.py`'s content-hash skip logic and
+`src/heavy/embed_index.py`'s embedding cache, just scoped to
+`src/retrieval.py` itself (this doesn't touch `sync`). `src/heavy/embed_index.py`
+(sentence-transformers + Chroma) is a verified, working upgrade path once
+BM25 stops being enough; its `search(query, k)` shape matches
+`src/retrieval.py`'s so callers don't need to change when you swap one
+for the other.
 
 ## Development process: agile, test-driven
 

@@ -68,7 +68,7 @@ src/                      core pipeline (needs bibtexparser; citation_gate/refer
   sync.py                   orchestrates the above -- the "job 1" entrypoint; --remove-stale opts into
                           deleting stale ledger rows (default: report only, see README's "Removing a paper")
   dedup.py                  advisory near-duplicate citekey detection (shared DOI/title), called from sync
-  retrieval.py              keyword search over the content layer
+  retrieval.py              BM25 search over the content layer, backed by a cached term-frequency index
   citation_gate.py          hard citation-verification gate -- "job 2" must pass this
   citation_coverage.py      ad-hoc review aid: retrieval-candidates-vs-actually-cited report, not a gate
   references.py             auto-generates a draft's "## References" section from its own cited citekeys

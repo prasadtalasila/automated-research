@@ -75,6 +75,7 @@ class TestRealConfigToml:
         assert config.CONTENT_DIR == config.REPO_ROOT / "content"
         assert config.PARSED_DIR == config.CONTENT_DIR / "parsed"
         assert config.LEDGER_PATH == config.CONTENT_DIR / "ledger.sqlite"
+        assert config.RETRIEVAL_INDEX_PATH == config.CONTENT_DIR / "retrieval_index.json"
 
     def test_grobid_defaults(self):
         assert config.GROBID_URL == "http://localhost:8070"

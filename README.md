@@ -379,7 +379,7 @@ page-locating a quoted phrase.
 | Parse bib file, track citekeys + PDF paths | `bibtexparser` (venv, main Poetry group) |
 | Extract PDF text | `pdftotext` (poppler-utils, `os-deps` stage) |
 | Track parse status incrementally | stdlib `sqlite3` |
-| Keyword-based retrieval | stdlib only |
+| BM25-ranked retrieval | stdlib only |
 | Citation verification gate, auto References section, standalone tex/pdf render | stdlib only, no venv needed (see "Venv requirement" above) |
 | Docling layout-aware parsing, embeddings/Chroma, BERTopic | venv, `heavy` Poetry group (`src/heavy/`) |
 | Bibliographic-quality parsing (GROBID: references, sections) | JDK 21 + a standalone GROBID build -- see [GROBID.md](GROBID.md) |
@@ -388,10 +388,13 @@ page-locating a quoted phrase.
 See [GROBID.md](GROBID.md) for the full GROBID build/run/troubleshooting
 walkthrough (previously an inline subsection here).
 
-Retrieval by default is a keyword-overlap ranker (`src/retrieval.py`,
-stdlib only) -- deliberately: the corpus is still small enough that
-embeddings are overhead without payoff for the genre skills' day-to-day
-use. `src/heavy/embed_index.py` (sentence-transformers + Chroma) is a
+Retrieval by default is a BM25 ranker over a disk-cached term-frequency
+index (`src/retrieval.py`, stdlib only) -- deliberately: the corpus is
+still small enough that embeddings are overhead without payoff for the
+genre skills' day-to-day use. The cache is keyed by a cheap per-document
+fingerprint (parsed-file stat, not content), so a `search()` call only
+re-tokenizes documents whose text actually changed since the last call.
+`src/heavy/embed_index.py` (sentence-transformers + Chroma) is a
 verified, working upgrade with a matching `search(query, k)` signature,
 for when that stops being true.
 
