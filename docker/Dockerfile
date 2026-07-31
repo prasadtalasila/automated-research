@@ -51,14 +51,16 @@ ARG GROBID_VERSION=0.9.0
 ENV GROBID_DIR=/opt/grobid
 RUN GROBID_VERSION="${GROBID_VERSION}" scripts/install_full_pipeline.sh grobid
 
-# Stage 3: Python deps -- same script + requirements file as the host.
-# python -m src.citation_gate doesn't need any of this and still runs
-# with the bare python3 from stage 1; python -m src.sync needs
-# bibtexparser, the one dependency the rest of the core pipeline can't
-# avoid.
+# Stage 3: Python deps -- same script + pyproject.toml/poetry.lock as
+# the host (Poetry itself came from stage 1's os-deps, which apt-installs
+# python3-poetry). python -m src.citation_gate doesn't need any of this
+# and still runs with the bare python3 from stage 1; python -m src.sync
+# needs bibtexparser, the one dependency the rest of the core pipeline
+# can't avoid.
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
-COPY docker/requirements-full.txt docker/requirements-full.txt
+ENV VIRTUAL_ENV=/opt/venv
+COPY pyproject.toml poetry.lock poetry.toml ./
 RUN SKIP_VENV=1 scripts/install_full_pipeline.sh python-deps
 
 COPY docker/setup.sh /usr/local/bin/setup-grobid.sh

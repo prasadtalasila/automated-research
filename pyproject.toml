@@ -1,0 +1,92 @@
+# Poetry as a dependency/lockfile manager only -- package-mode = false
+# below means this is NOT a publishable package (no [build-system], no
+# renaming the `src` layout; see the packaging pros/cons write-up for why
+# that's a separate, larger decision this project explicitly isn't
+# making). `poetry install` replaces the old docker/requirements-full.txt
+# + requirements-dev.txt + hand-run `python3 -m venv` -- see
+# scripts/install_full_pipeline.sh, still the single install path for
+# host and Docker.
+[tool.poetry]
+package-mode = false
+name = "automated-research"
+version = "0.1.0"
+description = "Bib-sync, citation-gate, and genre-writing pipeline for a research corpus."
+authors = ["Prasad Talasila"]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+# The one dependency the otherwise-stdlib core pipeline needs
+# (src/bib_reader.py, used by `python -m src.sync`): hand-rolling a
+# correct BibTeX parser (nested braces, LaTeX escapes, multi-line
+# values) isn't worth it. `python -m src.citation_gate` needs none of
+# this and still runs with the bare system interpreter, no venv at all.
+bibtexparser = ">=1.4,<2.0"
+# <2.0 is load-bearing, not just a style choice: bibtexparser v2 replaces
+# BibTexParser/customization/bibtexparser.load with a different,
+# incompatible API (bibtexparser.parse_file, no customization hook) that
+# src/bib_reader.py -- the sole source of citekeys -- doesn't use. Don't
+# relax this ceiling without rewriting that module against v2's API first.
+
+# Optional group (`poetry install --with heavy`): everything src/heavy/*
+# (the Docling/GROBID/embeddings/Pandoc pipeline, scripts/full_pipeline.py)
+# needs. All of the below were installed and import-verified in a host
+# venv on 2026-07-28 (docker/requirements-full.txt, since replaced by this
+# group); sentence-transformers/chromadb/bertopic/docling were also
+# functionally verified against this repo's real corpus (bib parsing,
+# embeddings+search, topic modeling, PDF parsing all produced correct
+# output). Re-verified against this exact poetry.lock on 2026-07-30 --
+# note the resolved versions aren't necessarily the same ones checked on
+# 2026-07-28 (e.g. torch resolved to 2.7.1+cu126 this time, not the
+# 2.6.0+cu124 verified when this lock was first generated); re-verify
+# after any `poetry lock` re-resolution rather than assuming this note
+# still describes what's actually pinned.
+#
+# torch itself is NOT listed here -- it's a transitive dependency (pulled
+# in by sentence-transformers/docling/accelerate), and
+# scripts/install_full_pipeline.sh's ensure_gpu_torch deliberately
+# reinstalls it from a CUDA-version-matched wheel index *after* this
+# group installs, diverging from whatever plain version this lockfile
+# resolved (which is whatever CUDA major version is current upstream --
+# see that function's own comment for why a driver-aware post-install
+# step is unavoidable here; poetry has no concept of "pick a different
+# index based on the host's GPU driver").
+[tool.poetry.group.heavy]
+optional = true
+
+[tool.poetry.group.heavy.dependencies]
+requests = ">=2.34,<3.0"
+sentence-transformers = ">=5.6,<6.0"
+chromadb = ">=1.5,<2.0"
+bertopic = ">=0.17,<0.18"
+docling = ">=2.115,<3.0"
+
+# Optional group (`poetry install --with dev`): pytest/pytest-cov are
+# dev-time tooling, not needed to run the pipeline itself -- but the test
+# suite they run is NOT correspondingly light: tests/ exercises
+# bibtexparser (bib_reader) and the whole heavy group (requests via
+# grobid_extract, docling/chromadb/bertopic/sentence-transformers via
+# their own test modules), so `poetry install --with heavy` must already
+# have run before `--with dev` for the full suite to pass.
+[tool.poetry.group.dev]
+optional = true
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0,<9.0"
+pytest-cov = ">=5.0,<7.0"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.coverage.run]
+source = ["src", "scripts"]
+branch = true
+omit = [
+    "*/heavy/__init__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]

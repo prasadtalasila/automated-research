@@ -12,10 +12,10 @@ availability. On a plain host that's missing Java/TeX Live, some stages
 report skipped/missing-binary -- that is a correct, honest result, not a
 bug in this script.
 
-Needs the venv described in docker/requirements-full.txt (see also
-.venv-full/ on the host this was developed on). The core pipeline
-(python -m src.sync, src/citation_gate.py) does not depend on any of this
-and is unaffected either way.
+Needs the venv populated by `poetry install --with heavy` (see
+pyproject.toml, and .venv-full/ on the host this was developed on). The
+core pipeline (python -m src.sync, src/citation_gate.py) does not depend
+on any of this and is unaffected either way.
 
 Usage:
     python scripts/full_pipeline.py --target host

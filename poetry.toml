@@ -1,0 +1,12 @@
+# create = false does NOT mean "no virtualenv" -- it means "don't let
+# Poetry create/manage its own" (which it would otherwise do at its own
+# default location, e.g. an in-project .venv/ or a cache dir under
+# ~/.cache/pypoetry/virtualenvs/). scripts/install_full_pipeline.sh
+# creates .venv-full/ itself (python3 -m venv), a name that predates this
+# repo's adoption of Poetry, then exports VIRTUAL_ENV pointing at it
+# before calling `poetry install`. With create=false, Poetry installs into
+# whatever venv VIRTUAL_ENV names instead of creating a second one --
+# which is what keeps .venv-full/ as the one true venv rather than ending
+# up with two (Poetry's default one, unused, alongside this repo's own).
+[virtualenvs]
+create = false

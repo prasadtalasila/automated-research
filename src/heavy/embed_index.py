@@ -3,7 +3,7 @@
 This is the real embedding-based retrieval the core pipeline's
 src/retrieval.py deliberately deferred (keyword overlap only, pending a
 larger corpus). Needs `sentence-transformers` and `chromadb` from
-docker/requirements-full.txt in a venv.
+pyproject.toml's "heavy" Poetry group, in a venv.
 """
 
 import subprocess

@@ -1,7 +1,7 @@
 """Stage 7: Pandoc/LaTeX rendering of generated Markdown into PDF/DOCX.
 
 Needs the `pandoc` and TeX Live binaries (apt packages, not pip -- not
-installable via docker/requirements-full.txt or a venv). Verified working
+installable via pyproject.toml/Poetry or any other venv mechanism). Verified working
 on this host (2026-07-28): `pandoc`, `pdflatex`, `latexmk` are all on
 PATH. Where they aren't, this stage fails cleanly with MissingBinary
 rather than hanging or stack-tracing -- see docker/Dockerfile for a

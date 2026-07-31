@@ -2,10 +2,10 @@
 
 Layout-aware parsing (headings, tables, reading order) -- a step up from
 the core pipeline's plain pdftotext. Needs `docling` from
-docker/requirements-full.txt in a venv; heavy (its own layout/OCR models),
-so this is the stage most likely to be slow or fail on a small/CPU-only
-host. Output is Markdown, written per-doc so a failure on one document
-doesn't lose progress on the others.
+pyproject.toml's "heavy" Poetry group, in a venv; heavy (its own
+layout/OCR models), so this is the stage most likely to be slow or fail
+on a small/CPU-only host. Output is Markdown, written per-doc so a
+failure on one document doesn't lose progress on the others.
 """
 
 from pathlib import Path

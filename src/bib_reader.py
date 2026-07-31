@@ -8,11 +8,12 @@ Whatever citekey BibTeX assigns in this file IS the citekey everywhere
 downstream (the ledger, citation_gate, generated drafts); this module
 never invents its own.
 
-Needs `bibtexparser` (docker/requirements-full.txt, install via
-scripts/install_full_pipeline.sh) -- the one dependency the otherwise
-stdlib-only core pipeline requires, because hand-rolling a correct
-BibTeX parser (nested braces, LaTeX escapes, multi-line values) is a
-worse bet than using a maintained library for something citation-critical.
+Needs `bibtexparser` (pyproject.toml's main dependency group, installed
+via scripts/install_full_pipeline.sh) -- the one dependency the
+otherwise stdlib-only core pipeline requires, because hand-rolling a
+correct BibTeX parser (nested braces, LaTeX escapes, multi-line values)
+is a worse bet than using a maintained library for something
+citation-critical.
 """
 
 import re
