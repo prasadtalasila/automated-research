@@ -76,7 +76,7 @@ install_os_deps() {
         python3 python3-venv python3-pip \
         python3-poetry \
         poppler-utils \
-        git curl ca-certificates unzip \
+        git curl ca-certificates unzip zip \
         openjdk-21-jdk-headless \
         pandoc \
         texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended latexmk \
@@ -93,6 +93,9 @@ install_os_deps() {
     # `lmodern.sty' not found", not a docling/GROBID-side problem. Found
     # by hand rendering a real draft after the rest of the toolchain
     # reported fine.
+    # zip: scripts/release.py itself only needs stdlib zipfile, not this
+    # binary -- it's here so a human can inspect/repack a release archive
+    # by hand (unzip was already required for GROBID's own extraction).
 }
 
 check_poetry() {

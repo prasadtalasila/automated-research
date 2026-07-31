@@ -12,6 +12,7 @@ name = "automated-research"
 version = "0.1.0"
 description = "Bib-sync, citation-gate, and genre-writing pipeline for a research corpus."
 authors = ["Prasad Talasila"]
+license = "MIT"
 
 [tool.poetry.dependencies]
 python = "^3.12"

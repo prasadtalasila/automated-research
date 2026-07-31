@@ -24,6 +24,7 @@ htmlcov/
 *.tmp
 *.swp
 .DS_Store
+release/
 # papers/bibliography.bib is a manual, per-host export from a personal
 # reference manager (see CLAUDE.md) -- not shippable source, so it's
 # gitignored rather than tracked. papers/pdfs/ is the [source_pdfs].dir

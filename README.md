@@ -7,6 +7,7 @@ a paper the bibliography actually holds.
 ## Table of contents
 
 - [Quickstart](#quickstart)
+  - [Exporting your library from Zotero](#exporting-your-library-from-zotero)
 - [Venv requirement](#venv-requirement)
 - [Hardware requirements](#hardware-requirements)
 - [Configuration](#configuration)
@@ -14,12 +15,11 @@ a paper the bibliography actually holds.
 - [Architecture](#architecture)
 - [The heavy pipeline](#the-heavy-pipeline)
   - [Calling the heavy pipeline from a skill or agent](#calling-the-heavy-pipeline-from-a-skill-or-agent)
-- [Running tests](#running-tests)
-- [Repository layout](#repository-layout)
-- [Open questions and unbuilt features](#open-questions-and-unbuilt-features)
+- [Developer material](#developer-material)
 - [Acknowledgements](#acknowledgements)
 
-See also: [DOCKER.md](DOCKER.md) (running this repo in a container) and
+See also: [DEVELOPER.md](DEVELOPER.md) (tests, repo layout, open
+questions), [DOCKER.md](DOCKER.md) (running this repo in a container) and
 [GROBID.md](GROBID.md) (building/running GROBID standalone on a bare host).
 
 ## Quickstart
@@ -36,7 +36,7 @@ mkdir -p papers && cp /path/to/your/exported-library.bib papers/bibliography.bib
 #    install --with heavy` into it: bibtexparser (core pipeline) plus the
 #    full src/heavy/ stack. Dependencies/versions live in pyproject.toml +
 #    poetry.lock; Poetry here is a lockfile/venv manager only, nothing is
-#    published (see "Repository layout" below). OS-level packages (JDK,
+#    published (see DEVELOPER.md's "Repository layout"). OS-level packages (JDK,
 #    TeX Live, Pandoc, Poetry itself) and GROBID are separate, opt-in
 #    stages -- see "What works on this host" below.
 bash scripts/install_full_pipeline.sh
@@ -65,9 +65,40 @@ python3 -m src.references path/to/draft.md
 python3 -m src.heavy.render_output path/to/draft.md --format pdf
 ```
 
-To add papers: add the entry to your BibTeX bibliography, re-export
-`papers/bibliography.bib` (a manual step unless your reference manager
-auto-syncs it), then re-run `python -m src.sync`.
+### Exporting your library from Zotero
+
+Step 1 above, in detail, for [Zotero](https://www.zotero.org/) (see its own
+[export documentation](https://www.zotero.org/support/kb/exporting) for the
+general feature):
+
+1. Right-click the collection you want (or use **File -> Export Library**
+   for everything) -> **Export Collection...** / **Export Library...**.
+2. Format: **BibTeX**. Check **Export Files** -- without it you get
+   metadata only and `pdf_text.py` will have nothing to extract.
+3. Save it as `bibliography` directly inside this repo's `papers/`
+   directory. Zotero writes `papers/bibliography.bib` plus a **companion
+   folder** (`papers/bibliography/`, `files/<id>/<name>.pdf` inside) for
+   every attachment -- the exported `.bib`'s `file` field encodes that
+   folder's name as a literal relative path, tied to whatever name you
+   gave the export at save time.
+4. **Don't rename that companion folder afterward.** `src/bib_reader.py`'s
+   `_resolve_pdf_path` resolves each entry's `file` field relative to
+   wherever `bibliography.bib` itself lives (`papers/`) -- if you rename
+   or move the attachments folder, that relative path breaks silently
+   (entries just show up as "without a PDF attachment" after `sync`, not
+   as an error).
+5. Re-run `python -m src.sync`.
+
+This is a **different mechanism from `papers/pdfs/`** (`config.toml`'s
+`[source_pdfs].dir`): that directory is for raw PDFs gathered *outside*
+Zotero entirely (e.g. an OpenAlex/Semantic Scholar/arXiv metadata-API
+search with no reference-manager entry at all) -- see
+[`src/heavy/corpus.py`](src/heavy/corpus.py) and CLAUDE.md's citekey
+invariant. Zotero's own exported attachments never belong there.
+
+To add more papers later: add the entry in Zotero, re-export the same way
+(re-check **Export Files** so new attachments are included), then re-run
+`python -m src.sync`.
 
 All paths are configurable in `config.toml` (repo root), overridable
 per-run with an env var of the same name, e.g. `BIB_FILE=/path/to/other.bib
@@ -140,7 +171,7 @@ file, e.g. `BIB_FILE=/path/to/other.bib python -m src.sync`.
 
 | Section | Key | Env var | Default | What it controls |
 |---|---|---|---|---|
-| `[bib]` | `path` | `BIB_FILE` | `papers/bibliography.bib` | The BibTeX export `src/bib_reader.py` parses -- the only source of citekeys (CLAUDE.md's hard invariant). Gitignored, per-host -- see "Repository layout" |
+| `[bib]` | `path` | `BIB_FILE` | `papers/bibliography.bib` | The BibTeX export `src/bib_reader.py` parses -- the only source of citekeys (CLAUDE.md's hard invariant). Gitignored, per-host -- see DEVELOPER.md's "Repository layout" |
 | `[content]` | `dir` | `CONTENT_DIR` | `content` | Where `sync`/heavy-pipeline outputs live: `ledger.sqlite`, `parsed/`, `docling/`, `chroma/`, `topics.json`, `rendered/` |
 | `[source_pdfs]` | `dir` | `SOURCE_PDFS_DIR` | `papers/pdfs` | Raw PDFs gathered outside the bib file, no citekey -- see `src/heavy/corpus.py` |
 | `[heavy]` | `grobid_url` | `GROBID_URL` | `http://localhost:8070` | Where `src/heavy/grobid_extract.py` looks for a running GROBID instance |
@@ -171,12 +202,65 @@ a research-paper corpus:
 | `sentence-transformers/all-mpnet-base-v2` | 768 | ~4-5x MiniLM -- comfortable on the A40 GPU host, noticeably slower on CPU-only hardware | Meaningfully better general-purpose semantic quality; drop-in, same symmetric `encode()` call | More RAM/VRAM and slower indexing/search, for a quality gain that may not matter yet at this corpus's current size |
 | `sentence-transformers/multi-qa-mpnet-base-dot-v1` | 768 | Same class as `all-mpnet-base-v2` | Trained specifically on short-query-vs-long-passage retrieval pairs -- the closest match to what `embed_index.search()` actually does | Slightly weaker than `all-mpnet-base-v2` on generic sentence-similarity outside retrieval; still no prefix needed, so still a genuine drop-in |
 
-Not recommended without a code change first: `allenai/specter`/`specter2`
-(trained on paper title+abstract pairs specifically -- a poor fit for the
-arbitrary 200-word body-text chunks `chunk_text` actually produces) and
-the BGE/E5 families (need the prefix handling `get_client_and_model()`
-doesn't do). Either could be worth adopting later, paired with the
-matching code change -- not as a config-only swap.
+**What each one actually is**, beyond the table above:
+
+- **`all-MiniLM-L6-v2`**: a 6-layer transformer distilled down from a
+  larger model, then fine-tuned by the sentence-transformers project on
+  roughly a billion general sentence pairs (paraphrase/QA/NLI-style data)
+  with contrastive learning, so semantically similar sentences land close
+  together in vector space. That symmetric "compare two texts for
+  similarity" training objective is exactly what this codebase's
+  prefix-free `encode()` call needs -- no adaptation required, which is
+  why it's the default. ~22M parameters is small enough to embed and
+  query fast on CPU alone, at the cost of the least semantic nuance of the
+  three.
+- **`all-mpnet-base-v2`**: same general-purpose sentence-pair training
+  recipe as MiniLM, but on a larger 12-layer MPNet backbone (~109M
+  parameters, ~5x MiniLM) -- generally the strongest all-around
+  sentence-transformers model for semantic similarity when no domain
+  specialization is needed. The extra quality costs roughly 4-5x the
+  compute and double the vector dimensionality (768 vs. 384), which
+  doubles per-chunk storage in Chroma and slows similarity search
+  somewhat -- comfortable on the A40 GPU host, noticeably slower on
+  CPU-only hardware.
+- **`multi-qa-mpnet-base-dot-v1`**: the same MPNet-base backbone as
+  `all-mpnet-base-v2`, but fine-tuned specifically on ~215M
+  question/answer and query/passage pairs (MS MARCO, Natural Questions,
+  Reddit, StackExchange) for dot-product retrieval rather than generic
+  sentence similarity. That's the closest conceptual match to what
+  `embed_index.search()` actually does -- a short query against a longer
+  chunk -- and unlike BGE/E5 below it needs no explicit prefix string to
+  invoke that behavior, so it's still a clean drop-in. Same cost profile
+  as `all-mpnet-base-v2` (~109M params, 768-dim); no savings, just
+  better-targeted training data for this project's actual retrieval
+  pattern.
+
+Not recommended without a code change first:
+
+- **`allenai/specter`/`specter2`**: a SciBERT-based model (~110M
+  parameters, similar cost to the mpnet options above) trained
+  specifically on scientific paper title+abstract pairs, using citation
+  graphs as the training signal -- papers that cite each other are pulled
+  closer together in embedding space. It's built for whole-paper
+  similarity ("find similar papers"), not passage-level retrieval, and
+  expects a specific input shape (title `[SEP]` abstract) that doesn't
+  match the arbitrary 200-word body-text chunks `chunk_text` actually
+  produces from parsed PDFs. Using it well would mean feeding it
+  titles+abstracts instead of chunks -- a real code change -- and even
+  then it answers "which papers are alike", a different question than
+  `embed_index.search()` asks ("which chunk answers this query").
+- **BAAI `bge-*` and `intfloat e5-*` families**: general-purpose embedding
+  models (33M-335M parameters depending on tier, 384-1024 dimensions)
+  trained with large-scale contrastive learning, strong on public
+  retrieval benchmarks. Both expect literal `"query: "` / `"passage: "`
+  (or similar) prefix strings baked into the input text so the model
+  knows which role each side is playing. `get_client_and_model()` adds no
+  such prefix on either side -- feeding either family in as-is won't
+  error, it'll just silently underperform relative to its benchmark
+  numbers, since it never receives the signal it was trained to expect.
+  Either family could be worth adopting later, paired with the matching
+  prefix-handling code change in `get_client_and_model()` -- not as a
+  config-only swap.
 
 To switch models: edit `config.toml`'s `[heavy].embedding_model`, or set
 `EMBEDDING_MODEL=...` for a single run, then re-run
@@ -351,106 +435,10 @@ call works from inside them too -- but nothing about calling the heavy
 pipeline *requires* going through a dedicated agent. A skill invoked
 inline is sufficient by itself.
 
-## Running tests
+## Developer material
 
-```bash
-# Install pytest/pytest-cov into the same venv (run python-deps first)
-bash scripts/install_full_pipeline.sh dev-deps
-
-# Run the full suite with coverage
-.venv-full/bin/python -m pytest --cov=src --cov=scripts --cov-report=term-missing
-```
-
-`tests/` covers both the core pipeline and `src/heavy/*` -- heavy
-dependencies (docling, chromadb, bertopic, sentence-transformers) are
-mocked via `sys.modules` for fast, deterministic unit tests, so the
-`dev-deps` group alone is *not* enough on its own: the `heavy` group
-(`python-deps`, step 1 of Quickstart) must already be installed too, since
-`tests/test_heavy_grobid_extract.py` needs `requests` and
-`tests/test_bib_reader.py` needs `bibtexparser`. A handful of tests
-(`tests/test_feature_workflows.py`, the `TestRenderReal`/`TestExtractTextReal`
-classes elsewhere) run the real `pdftotext`/`pandoc`/`pdflatex` binaries
-end to end rather than mocking them, and skip automatically if those
-aren't on `PATH`.
-
-## Repository layout
-
-```
-README.md                 you are here
-CLAUDE.md                 project instructions for Claude Code sessions -- hard invariants, install notes
-DOCKER.md                 running this repo in a container (docker/Dockerfile + docker/setup.sh)
-GROBID.md                 building/running GROBID standalone on a bare host, step by step
-config.toml               central config -- paths, GROBID URL/timeouts, embedding model (see "Configuration" below)
-papers/                   gitignored, per-host data -- not shipped in the repo
-  bibliography.bib          BibTeX export -- source of truth for citekeys/metadata (config.toml's [bib].path default)
-  pdfs/                     [source_pdfs].dir default -- raw PDFs gathered outside the bib file, never citable;
-                          manifest.json/reading-notes.md are hand-written and tracked, PDFs dropped in
-                          alongside them are not (migrated here from this repo's original source-pdfs/,
-                          now retired, on 2026-07-31)
-pyproject.toml            Poetry config (dependency/lockfile manager only, package-mode = false --
-                          no [build-system], nothing published) + pytest/coverage tool config
-poetry.toml               project-local Poetry config: virtualenvs.create = false (installs into
-                          whatever venv VIRTUAL_ENV points at, e.g. .venv-full/, instead of Poetry's own)
-poetry.lock               resolved dependency versions -- regenerate with `poetry lock` after editing pyproject.toml
-src/                      core pipeline (needs bibtexparser; citation_gate/references need nothing)
-  config.py                 loads config.toml, env var overrides
-  bib_reader.py             parses bibliography.bib -- the only citekey source
-  ledger.py                 per-citekey status tracking (content/ledger.sqlite)
-  pdf_text.py               pdftotext wrapper
-  sync.py                   orchestrates the above -- the "job 1" entrypoint
-  retrieval.py              keyword search over the content layer
-  citation_gate.py          hard citation-verification gate -- "job 2" must pass this
-  references.py             auto-generates a draft's "## References" section from its own cited citekeys
-src/heavy/                optional heavier pipeline (pyproject.toml's "heavy" Poetry group)
-  corpus.py                 unifies ledger items + [source_pdfs].dir's raw PDFs (doc: prefixed, non-citable)
-  docling_parse.py, embed_index.py, topic_model.py, grobid_extract.py
-  render_output.py          Pandoc/TeX Live rendering + standalone CLI -- stdlib-only, no heavy venv needed
-scripts/
-  install_full_pipeline.sh  single staged install path (os-deps/python-deps/grobid/dev-deps/all) for host + Docker
-  full_pipeline.py           orchestrates src/heavy/* stages
-  verbatim_check.py          ad-hoc review aid: verbatim-overlap and page-locating checks against sources
-tests/                    pytest suite -- unit tests per module + end-to-end feature tests (see "Running tests")
-content/                  generated, gitignored (regenerate with sync)
-  ledger.sqlite, parsed/<citekey>.txt, provenance/,
-  docling/, chroma/, topics.json, rendered/  (src/heavy/ outputs)
-.claude/skills/           genre layer: survey-writer, thesis-chapter-writer, tutorial-writer, deep-research
-.claude/agents/           deep-research's subagents: deep-research-interviewer, deep-research-writer, peer-reviewer
-docker/                   Dockerfile + setup.sh (GROBID/TeX Live/Pandoc/Poetry) -- unverified end-to-end, see DOCKER.md
-```
-
-## Open questions and unbuilt features
-
-Run this pipeline as a cron job monitoring the bib file. To do so,
-the following tasks need to be completed in priority order:
-
-1. **Bib-file freshness is the blocker, not an afterthought.** With no
-   continuous auto-export, `bibliography.bib` is a manual, point-in-time
-   snapshot -- a cron job watching only its mtime does nothing until a
-   human re-exports it.
-2. **The heavy stages have no incremental skip logic.** `python -m
-   src.sync` already is incremental (a paper is only re-parsed if its PDF
-   hash changed) -- safe to run every few minutes. `src/heavy/embed_index.py`
-   and `src/heavy/topic_model.py` are **not**: they rebuild/reprocess
-   every document on every call. A cron job that also re-runs
-   `full_pipeline.py --stages docling,embed,bertopic` on a schedule would
-   re-run Docling over all 5 PDFs every tick -- 373 seconds and the same
-   swap pressure documented above, for zero new information. This needs
-   the same content-hash-based skip logic `ledger.py` already has for the
-   core pipeline, extended to the heavy stages.
-3. **No scheduling mechanism exists yet** -- no crontab entry, no systemd
-   timer. Given `sync` is already cheap and idempotent, a stateless cron
-   entry polling every N minutes is the right shape (survives reboots
-   without supervision) rather than a long-running watchdog daemon.
-4. **No lock file.** If a run takes longer than the cron interval, two
-   overlapping `sync` invocations aren't currently prevented.
-5. **No log file / failure surfacing.** `sync` prints to stdout/stderr;
-   unattended it needs redirecting to a log (with rotation) and a way to
-   notice repeated failures, since cron's default "mail root" often goes
-   unread.
-6. **Cron's minimal environment.** A crontab entry needs the venv's
-   Python invoked by absolute path
-   (`/workspace/git/automated-research/.venv-full/bin/python`) -- cron
-   doesn't source your shell profile or activate venvs.
+Test running, the full source layout, and known gaps/unbuilt features
+have moved to [DEVELOPER.md](DEVELOPER.md).
 
 ## Acknowledgements
 
