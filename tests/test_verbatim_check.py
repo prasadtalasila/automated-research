@@ -35,6 +35,10 @@ class TestBibEntry:
         vc.BIB.write_text("@article{smith_2024,\n  title = {A Paper},\n}\n")
         assert vc.bib_entry("nonexistent_2024") == ""
 
+    def test_missing_bib_file_returns_empty_rather_than_raising(self, fixture_repo):
+        assert not vc.BIB.exists()
+        assert vc.bib_entry("anything_2024") == ""
+
 
 class TestPdfPath:
     def test_resolves_pdf_from_file_field(self, fixture_repo):
