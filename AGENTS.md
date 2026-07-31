@@ -221,9 +221,11 @@ Only once all of the above are green does a task count as complete.
 ## Commit messages
 
 Title line: imperative mood, concise, describes the change's effect (not
-"updated files" or "misc fixes"). Once merged via PR, GitHub appends the PR
-number automatically for the merge commit -- don't add it by hand to the
-first commit on a branch.
+"updated files" or "misc fixes"). PRs are squash-merged (see "Pull
+requests" below), and GitHub uses the PR's title as the resulting commit
+title on `main`, appending the PR number automatically (e.g. `Fix reconcile
+drift detection (#42)`) -- so write commits and PR titles as if either one
+could become that commit title, and don't add the number by hand.
 
 Body: a blank line, then a bulleted list of the specific, concrete changes,
 each bullet starting with a present-tense verb (Fix, Add, Remove, Migrate,
@@ -275,6 +277,11 @@ where relevant, not a restatement of the diff.
   which real end-to-end smoke test(s) were run.
 ```
 
+Merge method: squash. Each PR becomes exactly one commit on `main`, titled
+from the PR title (see "Commit messages" above) -- keep the PR title
+accurate even when the branch itself carries several intermediate
+commits.
+
 ## Versioning and releases
 
 Semantic versioning (`pyproject.toml`'s `[tool.poetry].version`), bumped
@@ -309,14 +316,18 @@ complete cycle, and isn't done until every step below has actually
 succeeded -- not merely started:
 
 1. Branch off `main`, commit (see "Commit messages" above), push.
-2. Open a PR against `main` (see "Pull requests" above).
-3. Wait for `.github/workflows/ci.yml` to complete on the PR and confirm
+2. Decide the version bump (see "Versioning and releases") and update
+   `pyproject.toml` as part of the same branch -- `release.yml` verifies
+   the pushed tag against `pyproject.toml`'s version on `main`, so the
+   bump has to land *before* the tag exists, i.e. in this PR, not after.
+3. Open a PR against `main` (see "Pull requests" above).
+4. Wait for `.github/workflows/ci.yml` to complete on the PR and confirm
    it's green -- if it fails, fix the actual cause (see "Before claiming a
    task complete") and push again; don't merge past a red check.
-4. Merge the PR.
-5. Decide the version bump (see "Versioning and releases"), update
-   `pyproject.toml`, tag `v<version>`, push the tag.
-6. Confirm `.github/workflows/release.yml` completed and the resulting
+5. Squash-merge the PR.
+6. Tag `v<version>` (matching what's now in `main`'s `pyproject.toml`) and
+   push the tag.
+7. Confirm `.github/workflows/release.yml` completed and the resulting
    GitHub Release has its `automated-research-<version>.zip` asset
    attached -- this is the actual deliverable, not the tag or the merge
    by itself.
