@@ -16,8 +16,24 @@ from tests.conftest import make_reference
 class TestExtractLatexCitations:
     @pytest.mark.parametrize("cmd", [
         "cite", "citep", "citet", "parencite", "textcite", "autocite", "citeauthor", "citeyear",
+        # These were silently missed by an earlier, enumerated version of
+        # the regex: ordered alternation tried "cite" first, matched as a
+        # prefix of e.g. "citealp", then failed to find the "{" that must
+        # immediately follow and never backed off to try the longer
+        # alternatives -- a false negative on the invariant this gate
+        # exists to enforce (a fabricated key in one of these read as "0
+        # citations" instead of "unresolved"). Regression coverage for
+        # that fix, not just the already-working subset above.
+        "citealp", "citealt", "footcite", "smartcite", "fullcite", "nocite", "citenum",
+        "citeyearpar",
     ])
     def test_all_recognized_commands(self, cmd):
+        assert citation_gate.extract_citekeys_from_line(f"\\{cmd}{{smith2024}}") == ["smith2024"]
+
+    @pytest.mark.parametrize("cmd", ["Citep", "Citet", "Textcite", "Parencite"])
+    def test_capitalized_biblatex_forms(self, cmd):
+        """biblatex's sentence-start capitalized commands (\\Citep, \\Textcite,
+        ...) -- same false-negative class as test_all_recognized_commands."""
         assert citation_gate.extract_citekeys_from_line(f"\\{cmd}{{smith2024}}") == ["smith2024"]
 
     def test_starred_variant(self):
@@ -37,6 +53,23 @@ class TestExtractLatexCitations:
 
     def test_plain_text_no_match(self):
         assert citation_gate.extract_citekeys_from_line("Just some prose.") == []
+
+    @pytest.mark.parametrize("text", [
+        # TeX itself skips whitespace between a control word and its
+        # arguments -- \citep {key} is valid and equivalent to
+        # \citep{key}. Without \s* in the regex, any of these silently
+        # missed a real (or fabricated) citekey -- same false-negative
+        # class as test_all_recognized_commands above. Cases where the
+        # whitespace itself contains a newline (\citep\n{key}) are covered
+        # separately in TestExtractCitekeysWholeDocument, since a per-line
+        # caller like citation_coverage.py never hands this wrapper a
+        # string spanning two real lines in the first place.
+        "\\citep {smith2024}",
+        "\\citep [see]{smith2024}",
+        "\\citep *{smith2024}",
+    ])
+    def test_whitespace_between_command_and_arguments(self, text):
+        assert citation_gate.extract_citekeys_from_line(text) == ["smith2024"]
 
 
 class TestExtractPandocCitations:
@@ -74,6 +107,109 @@ class TestExtractPandocCitations:
     def test_mixed_latex_and_pandoc_on_one_line(self):
         line = "As shown \\citep{a2024} and also [@b2024]."
         assert citation_gate.extract_citekeys_from_line(line) == ["a2024", "b2024"]
+
+    def test_latex_internal_at_macro_not_mistaken_for_citation(self):
+        # LaTeX's \makeatletter ... \@ifundefined{...}{}{} ... \makeatother
+        # idiom (pandoc's own rendered .tex templates use this) would
+        # otherwise misread \@ifundefined as a citation -- found via a
+        # retro-sweep of pandoc-rendered output, and load-bearing now that
+        # thesis-chapter-writer's .tex drafts are hook-gated (see
+        # .claude/hooks/citation_gate_hook.py).
+        assert citation_gate.extract_citekeys_from_line(r"\@ifundefined{foo}{}{}") == []
+        line = r"\makeatletter\@ifundefined{xetex}{}{}\makeatother"
+        assert citation_gate.extract_citekeys_from_line(line) == []
+
+
+class TestExtractCitekeysWholeDocument:
+    """extract_citekeys(text) -- the whole-document scan that
+    extract_citekeys_from_line() (tested above) delegates to for a single
+    line. Covers what a per-line scan structurally cannot: a citation
+    argument wrapped across multiple lines."""
+
+    def test_wrapped_citep_is_caught(self):
+        text = "See \\citep{real_key,\n       fabricated_key} for details.\n"
+        keys = [key for _, key in citation_gate.extract_citekeys(text)]
+        assert sorted(keys) == ["fabricated_key", "real_key"]
+
+    def test_document_where_every_citation_is_wrapped_and_fabricated(self):
+        # Regression for the exact bug found in review: a per-line scan
+        # matches on neither line of a wrapped \citep{...}, so a document
+        # citing nothing but fabricated, wrapped keys used to report "0
+        # citations, all verified" (exit 0).
+        text = "\\citealp{totally_made_up_key,\n          another_fake} shown here.\n"
+        keys = [key for _, key in citation_gate.extract_citekeys(text)]
+        assert sorted(keys) == ["another_fake", "totally_made_up_key"]
+
+    def test_line_number_points_at_match_start(self):
+        text = "line one\nline two \\citep{smith2024}\nline three\n"
+        assert citation_gate.extract_citekeys(text) == [(2, "smith2024")]
+
+    def test_whitespace_including_newline_between_command_and_brace(self):
+        # TeX skips whitespace -- including a newline -- between a control
+        # word and its argument, so \citep on one line and {key} on the
+        # next is valid source and equivalent to \citep{key}. Only the
+        # whole-document scan can catch this: citation_coverage.py's
+        # per-line caller (extract_citekeys_from_line) would see "\citep"
+        # and "{key}" as two separate, independently-unmatchable strings,
+        # since splitlines() has already severed them before either one
+        # reaches the wrapper.
+        text = "See \\citep\n{smith2024} for details.\n"
+        assert citation_gate.extract_citekeys(text) == [(1, "smith2024")]
+
+    def test_results_are_in_document_order_not_regex_pass_order(self):
+        # LaTeX and Pandoc citations are matched in two separate passes;
+        # results must still come out in the order they actually appear in
+        # the document (not "every LaTeX match, then every Pandoc match"),
+        # or a FAIL report lists an out-of-order citekey, making it harder
+        # to locate by reading top-to-bottom.
+        text = "[@later_pandoc]\nprose\n\\citep{earlier_latex}\nmore\n[@even_later]\n"
+        assert citation_gate.extract_citekeys(text) == [
+            (1, "later_pandoc"), (3, "earlier_latex"), (5, "even_later"),
+        ]
+
+
+class TestCodeAndVerbatimExclusion:
+    """tutorial-writer's whole job is worked code examples, and code
+    routinely contains @-tokens (Python's @dataclass, @property) or
+    cite-shaped strings that aren't citations. With the PostToolUse hook
+    (.claude/hooks/citation_gate_hook.py) treating a FAIL as blocking, a
+    false positive here would push the agent to delete valid teaching
+    code instead of a real fabricated citation."""
+
+    def test_python_decorator_in_fenced_code_is_not_a_citation(self):
+        text = "```python\n@dataclass\nclass Foo:\n    pass\n```\n"
+        assert citation_gate.extract_citekeys(text) == []
+
+    def test_inline_code_span_is_not_a_citation(self):
+        assert citation_gate.extract_citekeys("use the `@override` annotation") == []
+        assert citation_gate.extract_citekeys("run `npm install @scoped/pkg`") == []
+
+    def test_whitespace_tolerance_does_not_bridge_a_blanked_verbatim_block(self):
+        # _blank_code blanks a verbatim block's contents to spaces but keeps
+        # its newlines, and a verbatim block is always >=2 lines. If the
+        # cite regex's whitespace tolerance (added for \citep\n{key}, see
+        # TestExtractCitekeysWholeDocument) were unbounded (\s*) instead of
+        # capped at one newline, it could bridge straight across the
+        # blanked-out block and read an unrelated \nocite ... {group} on
+        # either side of it as one fake citation -- a false positive that
+        # would push the blocking PostToolUse hook to reject a draft on
+        # invented grounds.
+        text = (
+            "Refer to \\nocite\n"
+            "\\begin{verbatim}\n"
+            "anything\n"
+            "\\end{verbatim}\n"
+            "{\\bfseries note}\n"
+        )
+        assert citation_gate.extract_citekeys(text) == []
+
+    def test_latex_verbatim_environment_is_not_scanned(self):
+        text = "\\begin{verbatim}\n\\citep{fake_key}\n\\end{verbatim}\n"
+        assert citation_gate.extract_citekeys(text) == []
+
+    def test_real_citation_after_a_fenced_block_is_still_caught(self):
+        text = "```python\n@dataclass\nclass Foo: pass\n```\nAs shown in [@smith2024].\n"
+        assert citation_gate.extract_citekeys(text) == [(5, "smith2024")]
 
 
 class TestCheckDocument:

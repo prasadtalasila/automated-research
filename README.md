@@ -100,6 +100,19 @@ To add more papers later: add the entry in Zotero, re-export the same way
 (re-check **Export Files** so new attachments are included), then re-run
 `python -m src.sync`.
 
+Removing a paper: delete the entry in Zotero, re-export, re-run `sync`.
+By default `sync` only *reports* citekeys that dropped out of the bib file
+(`stale   <citekey> (no longer in bibliography.bib)`, one line per
+citekey, plus a single summary note pointing at `--remove-stale`) -- it
+doesn't delete their `content/ledger.sqlite` row until you re-run with
+`--remove-stale`. This is deliberate: a bib export that comes back short a
+citekey is far more often a botched re-export or `BIB_FILE` pointing at the
+wrong path than an intentional deletion, so the default keeps the ledger
+untouched until a human confirms. `--remove-stale` still refuses (raises)
+if the bib file comes back completely empty against a non-empty ledger,
+for the same reason -- fix the export/path rather than deleting everything
+in one run.
+
 All paths are configurable in `config.toml` (repo root), overridable
 per-run with an env var of the same name, e.g. `BIB_FILE=/path/to/other.bib
 python -m src.sync`. See ["Configuration"](#configuration) below for the

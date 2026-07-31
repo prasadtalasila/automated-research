@@ -2,6 +2,8 @@
 ("job 1" -- AGENTS.md). No LLM calls, must be idempotent."""
 
 import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -147,3 +149,162 @@ class TestRun:
         assert rc == 0
         assert "found 0 bibliographic item(s)" in out
         assert "0 parsed, 0 unchanged, 0 without a PDF attachment, 0 failed" in out
+
+    def test_default_mode_reports_stale_citekey_but_does_not_remove_it(
+        self, basic_corpus, monkeypatch, capsys
+    ):
+        # Default (no --remove-stale) must not delete anything -- a bib
+        # file coming back short a citekey is far more often a mistake
+        # (botched re-export, BIB_FILE pointing at the wrong path) than
+        # an intentional removal, so the default is to report and let a
+        # human confirm with --remove-stale rather than delete on every
+        # routine sync.
+        monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
+        sync.run()
+        capsys.readouterr()
+
+        write_bib(basic_corpus.BIB_FILE_PATH, BASIC_BIB.replace(
+            "@misc{noauthor_page_nodate,\n  title = {A Page With No Author},\n}\n\n", ""
+        ))
+        rc = sync.run()
+        out = capsys.readouterr().out
+
+        assert rc == 0
+        assert "stale   noauthor_page_nodate" in out
+        assert "1 stale (not removed)" in out
+        assert "Review the 1 stale item(s) above" in out
+        assert "--remove-stale to delete them" in out
+        assert "pruned" not in out
+        con = ledger.connect()
+        try:
+            known = ledger.known_citekeys(con)
+        finally:
+            con.close()
+        assert known == {"smith_example_2024", "noauthor_page_nodate", "doe_broken_2023"}
+
+    def test_remove_stale_flag_deletes_the_stale_citekey(self, basic_corpus, monkeypatch, capsys):
+        # Without this, a citekey removed from bibliography.bib (the
+        # source of truth) stays "known" to citation_gate forever --
+        # AGENTS.md's fabricated-citekey invariant, just arriving via
+        # deletion instead of invention. Only happens when a human opts in
+        # via --remove-stale, though (see the default-mode test above).
+        monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
+        sync.run()
+        capsys.readouterr()
+
+        write_bib(basic_corpus.BIB_FILE_PATH, BASIC_BIB.replace(
+            "@misc{noauthor_page_nodate,\n  title = {A Page With No Author},\n}\n\n", ""
+        ))
+        rc = sync.run(remove_stale=True)
+        out = capsys.readouterr().out
+
+        assert rc == 0
+        assert "pruned  noauthor_page_nodate" in out
+        assert "1 pruned" in out
+        con = ledger.connect()
+        try:
+            known = ledger.known_citekeys(con)
+        finally:
+            con.close()
+        assert "noauthor_page_nodate" not in known
+        assert known == {"smith_example_2024", "doe_broken_2023"}
+
+    def test_no_removed_citekeys_prunes_nothing(self, basic_corpus, monkeypatch, capsys):
+        monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
+        sync.run()
+        capsys.readouterr()
+
+        rc = sync.run(remove_stale=True)
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "0 pruned" in out
+        assert "  pruned  " not in out
+
+    def test_no_removed_citekeys_reports_nothing_stale_in_default_mode(
+        self, basic_corpus, monkeypatch, capsys
+    ):
+        monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
+        sync.run()
+        capsys.readouterr()
+
+        rc = sync.run()
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "0 stale (not removed)" in out
+        assert "  stale   " not in out
+
+    def test_bib_yielding_zero_refs_warns_instead_of_suggesting_remove_stale(
+        self, basic_corpus, monkeypatch, capsys
+    ):
+        # Default mode never deletes, so a bib file that comes back
+        # completely empty (truncated/corrupted re-export, BIB_FILE
+        # pointing at the wrong path) must not be reported with the
+        # ordinary "re-run with --remove-stale" hint -- following that
+        # advice would hit prune_missing's guard and raise. Must instead
+        # warn that this looks like a bad export, without ever
+        # recommending the flag for this specific shape.
+        monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
+        sync.run()
+        capsys.readouterr()
+
+        write_bib(basic_corpus.BIB_FILE_PATH, "")
+        rc = sync.run()
+        out = capsys.readouterr().out
+
+        assert rc == 0
+        assert "SUSPICIOUS" in out
+        assert "3 ledger item(s)" in out
+        assert "Review the" not in out
+        assert "re-run with --remove-stale" not in out
+        assert "3 stale (not removed)" in out
+        con = ledger.connect()
+        try:
+            known = ledger.known_citekeys(con)
+        finally:
+            con.close()
+        assert known == {"smith_example_2024", "noauthor_page_nodate", "doe_broken_2023"}
+
+    def test_remove_stale_refuses_to_wipe_a_populated_ledger_on_zero_refs(
+        self, basic_corpus, monkeypatch, capsys
+    ):
+        # A bib file that exists and parses cleanly but yields 0 entries
+        # (truncated/corrupted re-export, BIB_FILE pointing at the wrong
+        # path) must not be treated the same as "every citekey was
+        # legitimately removed" -- see ledger.prune_missing's guard. Without
+        # it, --remove-stale would silently empty the ledger and
+        # citation_gate would report every citekey in every existing draft
+        # as fabricated.
+        monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
+        sync.run()
+        capsys.readouterr()
+
+        write_bib(basic_corpus.BIB_FILE_PATH, "")
+        with pytest.raises(RuntimeError, match="Refusing to prune"):
+            sync.run(remove_stale=True)
+
+        con = ledger.connect()
+        try:
+            known = ledger.known_citekeys(con)
+        finally:
+            con.close()
+        assert known == {"smith_example_2024", "noauthor_page_nodate", "doe_broken_2023"}
+
+
+class TestCliEntrypoint:
+    def test_remove_stale_flag_is_registered(self, isolated_config):
+        result = subprocess.run(
+            [sys.executable, "-m", "src.sync", "--help"],
+            cwd=str(Path(__file__).resolve().parent.parent),
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0
+        assert "--remove-stale" in result.stdout
+
+    def test_unknown_flag_is_rejected(self, isolated_config):
+        result = subprocess.run(
+            [sys.executable, "-m", "src.sync", "--bogus-flag"],
+            cwd=str(Path(__file__).resolve().parent.parent),
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 2
+        assert "unrecognized arguments" in result.stderr

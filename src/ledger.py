@@ -123,6 +123,70 @@ def known_citekeys(con: sqlite3.Connection) -> set[str]:
     return {row[0] for row in con.execute("SELECT citekey FROM items")}
 
 
+def find_stale(con: sqlite3.Connection, seen_citekeys: set[str]) -> list[tuple[str, str | None]]:
+    """Read-only: ledger rows whose citekey is no longer in the bib file.
+
+    Never deletes anything -- this is what `sync`'s default (--remove-stale
+    not passed) mode calls to report what a --remove-stale run would prune,
+    without taking the destructive step. See prune_missing for the version
+    that actually deletes.
+    """
+    rows = con.execute("SELECT citekey, parsed_path FROM items").fetchall()
+    return [(citekey, parsed_path) for citekey, parsed_path in rows if citekey not in seen_citekeys]
+
+
+def prune_missing(con: sqlite3.Connection, seen_citekeys: set[str]) -> list[tuple[str, str | None]]:
+    """Removes ledger rows whose citekey is no longer in the bib file.
+
+    Without this, a citekey removed from bibliography.bib (the source of
+    truth) stays "known" to citation_gate forever -- exactly the fabricated-
+    citekey failure mode AGENTS.md's invariant exists to prevent, just
+    arriving via deletion instead of invention. Returns the removed
+    (citekey, parsed_path) pairs so the caller can also clean up the
+    now-orphaned parsed text file, though sync.py deliberately doesn't:
+    only the row is what citation_gate actually checks, and pointing
+    BIB_FILE at a smaller export is a documented, routine way to narrow
+    the working set (and does, intentionally, prune the rows it excludes
+    when --remove-stale is passed) -- but leaving the derived text in
+    place means switching BIB_FILE back to a wider export later doesn't
+    force a re-parse of PDFs whose text was already extracted.
+
+    Only called when `sync --remove-stale` is passed (default: off, see
+    sync.run) -- otherwise sync calls the read-only find_stale() instead,
+    so an accidental citekey drop just gets reported, not deleted, until
+    the user explicitly opts in.
+
+    Refuses (raises) rather than pruning when seen_citekeys is empty but
+    the ledger already has rows: bibliography.bib is a manual export
+    (AGENTS.md), and a file that exists and parses cleanly but yields
+    zero entries is far more likely to be a botched re-export, a
+    truncated file, or BIB_FILE pointing at the wrong path than someone
+    deliberately deleting their entire library. Pruning through that
+    would wipe every row in one sync run and make citation_gate report
+    every citekey in every existing draft as fabricated.
+    """
+    stale = find_stale(con, seen_citekeys)
+    if not seen_citekeys and stale:
+        # Query the total row count explicitly rather than reusing
+        # len(stale) -- true today only because seen_citekeys is empty
+        # (every row is trivially "stale"), but the message should stay
+        # accurate even if this guard's condition changes later.
+        (total,) = con.execute("SELECT COUNT(*) FROM items").fetchone()
+        raise RuntimeError(
+            f"Refusing to prune: the bib file yielded 0 references but the "
+            f"ledger has {total} existing item(s). This almost always "
+            "means the bib file is empty, corrupted, or misconfigured "
+            "(BIB_FILE pointing at the wrong path, a truncated re-export) "
+            "rather than every citekey being legitimately removed. Fix the "
+            "bib file/BIB_FILE and re-run sync -- if this really is "
+            "intentional, delete content/ledger.sqlite directly instead."
+        )
+    if stale:
+        con.executemany("DELETE FROM items WHERE citekey = ?", [(k,) for k, _ in stale])
+        con.commit()
+    return stale
+
+
 def all_items(con: sqlite3.Connection) -> list[sqlite3.Row]:
     con.row_factory = sqlite3.Row
     rows = con.execute("SELECT * FROM items ORDER BY citekey").fetchall()

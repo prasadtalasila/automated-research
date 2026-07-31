@@ -40,10 +40,7 @@ _HEADING_RE = re.compile(r"^#{1,6}\s*(?:\d+[.)]\s*)?References\s*$", re.IGNORECA
 
 def used_citekeys(text: str) -> list[str]:
     """Every citekey already cited in `text`, deduped and sorted."""
-    keys: set[str] = set()
-    for line in text.splitlines():
-        keys.update(citation_gate.extract_citekeys_from_line(line))
-    return sorted(keys)
+    return sorted({key for _, key in citation_gate.extract_citekeys(text)})
 
 
 def has_section(text: str) -> bool:

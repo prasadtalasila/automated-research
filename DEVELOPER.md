@@ -62,9 +62,11 @@ poetry.lock               resolved dependency versions -- regenerate with `poetr
 src/                      core pipeline (needs bibtexparser; citation_gate/references need nothing)
   config.py                 loads config.toml, env var overrides
   bib_reader.py             parses bibliography.bib -- the only citekey source
-  ledger.py                 per-citekey status tracking (content/ledger.sqlite)
+  ledger.py                 per-citekey status tracking (content/ledger.sqlite); find_stale/prune_missing
+                          detect/remove rows for citekeys no longer in the bib file
   pdf_text.py               pdftotext wrapper
-  sync.py                   orchestrates the above -- the "job 1" entrypoint
+  sync.py                   orchestrates the above -- the "job 1" entrypoint; --remove-stale opts into
+                          deleting stale ledger rows (default: report only, see README's "Removing a paper")
   dedup.py                  advisory near-duplicate citekey detection (shared DOI/title), called from sync
   retrieval.py              keyword search over the content layer
   citation_gate.py          hard citation-verification gate -- "job 2" must pass this
@@ -85,6 +87,9 @@ content/                  generated, gitignored (regenerate with sync)
   docling/, chroma/, topics.json, topic_embed_cache.json, rendered/  (src/heavy/ outputs)
 .claude/skills/           genre layer: survey-writer, thesis-chapter-writer, tutorial-writer, deep-research
 .claude/agents/           deep-research's subagents: deep-research-interviewer, deep-research-writer, peer-reviewer
+.claude/hooks/            citation_gate_hook.py -- PostToolUse hook, mechanically enforces citation_gate on
+                          every Write/Edit under content/drafts/*.md and *.tex (see AGENTS.md)
+.claude/settings.json     wires the hook above into the PostToolUse event
 docker/                   Dockerfile + setup.sh (GROBID/TeX Live/Pandoc/Poetry) -- unverified end-to-end, see DOCKER.md
 ```
 

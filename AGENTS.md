@@ -29,6 +29,14 @@ Every genre skill (`survey-writer`, `thesis-chapter-writer`, `tutorial-writer`
 in `.claude/skills/`) must run `python -m src.citation_gate <file>` on its own
 output and only present the draft once it exits 0. This is a gate, not a
 lint suggestion -- treat a `FAIL` the same way you'd treat a failing test.
+A PostToolUse hook (`.claude/hooks/citation_gate_hook.py`, wired up in
+`.claude/settings.json`) now also enforces this mechanically: any Write/Edit
+under `content/drafts/*.md` or `*.tex` runs the gate automatically and blocks
+the write with a `FAIL` reason on the offending citekey(s) if it doesn't
+pass. Treat the instruction above as belt-and-suspenders, not the only line
+of defense -- but still run the gate by hand before calling a draft done,
+since the hook only fires on the tool call that wrote the file, not on
+demand.
 
 ## The bib file is the source of truth (not this pipeline)
 
@@ -54,13 +62,29 @@ To add papers: add them in your reference manager, re-export
 `bibliography.bib`, re-run `python -m src.sync`. There is no
 watch/auto-export step here.
 
+Removing a paper works the same way (delete it, re-export, re-run `sync`),
+but deletion of the corresponding `content/ledger.sqlite` row is opt-in:
+`sync` by default only reports a citekey that's dropped out of the bib
+file (`stale   <citekey> (no longer in bibliography.bib)`, one line per
+citekey, then a single summary note -- "Review the N stale item(s)
+above, then re-run with --remove-stale..."); pass `--remove-stale` to
+actually delete it. A bib export that comes back short a citekey is far
+more often a botched re-export or `BIB_FILE` pointing at the wrong path
+than an intentional removal, so the default leaves the ledger untouched
+until a human confirms with the flag. Even with `--remove-stale`, `sync`
+refuses (raises) rather than pruning if the bib file comes back
+*completely* empty against a
+non-empty ledger, for the same reason at the extreme -- see
+`src/ledger.py`'s `prune_missing`.
+
 ## Two-job split
 
 - **Job 1 -- deterministic pipeline** (`python -m src.sync`): bib file read
   -> ledger update -> PDF text extraction (paths come straight from the bib
-  file's `file` field) -> advisory duplicate-citekey check (`src/dedup.py`).
-  No LLM calls, no judgment calls, idempotent. Safe to run unattended or on
-  a schedule.
+  file's `file` field) -> advisory duplicate-citekey check (`src/dedup.py`)
+  -> stale-citekey report, or removal with `--remove-stale` (see "The bib
+  file is the source of truth" above). No LLM calls, no judgment calls,
+  idempotent. Safe to run unattended or on a schedule.
 - **Job 2 -- generative drafting** (the three `.claude/skills/`, or the
   heavier `scripts/full_pipeline.py` stages): invoked on demand, reviewed by
   the user. These read the content layer; they never write to
