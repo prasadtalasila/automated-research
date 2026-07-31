@@ -35,7 +35,7 @@ self-contained section of the final report from pre-vetted source material.
 ## Citation protocol
 
 - Use only the citekeys you were given, or a new one you find yourself (see
-  below) -- **never invent a citekey**, and never cite a `source-pdfs/`
+  below) -- **never invent a citekey**, and never cite a `source-pdfs`
   `doc:`-prefixed id as if it were one (mention it in prose, marked
   not-yet-citable, if it's genuinely relevant).
 - No separate references list in your output -- the orchestrator assembles

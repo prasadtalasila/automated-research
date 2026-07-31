@@ -22,10 +22,8 @@ dir = "content"
 [source_pdfs]
 # Raw PDFs gathered outside the bib file (no citekey -- see src/heavy/corpus.py).
 # Relative to the repo root. Changed 2026-07-31 to live under papers/,
-# alongside the bib file -- source-pdfs/ (this repo's older location,
-# still holding tracked manifest.json/reading-notes.md on some hosts)
-# was not migrated as part of that change; point this at source-pdfs
-# instead if you haven't moved its contents into papers/pdfs/ yet.
+# alongside the bib file; this repo's older source-pdfs/ location was
+# migrated here the same day and is now retired.
 dir = "papers/pdfs"
 
 [heavy]

@@ -98,7 +98,7 @@ def main() -> int:
     n_bib = sum(1 for d in docs if d.source == "bib")
     n_source_pdfs = sum(1 for d in docs if d.source == "source-pdfs")
     print(f"Target: {args.target}")
-    print(f"Corpus: {len(docs)} doc(s) -- {n_bib} from the bib file, {n_source_pdfs} from source-pdfs/")
+    print(f"Corpus: {len(docs)} doc(s) -- {n_bib} from the bib file, {n_source_pdfs} from {config.SOURCE_PDFS_DIR}/")
 
     results = {}
     for name in STAGE_ORDER:

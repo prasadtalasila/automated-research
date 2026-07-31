@@ -1,9 +1,10 @@
 # Building and running GROBID standalone
 
 GROBID gives `src/heavy/grobid_extract.py` bibliographic-quality header
-and reference extraction (for `source-pdfs/` documents, which -- unlike
-bib-sourced ones -- have no metadata of their own; see that module's
-docstring). This is the step-by-step recipe for building and running it
+and reference extraction (for documents under `config.toml`'s
+`[source_pdfs].dir`, which -- unlike bib-sourced ones -- have no metadata
+of their own; see that module's docstring). This is the step-by-step
+recipe for building and running it
 directly on a bare host. There's nothing Docker-exclusive about GROBID
 itself -- `docker/setup.sh` just runs this same recipe inside a
 container for hosts that don't have root or a JDK 21 available directly

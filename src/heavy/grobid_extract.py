@@ -2,7 +2,8 @@
 extraction for source-pdfs docs.
 
 Bib-sourced docs already have real metadata (src/bib_reader.py) -- this
-stage exists for the source-pdfs/ docs, which don't. It talks to a
+stage exists for docs gathered outside the bib file (config.toml's
+`[source_pdfs].dir`), which don't. It talks to a
 running GROBID REST service at GROBID_URL (default http://localhost:8070)
 -- docker/setup.sh starts one inside the Docker target, or one can be
 built and run standalone on a bare host with a JDK 21 (not JRE) per

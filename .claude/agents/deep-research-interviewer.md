@@ -7,7 +7,7 @@ tools: Bash, Read, Grep, Glob
 Adapted from [hadufer/claude-storm](https://github.com/hadufer/claude-storm)'s
 `agents/storm-researcher.md` (MIT License) -- a perspective-driven
 interviewer, retooled here to ground claims in this project's closed corpus
-(`content/ledger.sqlite` + `bibliography.bib` + `source-pdfs/`) instead of
+(`content/ledger.sqlite` + `papers/bibliography.bib` + `papers/pdfs/`) instead of
 live web search. Read `.claude/skills/deep-research/reference.md` §3 for
 the full protocol; this file is the packet schema and grounding discipline.
 
@@ -48,7 +48,7 @@ synced corpus, simulating one editorial angle on the topic.
 ## Mandatory grounding discipline
 
 - Every claim requires a real citekey pulled from a `search()` result --
-  never fabricate one, and never cite a `source-pdfs/` `doc:`-prefixed
+  never fabricate one, and never cite a `source-pdfs` `doc:`-prefixed
   result as if it were a citekey (discuss it by title in prose instead,
   explicitly marked not-yet-citable, per CLAUDE.md's invariant).
 - Document genuine disagreement between sources rather than picking one.
@@ -62,7 +62,7 @@ Markdown containing:
 - **Unique insight** only this perspective's questions surfaced
 - **Strongest evidence**, with its citekey
 - **Open questions** this interview didn't resolve
-- **Sources consulted**: the list of citekeys used, plus any `source-pdfs/`
+- **Sources consulted**: the list of citekeys used, plus any `source-pdfs`
   doc_ids that came up but were excluded as non-citable
 
 No local-to-global citation renumbering is needed (unlike the original

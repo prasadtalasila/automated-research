@@ -11,7 +11,7 @@ Every claim must resolve to one of:
 - a real **citekey** from `content/ledger.sqlite` (via `src.retrieval.search()`
   or `src.heavy.embed_index.search()` if that stack has been built), cited
   `[@citekey]`;
-- a `source-pdfs/` document, discussed in prose by title/doc_id and
+- a `source-pdfs` document, discussed in prose by title/doc_id and
   explicitly marked **not citable** (per CLAUDE.md's invariant -- never
   given a citekey, never a formal citation); or
 - stated plainly as "not found in the corpus" -- never invented, never
@@ -29,7 +29,7 @@ It reads the same shared content layer as the other genre skills.
 - `src/retrieval.py` -- `search(query, k, snippet_chars)`, keyword overlap
 - `src/heavy/embed_index.py` -- `search(query, k, snippet_chars)`, semantic
   (if built for this corpus -- check `content/chroma/` first)
-- `source-pdfs/` -- non-citable raw PDFs, see `src/heavy/corpus.py`
+- `papers/pdfs/` (config.toml's `[source_pdfs].dir`) -- non-citable raw PDFs, see `src/heavy/corpus.py`
 
 If the ledger is empty or stale, run `python -m src.sync` first and report
 what it found before starting.
@@ -217,7 +217,7 @@ not).
 ## Guardrails
 
 - **Grounded by default, closed-corpus.** Every claim traces to a real
-  citekey, or is marked as found only in a non-citable `source-pdfs/`
+  citekey, or is marked as found only in a non-citable `source-pdfs`
   document, or is stated as not found. Never fabricate a citekey, a quote,
   or a finding.
 - **Parallelize, with a cap.** Dispatch same-phase subagents in one message;

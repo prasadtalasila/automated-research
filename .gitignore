@@ -24,15 +24,13 @@ htmlcov/
 *.tmp
 *.swp
 .DS_Store
-source-pdfs/*
-!source-pdfs/manifest.json
-!source-pdfs/reading-notes.md
-
 # papers/bibliography.bib is a manual, per-host export from a personal
 # reference manager (see CLAUDE.md) -- not shippable source, so it's
 # gitignored rather than tracked. papers/pdfs/ is the [source_pdfs].dir
-# default in config.toml; keep it around (via .gitkeep) even though it
-# starts empty, but don't track raw PDFs dropped into it.
+# default in config.toml (migrated 2026-07-31 from source-pdfs/, now
+# retired); manifest.json/reading-notes.md there are hand-written and
+# tracked, but raw PDFs dropped alongside them are not.
 papers/bibliography.bib
 papers/pdfs/*
-!papers/pdfs/.gitkeep
+!papers/pdfs/manifest.json
+!papers/pdfs/reading-notes.md

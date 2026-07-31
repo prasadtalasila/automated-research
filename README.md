@@ -383,9 +383,10 @@ GROBID.md                 building/running GROBID standalone on a bare host, ste
 config.toml               central config -- paths, GROBID URL/timeouts, embedding model (see "Configuration" below)
 papers/                   gitignored, per-host data -- not shipped in the repo
   bibliography.bib          BibTeX export -- source of truth for citekeys/metadata (config.toml's [bib].path default)
-  pdfs/                     [source_pdfs].dir default -- raw PDFs not sourced via the bib file; empty scaffold
-                          (.gitkeep) until you point real PDFs at it -- see "source-pdfs/" below for this repo's
-                          older, still-populated location, not yet migrated here
+  pdfs/                     [source_pdfs].dir default -- raw PDFs gathered outside the bib file, never citable;
+                          manifest.json/reading-notes.md are hand-written and tracked, PDFs dropped in
+                          alongside them are not (migrated here from this repo's original source-pdfs/,
+                          now retired, on 2026-07-31)
 pyproject.toml            Poetry config (dependency/lockfile manager only, package-mode = false --
                           no [build-system], nothing published) + pytest/coverage tool config
 poetry.toml               project-local Poetry config: virtualenvs.create = false (installs into
@@ -412,10 +413,6 @@ tests/                    pytest suite -- unit tests per module + end-to-end fea
 content/                  generated, gitignored (regenerate with sync)
   ledger.sqlite, parsed/<citekey>.txt, provenance/,
   docling/, chroma/, topics.json, rendered/  (src/heavy/ outputs)
-source-pdfs/              this repo's original raw-PDFs location -- see src/heavy/corpus.py; never citable.
-                          config.toml's [source_pdfs].dir default now points at papers/pdfs/ instead (see
-                          above); this directory's tracked manifest.json/reading-notes.md haven't been
-                          migrated there, so point dir back here if you're still using them as-is
 .claude/skills/           genre layer: survey-writer, thesis-chapter-writer, tutorial-writer, deep-research
 .claude/agents/           deep-research's subagents: deep-research-interviewer, deep-research-writer, peer-reviewer
 docker/                   Dockerfile + setup.sh (GROBID/TeX Live/Pandoc/Poetry) -- unverified end-to-end, see DOCKER.md

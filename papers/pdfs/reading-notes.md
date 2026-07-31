@@ -1,6 +1,6 @@
 # Composable Digital Twins — Reading Notes (ungated)
 
-**Status: not citation-gated.** These notes summarize `source-pdfs/manifest.json`
+**Status: not citation-gated.** These notes summarize `papers/pdfs/manifest.json`
 (22 candidate works surfaced via OpenAlex/Semantic Scholar/arXiv metadata search,
 2026-07-28). None of these works are in `content/ledger.sqlite` yet, so none of
 them have a citekey from `src.retrieval.search()`. Per CLAUDE.md's citekey
