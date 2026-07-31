@@ -136,8 +136,27 @@ def prune_missing(con: sqlite3.Connection, seen_citekeys: set[str]) -> list[tupl
     documented way to point sync at a different/smaller export, so
     deleting the derived text on every citekey that export happens not to
     include would make a routine override destructive.
+
+    Refuses (raises) rather than pruning when seen_citekeys is empty but
+    the ledger already has rows: bibliography.bib is a manual export
+    (AGENTS.md), and a file that exists and parses cleanly but yields
+    zero entries is far more likely to be a botched re-export, a
+    truncated file, or BIB_FILE pointing at the wrong path than someone
+    deliberately deleting their entire library. Pruning through that
+    would wipe every row in one sync run and make citation_gate report
+    every citekey in every existing draft as fabricated.
     """
     rows = con.execute("SELECT citekey, parsed_path FROM items").fetchall()
+    if not seen_citekeys and rows:
+        raise RuntimeError(
+            f"Refusing to prune: the bib file yielded 0 references but the "
+            f"ledger has {len(rows)} existing item(s). This almost always "
+            "means the bib file is empty, corrupted, or misconfigured "
+            "(BIB_FILE pointing at the wrong path, a truncated re-export) "
+            "rather than every citekey being legitimately removed. Fix the "
+            "bib file/BIB_FILE and re-run sync -- if this really is "
+            "intentional, delete content/ledger.sqlite directly instead."
+        )
     stale = [(citekey, parsed_path) for citekey, parsed_path in rows if citekey not in seen_citekeys]
     if stale:
         con.executemany("DELETE FROM items WHERE citekey = ?", [(k,) for k, _ in stale])

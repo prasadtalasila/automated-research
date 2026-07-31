@@ -184,3 +184,27 @@ class TestRun:
         assert rc == 0
         assert "0 pruned" in out
         assert "  pruned  " not in out
+
+    def test_bib_yielding_zero_refs_does_not_wipe_a_populated_ledger(
+        self, basic_corpus, monkeypatch, capsys
+    ):
+        # A bib file that exists and parses cleanly but yields 0 entries
+        # (truncated/corrupted re-export, BIB_FILE pointing at the wrong
+        # path) must not be treated the same as "every citekey was
+        # legitimately removed" -- see ledger.prune_missing's guard. Without
+        # it, this would silently empty the ledger and citation_gate would
+        # report every citekey in every existing draft as fabricated.
+        monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
+        sync.run()
+        capsys.readouterr()
+
+        write_bib(basic_corpus.BIB_FILE_PATH, "")
+        with pytest.raises(RuntimeError, match="Refusing to prune"):
+            sync.run()
+
+        con = ledger.connect()
+        try:
+            known = ledger.known_citekeys(con)
+        finally:
+            con.close()
+        assert known == {"smith_example_2024", "noauthor_page_nodate", "doe_broken_2023"}
