@@ -171,8 +171,9 @@ class TestRun:
 
         assert rc == 0
         assert "stale   noauthor_page_nodate" in out
-        assert "not removed, pass --remove-stale to remove" in out
         assert "1 stale (not removed)" in out
+        assert "Review the 1 stale item(s) above" in out
+        assert "--remove-stale to delete them" in out
         assert "pruned" not in out
         con = ledger.connect()
         try:
@@ -238,7 +239,7 @@ class TestRun:
         # Default mode never deletes, so a bib file that comes back
         # completely empty (truncated/corrupted re-export, BIB_FILE
         # pointing at the wrong path) must not be reported with the
-        # ordinary "pass --remove-stale to remove" hint -- following that
+        # ordinary "re-run with --remove-stale" hint -- following that
         # advice would hit prune_missing's guard and raise. Must instead
         # warn that this looks like a bad export, without ever
         # recommending the flag for this specific shape.
@@ -253,7 +254,8 @@ class TestRun:
         assert rc == 0
         assert "SUSPICIOUS" in out
         assert "3 ledger item(s)" in out
-        assert "pass --remove-stale to remove" not in out
+        assert "Review the" not in out
+        assert "re-run with --remove-stale" not in out
         assert "3 stale (not removed)" in out
         con = ledger.connect()
         try:

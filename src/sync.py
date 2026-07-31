@@ -55,6 +55,7 @@ def run(remove_stale: bool = False) -> int:
     parsed, failed, skipped, no_pdf = 0, 0, 0, 0
     pruned: list[tuple[str, str | None]] = []
     stale: list[tuple[str, str | None]] = []
+    suspicious = False
     try:
         for ref in references:
             needs_parse = ledger.upsert_reference(con, ref)
@@ -88,7 +89,8 @@ def run(remove_stale: bool = False) -> int:
                 print(f"  pruned  {citekey} (no longer in {config.BIB_FILE_PATH.name})")
         else:
             stale = ledger.find_stale(con, seen_citekeys)
-            if not seen_citekeys and stale:
+            suspicious = not seen_citekeys and bool(stale)
+            if suspicious:
                 # Same shape prune_missing's guard refuses on -- don't
                 # tell the user to run a command that's just going to
                 # raise. references came back completely empty against a
@@ -105,9 +107,15 @@ def run(remove_stale: bool = False) -> int:
                     f"this exact shape)."
                 )
             else:
+                # The "pass --remove-stale" instruction is printed once,
+                # in the summary line below, rather than repeated on every
+                # item here -- a bib file truncated from 200 entries to 3
+                # survivors would otherwise print that instruction 197
+                # times, which reads as routine per-item noise rather than
+                # the "review this list before deleting" signal it's
+                # meant to be.
                 for citekey, _parsed_path in stale:
-                    print(f"  stale   {citekey} (no longer in {config.BIB_FILE_PATH.name} -- "
-                          f"not removed, pass --remove-stale to remove)")
+                    print(f"  stale   {citekey} (no longer in {config.BIB_FILE_PATH.name})")
     finally:
         con.close()
 
@@ -117,6 +125,9 @@ def run(remove_stale: bool = False) -> int:
         f"Sync complete: {parsed} parsed, {skipped} unchanged, "
         f"{no_pdf} without a PDF attachment, {failed} failed, {stale_count} {stale_label}."
     )
+    if stale_count and not remove_stale and not suspicious:
+        print(f"Review the {stale_count} stale item(s) above, then re-run with "
+              "--remove-stale to delete them from the ledger.")
     print(f"Ledger:      {config.LEDGER_PATH}")
     print(f"Parsed text: {config.PARSED_DIR}/")
     return 1 if failed else 0

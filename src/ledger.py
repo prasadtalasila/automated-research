@@ -167,11 +167,14 @@ def prune_missing(con: sqlite3.Connection, seen_citekeys: set[str]) -> list[tupl
     """
     stale = find_stale(con, seen_citekeys)
     if not seen_citekeys and stale:
-        # seen_citekeys empty => every ledger row is "stale" by
-        # definition, so len(stale) here is the ledger's full row count.
+        # Query the total row count explicitly rather than reusing
+        # len(stale) -- true today only because seen_citekeys is empty
+        # (every row is trivially "stale"), but the message should stay
+        # accurate even if this guard's condition changes later.
+        (total,) = con.execute("SELECT COUNT(*) FROM items").fetchone()
         raise RuntimeError(
             f"Refusing to prune: the bib file yielded 0 references but the "
-            f"ledger has {len(stale)} existing item(s). This almost always "
+            f"ledger has {total} existing item(s). This almost always "
             "means the bib file is empty, corrupted, or misconfigured "
             "(BIB_FILE pointing at the wrong path, a truncated re-export) "
             "rather than every citekey being legitimately removed. Fix the "
