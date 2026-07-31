@@ -134,12 +134,13 @@ def upsert_reference(con: sqlite3.Connection, ref: Reference) -> bool:
             and row[0] is not None
             and (row[1], row[2]) == (pdf_size, pdf_mtime_ns)
         )
-        # Trust an unchanged (size, mtime) instead of re-hashing -- any
-        # write to the file (even one that happens to reproduce the same
-        # byte length) advances mtime, so this can only under-detect a
-        # change on a filesystem/tool that leaves mtime untouched across a
-        # real content edit, which sha256-hashing every PDF on every run
-        # was never actually guarding against differently.
+        # Trust an unchanged (size, mtime) instead of re-hashing -- a
+        # deliberate trade-off (PR #8 review): always-hashing *would*
+        # still catch a same-size edit that also preserves mtime (e.g.
+        # `cp --preserve=timestamps` overwriting the file in place), which
+        # this stat-first check cannot. That's judged rare enough, and
+        # re-reading every PDF's bytes on every run expensive enough at
+        # this corpus's scale, to accept losing that one edge case.
         pdf_hash = row[0] if stat_unchanged else _hash_pdf(ref.pdf_path)
 
     needs_parse = False

@@ -159,6 +159,15 @@ class TestCountRawEntries:
         text = "@ARTICLE{shouty_2024,\n  title = {Shouty},\n}\n"
         assert bib_reader._count_raw_entries(text) == 1
 
+    def test_counts_paren_delimited_entries_too(self):
+        # Regression (PR #8 review): BibTeX allows `@type(...)` as well as
+        # `@type{...}` -- bibtexparser accepts both -- so a brace-only
+        # pattern would under-count a file using the paren form, which
+        # could hide a genuine drop instead of just risking a
+        # false-positive on a good file.
+        text = "@article(paren_2024,\n  title = {Paren Form},\n)\n"
+        assert bib_reader._count_raw_entries(text) == 1
+
     def test_empty_text_counts_zero(self):
         assert bib_reader._count_raw_entries("") == 0
 

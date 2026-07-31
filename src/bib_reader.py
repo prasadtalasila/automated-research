@@ -140,12 +140,17 @@ def _clean_title(title: str) -> str:
 # so a real export using any of these is plausible, and counting them as
 # "entries" would fire a false discrepancy warning on a perfectly good file.
 _NON_ENTRY_TYPES = {"comment", "string", "preamble"}
-_ENTRY_START_RE = re.compile(r"^@(\w+)\s*\{", re.MULTILINE)
+# BibTeX allows either `@type{...}` or `@type(...)` -- bibtexparser
+# accepts both (PR #8 review) -- so a file using the paren form would be
+# under-counted by a brace-only pattern, which could hide a genuine drop
+# instead of just risking a false-positive warning on a good file.
+_ENTRY_START_RE = re.compile(r"^@(\w+)\s*[{(]", re.MULTILINE)
 
 
 def _count_raw_entries(text: str) -> int:
-    """How many actual `@entrytype{...}` blocks the raw file text has,
-    independent of whether bibtexparser managed to parse each one.
+    """How many actual `@entrytype{...}`/`@entrytype(...)` blocks the raw
+    file text has, independent of whether bibtexparser managed to parse
+    each one.
 
     bibtexparser (both BibTexParser.parse and the customization hook)
     silently skips an entry it can't parse -- e.g. unbalanced braces --
