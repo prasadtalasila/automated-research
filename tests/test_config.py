@@ -1,0 +1,119 @@
+"""src/config.py: env-var overrides, config.toml defaults, and the two
+pure helpers (_get/_get_float) that implement the override precedence."""
+
+import importlib
+
+import pytest
+
+from src import config
+
+
+class TestGetHelpers:
+    def test_env_var_wins_over_toml(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"section": {"key": "from-toml"}})
+        monkeypatch.setenv("MY_VAR", "from-env")
+        assert config._get("MY_VAR", "section", "key", default="fallback") == "from-env"
+
+    def test_falls_back_to_toml_path(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"section": {"key": "from-toml"}})
+        monkeypatch.delenv("MY_VAR", raising=False)
+        assert config._get("MY_VAR", "section", "key", default="fallback") == "from-toml"
+
+    def test_default_when_toml_path_missing(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"section": {}})
+        monkeypatch.delenv("MY_VAR", raising=False)
+        assert config._get("MY_VAR", "section", "key", default="fallback") == "fallback"
+
+    def test_default_when_toml_path_not_a_dict(self, monkeypatch):
+        # "section" resolves to a string, not a dict -- the next path
+        # segment ("key") can't be looked up in it.
+        monkeypatch.setattr(config, "_toml", {"section": "not-a-dict"})
+        monkeypatch.delenv("MY_VAR", raising=False)
+        assert config._get("MY_VAR", "section", "key", default="fallback") == "fallback"
+
+    def test_default_when_leaf_is_not_a_string(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"section": {"key": 123}})
+        monkeypatch.delenv("MY_VAR", raising=False)
+        assert config._get("MY_VAR", "section", "key", default="fallback") == "fallback"
+
+    def test_float_env_var_wins(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"heavy": {"timeout": 3.0}})
+        monkeypatch.setenv("MY_TIMEOUT", "9.5")
+        assert config._get_float("MY_TIMEOUT", "heavy", "timeout", default=1.0) == 9.5
+
+    def test_float_falls_back_to_toml_number(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"heavy": {"timeout": 3}})
+        monkeypatch.delenv("MY_TIMEOUT", raising=False)
+        assert config._get_float("MY_TIMEOUT", "heavy", "timeout", default=1.0) == 3.0
+
+    def test_float_default_when_missing(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"heavy": {}})
+        monkeypatch.delenv("MY_TIMEOUT", raising=False)
+        assert config._get_float("MY_TIMEOUT", "heavy", "timeout", default=1.5) == 1.5
+
+    def test_float_default_when_not_a_dict(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"heavy": "nope"})
+        monkeypatch.delenv("MY_TIMEOUT", raising=False)
+        assert config._get_float("MY_TIMEOUT", "heavy", "timeout", default=1.5) == 1.5
+
+    def test_float_default_when_bool_in_toml(self, monkeypatch):
+        # bool is a subclass of int in Python -- must not be silently
+        # accepted as a numeric timeout.
+        monkeypatch.setattr(config, "_toml", {"heavy": {"timeout": True}})
+        monkeypatch.delenv("MY_TIMEOUT", raising=False)
+        assert config._get_float("MY_TIMEOUT", "heavy", "timeout", default=1.5) == 1.5
+
+
+class TestRealConfigToml:
+    """Sanity-checks the constants computed from this repo's actual
+    config.toml + ambient environment at real import time."""
+
+    def test_bib_file_path_under_repo_root(self):
+        assert config.BIB_FILE_PATH == config.REPO_ROOT / "papers" / "bibliography.bib"
+
+    def test_content_dir_layout(self):
+        assert config.CONTENT_DIR == config.REPO_ROOT / "content"
+        assert config.PARSED_DIR == config.CONTENT_DIR / "parsed"
+        assert config.LEDGER_PATH == config.CONTENT_DIR / "ledger.sqlite"
+
+    def test_grobid_defaults(self):
+        assert config.GROBID_URL == "http://localhost:8070"
+        assert config.GROBID_HEALTH_TIMEOUT == 3.0
+        assert config.GROBID_EXTRACT_TIMEOUT == 60.0
+
+    def test_embedding_model_default(self):
+        assert config.EMBEDDING_MODEL == "sentence-transformers/all-MiniLM-L6-v2"
+
+
+class TestModuleReloadWithEnvOverrides:
+    """Full module-level reload, to cover the constant-computation lines
+    themselves (BIB_FILE_PATH = REPO_ROOT / _get(...), etc.) under a real
+    env-var override -- not just the _get helper in isolation."""
+
+    @pytest.fixture(autouse=True)
+    def _restore_config_after(self):
+        yield
+        # Reload once more with a clean environment so later test modules
+        # see the real repo config.toml, not whatever this test overrode.
+        importlib.reload(config)
+
+    def test_bib_file_env_override(self, monkeypatch):
+        monkeypatch.setenv("BIB_FILE", "/tmp/other.bib")
+        importlib.reload(config)
+        assert config.BIB_FILE_PATH == config.REPO_ROOT / "/tmp/other.bib"
+
+    def test_grobid_url_env_override(self, monkeypatch):
+        monkeypatch.setenv("GROBID_URL", "http://example.invalid:9999")
+        importlib.reload(config)
+        assert config.GROBID_URL == "http://example.invalid:9999"
+
+    def test_custom_config_path(self, monkeypatch, tmp_path):
+        custom_toml = tmp_path / "custom.toml"
+        custom_toml.write_text(
+            '[bib]\npath = "elsewhere.bib"\n[heavy]\ngrobid_url = "http://custom:1234"\n'
+        )
+        monkeypatch.setenv("CONFIG_PATH", str(custom_toml))
+        importlib.reload(config)
+        assert config.CONFIG_PATH == custom_toml
+        assert config.BIB_FILE_PATH == config.REPO_ROOT / "elsewhere.bib"
+        assert config.GROBID_URL == "http://custom:1234"
