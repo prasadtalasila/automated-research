@@ -116,7 +116,7 @@ def _resolve_pdf_path(file_field: str, bib_dir: Path) -> tuple[str | None, str]:
         path = Path(path_str)
         if not path.is_absolute():
             path = bib_dir / path
-        if path.exists():
+        if path.is_file():
             return str(path), PDF_RESOLVED
     if saw_pdf_mime:
         return None, PDF_PATH_GONE

@@ -60,6 +60,17 @@ class TestResolvePdfPath:
         field = "paper.pdf:missing.pdf:application/pdf"
         assert bib_reader._resolve_pdf_path(field, tmp_path) == (None, bib_reader.PDF_PATH_GONE)
 
+    def test_path_pointing_at_a_directory_reports_pdf_path_gone(self, tmp_path):
+        # Regression (PR #6 review): Path.exists() is also true for
+        # directories, not just files -- a bib export with an
+        # empty/incorrect path that happens to resolve to an existing
+        # directory must not be classified as PDF_RESOLVED (sync would
+        # then try to run pdftotext on a directory).
+        a_dir = tmp_path / "not_a_file.pdf"
+        a_dir.mkdir()
+        field = "paper.pdf:not_a_file.pdf:application/pdf"
+        assert bib_reader._resolve_pdf_path(field, tmp_path) == (None, bib_reader.PDF_PATH_GONE)
+
     def test_non_pdf_mime_reports_non_pdf_attachment(self, tmp_path):
         html = tmp_path / "page.html"
         html.write_text("<html></html>")
