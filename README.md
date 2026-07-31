@@ -32,6 +32,12 @@ questions), [DOCKER.md](DOCKER.md) (running this repo in a container) and
 #    with a clear FileNotFoundError telling you to do exactly this.
 mkdir -p papers && cp /path/to/your/exported-library.bib papers/bibliography.bib
 
+# Optional: also add any raw, not-yet-cataloged PDFs (no reference-manager
+# entry, no citekey) for the heavy pipeline's topic modeling/embeddings to
+# consider -- see "papers/pdfs/" below. NEVER citable this way; add a PDF
+# to your reference manager, re-export, and re-run sync before citing it.
+mkdir -p papers/pdfs && cp /path/to/some-paper.pdf papers/pdfs/
+
 # 2. Install Python dependencies -- creates .venv-full/ and runs `poetry
 #    install --with heavy` into it: bibtexparser (core pipeline) plus the
 #    full src/heavy/ stack. Dependencies/versions live in pyproject.toml +
@@ -94,19 +100,13 @@ general feature):
 5. Re-run `python -m src.sync`.
 
 This is a **different mechanism from `papers/pdfs/`** (`config.toml`'s
-`[source_pdfs].dir`): that directory is for raw PDFs gathered *outside*
-Zotero entirely (e.g. an OpenAlex/Semantic Scholar/arXiv metadata-API
-search with no reference-manager entry at all) -- see
-[`src/heavy/corpus.py`](src/heavy/corpus.py) and AGENTS.md's citekey
-invariant. Zotero's own exported attachments never belong there.
-
-```bash
-# Add a raw, not-yet-cataloged PDF for the heavy pipeline to consider
-# (topic modeling / embeddings only via src/heavy/corpus.py -- it is
-# NEVER citable this way; add it to your reference manager, re-export,
-# and re-run sync before citing it).
-mkdir -p papers/pdfs && cp /path/to/some-paper.pdf papers/pdfs/
-```
+`[source_pdfs].dir`, Quickstart step 1 above): that directory is for any
+raw PDF you already have but haven't cataloged in Zotero yet (just a file
+you drop there by hand -- this project has no automated fetching from any
+external source) -- see [`src/heavy/corpus.py`](src/heavy/corpus.py) and
+AGENTS.md's citekey invariant. Zotero's own exported attachments never
+belong there, and this project's only supported way to catalog a paper
+for citing is a Zotero export.
 
 To add more papers later: add the entry in Zotero, re-export the same way
 (re-check **Export Files** so new attachments are included), then re-run
