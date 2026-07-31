@@ -408,6 +408,31 @@ class TestRun:
         assert "0 skipped (pdftotext not installed)" not in out
         assert "skipped (pdftotext not installed)" not in out
 
+    def test_missing_binary_raised_mid_run_is_reported_not_crashed(
+        self, basic_corpus, monkeypatch, capsys
+    ):
+        # Regression (PR #6 review): the up-front probe can pass but
+        # pdf_text.extract_text() itself still raise MissingBinary --
+        # e.g. pdftotext vanishing from PATH between the probe and this
+        # specific item -- and sync.run()'s try block only ever caught
+        # CalledProcessError, so this would crash uncaught, defeating the
+        # whole point of probing in the first place.
+        def raise_missing_binary(pdf_path, citekey):
+            raise pdf_text.MissingBinary("pdftotext vanished mid-run")
+
+        monkeypatch.setattr(pdf_text, "extract_text", raise_missing_binary)
+        rc = sync.run()
+        out = capsys.readouterr().out
+
+        assert rc == 1
+        assert "2 skipped (pdftotext not installed)" in out
+        con = ledger.connect()
+        try:
+            rows = {r["citekey"]: r for r in ledger.all_items(con)}
+        finally:
+            con.close()
+        assert rows["smith_example_2024"]["status"] == "discovered"
+
 
 class TestCliEntrypoint:
     def test_remove_stale_flag_is_registered(self, isolated_config):

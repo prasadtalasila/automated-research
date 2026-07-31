@@ -112,7 +112,7 @@ def _tokenize_item(item: sqlite3.Row) -> dict:
 
 def _load_cache() -> dict:
     try:
-        with open(config.RETRIEVAL_INDEX_PATH) as f:
+        with open(config.RETRIEVAL_INDEX_PATH, encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError):
         return {}
@@ -132,7 +132,7 @@ def _save_cache(items_index: dict) -> None:
     tmp_path = config.RETRIEVAL_INDEX_PATH.with_name(
         f"{config.RETRIEVAL_INDEX_PATH.name}.tmp-{os.getpid()}-{uuid.uuid4().hex}"
     )
-    with open(tmp_path, "w") as f:
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(payload, f)
     os.replace(tmp_path, config.RETRIEVAL_INDEX_PATH)
 

@@ -1,5 +1,6 @@
-"""src/retrieval.py: keyword-overlap search, the retrieval contract
-genre skills call before the embeddings-based upgrade (src/heavy/embed_index.py)."""
+"""src/retrieval.py: BM25-ranked search over a cached term-frequency
+index, the retrieval contract genre skills call before the
+embeddings-based upgrade (src/heavy/embed_index.py)."""
 
 import json
 from pathlib import Path

@@ -91,6 +91,15 @@ def run(remove_stale: bool = False) -> int:
                 ledger.mark_parse_failed(con, ref.citekey, exc.stderr or str(exc))
                 failed += 1
                 print(f"  FAILED  {ref.citekey}: {exc.stderr}", file=sys.stderr)
+            except pdf_text.MissingBinary:
+                # The up-front probe passed, but pdftotext vanished from
+                # PATH between then and this specific item (or otherwise
+                # disagreed with extract_text's own internal check) --
+                # count and report it the same as the up-front case
+                # instead of letting it crash sync uncaught, which is
+                # exactly the failure mode probing exists to prevent.
+                missing_binary += 1
+                print(f"  no-pdftotext  {ref.citekey}: pdftotext no longer on PATH", file=sys.stderr)
         # Only the ledger row is removed -- see prune_missing's own
         # docstring for why the corresponding content/parsed/<citekey>.txt
         # is deliberately left in place. Deletion only happens with
