@@ -123,6 +123,28 @@ def known_citekeys(con: sqlite3.Connection) -> set[str]:
     return {row[0] for row in con.execute("SELECT citekey FROM items")}
 
 
+def prune_missing(con: sqlite3.Connection, seen_citekeys: set[str]) -> list[tuple[str, str | None]]:
+    """Removes ledger rows whose citekey is no longer in the bib file.
+
+    Without this, a citekey removed from bibliography.bib (the source of
+    truth) stays "known" to citation_gate forever -- exactly the fabricated-
+    citekey failure mode AGENTS.md's invariant exists to prevent, just
+    arriving via deletion instead of invention. Returns the removed
+    (citekey, parsed_path) pairs so the caller can also clean up the
+    now-orphaned parsed text file, though sync.py deliberately doesn't:
+    only the row is what citation_gate actually checks, and BIB_FILE is a
+    documented way to point sync at a different/smaller export, so
+    deleting the derived text on every citekey that export happens not to
+    include would make a routine override destructive.
+    """
+    rows = con.execute("SELECT citekey, parsed_path FROM items").fetchall()
+    stale = [(citekey, parsed_path) for citekey, parsed_path in rows if citekey not in seen_citekeys]
+    if stale:
+        con.executemany("DELETE FROM items WHERE citekey = ?", [(k,) for k, _ in stale])
+        con.commit()
+    return stale
+
+
 def all_items(con: sqlite3.Connection) -> list[sqlite3.Row]:
     con.row_factory = sqlite3.Row
     rows = con.execute("SELECT * FROM items ORDER BY citekey").fetchall()

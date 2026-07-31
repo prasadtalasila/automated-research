@@ -16,8 +16,24 @@ from tests.conftest import make_reference
 class TestExtractLatexCitations:
     @pytest.mark.parametrize("cmd", [
         "cite", "citep", "citet", "parencite", "textcite", "autocite", "citeauthor", "citeyear",
+        # These were silently missed by an earlier, enumerated version of
+        # the regex: ordered alternation tried "cite" first, matched as a
+        # prefix of e.g. "citealp", then failed to find the "{" that must
+        # immediately follow and never backed off to try the longer
+        # alternatives -- a false negative on the invariant this gate
+        # exists to enforce (a fabricated key in one of these read as "0
+        # citations" instead of "unresolved"). Regression coverage for
+        # that fix, not just the already-working subset above.
+        "citealp", "citealt", "footcite", "smartcite", "fullcite", "nocite", "citenum",
+        "citeyearpar",
     ])
     def test_all_recognized_commands(self, cmd):
+        assert citation_gate.extract_citekeys_from_line(f"\\{cmd}{{smith2024}}") == ["smith2024"]
+
+    @pytest.mark.parametrize("cmd", ["Citep", "Citet", "Textcite", "Parencite"])
+    def test_capitalized_biblatex_forms(self, cmd):
+        """biblatex's sentence-start capitalized commands (\\Citep, \\Textcite,
+        ...) -- same false-negative class as test_all_recognized_commands."""
         assert citation_gate.extract_citekeys_from_line(f"\\{cmd}{{smith2024}}") == ["smith2024"]
 
     def test_starred_variant(self):
@@ -74,6 +90,67 @@ class TestExtractPandocCitations:
     def test_mixed_latex_and_pandoc_on_one_line(self):
         line = "As shown \\citep{a2024} and also [@b2024]."
         assert citation_gate.extract_citekeys_from_line(line) == ["a2024", "b2024"]
+
+    def test_latex_internal_at_macro_not_mistaken_for_citation(self):
+        # LaTeX's \makeatletter ... \@ifundefined{...}{}{} ... \makeatother
+        # idiom (pandoc's own rendered .tex templates use this) would
+        # otherwise misread \@ifundefined as a citation -- found via a
+        # retro-sweep of pandoc-rendered output, and load-bearing now that
+        # thesis-chapter-writer's .tex drafts are hook-gated (see
+        # .claude/hooks/citation_gate_hook.py).
+        assert citation_gate.extract_citekeys_from_line(r"\@ifundefined{foo}{}{}") == []
+        line = r"\makeatletter\@ifundefined{xetex}{}{}\makeatother"
+        assert citation_gate.extract_citekeys_from_line(line) == []
+
+
+class TestExtractCitekeysWholeDocument:
+    """extract_citekeys(text) -- the whole-document scan that
+    extract_citekeys_from_line() (tested above) delegates to for a single
+    line. Covers what a per-line scan structurally cannot: a citation
+    argument wrapped across multiple lines."""
+
+    def test_wrapped_citep_is_caught(self):
+        text = "See \\citep{real_key,\n       fabricated_key} for details.\n"
+        keys = [key for _, key in citation_gate.extract_citekeys(text)]
+        assert sorted(keys) == ["fabricated_key", "real_key"]
+
+    def test_document_where_every_citation_is_wrapped_and_fabricated(self):
+        # Regression for the exact bug found in review: a per-line scan
+        # matches on neither line of a wrapped \citep{...}, so a document
+        # citing nothing but fabricated, wrapped keys used to report "0
+        # citations, all verified" (exit 0).
+        text = "\\citealp{totally_made_up_key,\n          another_fake} shown here.\n"
+        keys = [key for _, key in citation_gate.extract_citekeys(text)]
+        assert sorted(keys) == ["another_fake", "totally_made_up_key"]
+
+    def test_line_number_points_at_match_start(self):
+        text = "line one\nline two \\citep{smith2024}\nline three\n"
+        assert citation_gate.extract_citekeys(text) == [(2, "smith2024")]
+
+
+class TestCodeAndVerbatimExclusion:
+    """tutorial-writer's whole job is worked code examples, and code
+    routinely contains @-tokens (Python's @dataclass, @property) or
+    cite-shaped strings that aren't citations. With the PostToolUse hook
+    (.claude/hooks/citation_gate_hook.py) treating a FAIL as blocking, a
+    false positive here would push the agent to delete valid teaching
+    code instead of a real fabricated citation."""
+
+    def test_python_decorator_in_fenced_code_is_not_a_citation(self):
+        text = "```python\n@dataclass\nclass Foo:\n    pass\n```\n"
+        assert citation_gate.extract_citekeys(text) == []
+
+    def test_inline_code_span_is_not_a_citation(self):
+        assert citation_gate.extract_citekeys("use the `@override` annotation") == []
+        assert citation_gate.extract_citekeys("run `npm install @scoped/pkg`") == []
+
+    def test_latex_verbatim_environment_is_not_scanned(self):
+        text = "\\begin{verbatim}\n\\citep{fake_key}\n\\end{verbatim}\n"
+        assert citation_gate.extract_citekeys(text) == []
+
+    def test_real_citation_after_a_fenced_block_is_still_caught(self):
+        text = "```python\n@dataclass\nclass Foo: pass\n```\nAs shown in [@smith2024].\n"
+        assert citation_gate.extract_citekeys(text) == [(5, "smith2024")]
 
 
 class TestCheckDocument:

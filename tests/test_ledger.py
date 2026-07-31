@@ -150,3 +150,43 @@ class TestKnownCitekeysAndAllItems:
         ledger.upsert_reference(ledger_con, make_reference(citekey="a_2024", title="Title A"))
         rows = ledger.all_items(ledger_con)
         assert rows[0]["title"] == "Title A"
+
+
+class TestPruneMissing:
+    """Without this, a citekey removed from bibliography.bib stays "known"
+    to citation_gate forever -- the fabricated-citekey failure mode
+    AGENTS.md's invariant exists to prevent, just arriving via deletion
+    instead of invention."""
+
+    def test_removes_citekeys_no_longer_in_bib(self, ledger_con):
+        ledger.upsert_reference(ledger_con, make_reference(citekey="kept_key"))
+        ledger.upsert_reference(ledger_con, make_reference(citekey="orphaned_key"))
+
+        removed = ledger.prune_missing(ledger_con, seen_citekeys={"kept_key"})
+
+        assert [k for k, _ in removed] == ["orphaned_key"]
+        assert ledger.known_citekeys(ledger_con) == {"kept_key"}
+
+    def test_no_orphans_is_a_no_op(self, ledger_con):
+        ledger.upsert_reference(ledger_con, make_reference(citekey="kept_key"))
+
+        removed = ledger.prune_missing(ledger_con, seen_citekeys={"kept_key"})
+
+        assert removed == []
+        assert ledger.known_citekeys(ledger_con) == {"kept_key"}
+
+    def test_pruned_citekey_is_no_longer_known(self, ledger_con):
+        ledger.upsert_reference(ledger_con, make_reference(citekey="removed_from_bib"))
+        ledger.prune_missing(ledger_con, seen_citekeys=set())
+
+        assert "removed_from_bib" not in ledger.known_citekeys(ledger_con)
+
+    def test_returns_parsed_path_for_caller_cleanup(self, ledger_con, tmp_path):
+        parsed_path = tmp_path / "orphaned_key.txt"
+        ref = make_reference(citekey="orphaned_key")
+        ledger.upsert_reference(ledger_con, ref)
+        ledger.mark_parsed(ledger_con, "orphaned_key", parsed_path)
+
+        removed = ledger.prune_missing(ledger_con, seen_citekeys=set())
+
+        assert removed == [("orphaned_key", str(parsed_path))]

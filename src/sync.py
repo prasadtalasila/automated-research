@@ -48,6 +48,7 @@ def run() -> int:
 
     con = ledger.connect()
     parsed, failed, skipped, no_pdf = 0, 0, 0, 0
+    pruned: list[tuple[str, str | None]] = []
     try:
         for ref in references:
             needs_parse = ledger.upsert_reference(con, ref)
@@ -66,12 +67,18 @@ def run() -> int:
                 ledger.mark_parse_failed(con, ref.citekey, exc.stderr or str(exc))
                 failed += 1
                 print(f"  FAILED  {ref.citekey}: {exc.stderr}", file=sys.stderr)
+        # Only the ledger row is removed -- see prune_missing's own
+        # docstring for why the corresponding content/parsed/<citekey>.txt
+        # is deliberately left in place.
+        pruned = ledger.prune_missing(con, {r.citekey for r in references})
+        for citekey, _parsed_path in pruned:
+            print(f"  pruned  {citekey} (no longer in {config.BIB_FILE_PATH.name})")
     finally:
         con.close()
 
     print(
         f"Sync complete: {parsed} parsed, {skipped} unchanged, "
-        f"{no_pdf} without a PDF attachment, {failed} failed."
+        f"{no_pdf} without a PDF attachment, {failed} failed, {len(pruned)} pruned."
     )
     print(f"Ledger:      {config.LEDGER_PATH}")
     print(f"Parsed text: {config.PARSED_DIR}/")

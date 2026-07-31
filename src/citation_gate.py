@@ -15,9 +15,12 @@ the ledger.
 Usage:
     python -m src.citation_gate <file> [<file> ...]
 
-Recognizes both LaTeX (\\cite, \\citep, \\citet, \\parencite, \\textcite,
-\\autocite, \\citeauthor, \\citeyear, with optional * and [] options) and
-Pandoc/Markdown ([@key], [@key1; @key2], bare @key) citation syntax.
+Recognizes any LaTeX/biblatex/natbib command whose name contains "cite"
+(\\cite, \\citep, \\citealp, \\footcite, \\nocite, capitalized biblatex
+forms, ..., with optional * and [] options) and Pandoc/Markdown ([@key],
+[@key1; @key2], bare @key, suppressed-author -@key) citation syntax. Code
+fences, inline code spans, and LaTeX verbatim/lstlisting/minted
+environments are excluded from scanning first (see _blank_code).
 """
 
 import re
@@ -27,8 +30,19 @@ from pathlib import Path
 
 from src import ledger
 
+# Matches the command name by substring ("contains cite/Cite") rather than
+# an explicit list of the standard cite/citep/citet/... names -- an earlier,
+# enumerated version of this regex silently missed \citealp, \citealt,
+# \footcite, \smartcite, \fullcite, \nocite, \citenum, \citeyearpar, and
+# every capitalized biblatex form (\Citep, \Textcite, ...): ordered
+# alternation tries "cite" first, matches as a prefix of "citealp", then
+# fails to find the "{" that must immediately follow and never backs off to
+# try the longer alternatives. That's a false negative on the invariant
+# this gate exists to enforce (a fabricated key in an unrecognized command
+# reads as "0 citations" instead of "unresolved"), so err toward matching
+# too much (a stray "\path{cite-me}"-shaped command) over too little.
 _LATEX_CITE_RE = re.compile(
-    r"\\(?:cite|citep|citet|parencite|textcite|autocite|citeauthor|citeyear)"
+    r"\\[A-Za-z]*[Cc]ite[A-Za-z]*"
     r"\*?(?:\[[^\]]*\])*\{([^}]+)\}"
 )
 # Pandoc only treats @ as a citation marker when it isn't part of a larger
@@ -38,8 +52,40 @@ _LATEX_CITE_RE = re.compile(
 # `jacoby_open-source_2023`, or a reference manager's own `-1`/`-2`
 # disambiguation suffixes on duplicate entries) -- roughly a quarter of
 # this project's synced citekeys contain one, so excluding it silently
-# truncated matches.
-_PANDOC_CITE_RE = re.compile(r"(?<![A-Za-z0-9._%+-])-?@([A-Za-z][A-Za-z0-9_-]*)")
+# truncated matches. Backslash is excluded too: LaTeX's internal
+# @-as-letter idiom (\makeatletter ... \@ifundefined{...}{}{} ...
+# \makeatother, pandoc's own rendered .tex templates use this) would
+# otherwise misread as a citation on `\@ifundefined` -- found via a
+# retro-sweep over rendered .tex output, and load-bearing now that
+# thesis-chapter-writer's content/drafts/<slug>.tex is hook-gated too.
+_PANDOC_CITE_RE = re.compile(r"(?<![A-Za-z0-9._%+\-\\])-?@([A-Za-z][A-Za-z0-9_-]*)")
+
+# tutorial-writer's whole job is worked code examples, and code routinely
+# contains @-tokens that look like a Pandoc citation (Python's @dataclass,
+# @property) or a LaTeX-command-shaped string that isn't one -- these are
+# false positives, not the false negatives above, but with a PostToolUse
+# hook (.claude/hooks/citation_gate_hook.py) now treating a FAIL as
+# blocking, a false positive here actively pushes the agent to delete
+# valid teaching code instead of a real fabricated citation. Blank out
+# (not delete -- must preserve every other character's offset, since line
+# numbers are computed from position in the original text) fenced code,
+# inline code spans, and LaTeX verbatim-style environments before
+# extraction.
+_FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL)
+_INLINE_CODE_RE = re.compile(r"`[^`\n]+`")
+_LATEX_VERBATIM_RE = re.compile(
+    r"\\begin\{(verbatim|lstlisting|minted)\*?\}.*?\\end\{\1\*?\}", re.DOTALL
+)
+
+
+def _blank_code(text: str) -> str:
+    def _blank_match(m: re.Match) -> str:
+        return re.sub(r"[^\n]", " ", m.group(0))
+
+    text = _FENCED_CODE_RE.sub(_blank_match, text)
+    text = _LATEX_VERBATIM_RE.sub(_blank_match, text)
+    text = _INLINE_CODE_RE.sub(_blank_match, text)
+    return text
 
 
 @dataclass
@@ -54,21 +100,43 @@ class GateResult:
 
 
 def extract_citekeys_from_line(line: str) -> list[str]:
-    keys: list[str] = []
-    for match in _LATEX_CITE_RE.finditer(line):
-        keys.extend(k.strip() for k in match.group(1).split(","))
-    for match in _PANDOC_CITE_RE.finditer(line):
-        keys.append(match.group(1))
+    """Back-compat, single-line-scoped wrapper around extract_citekeys().
+
+    Kept for callers (src/citation_coverage.py, src/references.py) that
+    only ever hand this one line at a time -- no multi-line \\citep{...}
+    wrapping is possible within a single line, so there's nothing this
+    shape loses for that case. See extract_citekeys() for the
+    whole-document scan that also catches a citation's {...} argument
+    wrapped across lines.
+    """
+    return [key for _, key in extract_citekeys(line)]
+
+
+def extract_citekeys(text: str) -> list[tuple[int, str]]:
+    """Every citekey in `text` as (1-based line number, key).
+
+    Scans the whole document rather than line-by-line so a `\\citep{...}`
+    argument wrapped across lines (common once a document has more than a
+    couple of citekeys in one call) is still caught -- a per-line scan
+    would match on neither line and silently drop every key inside it.
+    """
+    text = _blank_code(text)
+    keys: list[tuple[int, str]] = []
+    for match in _LATEX_CITE_RE.finditer(text):
+        line_no = text.count("\n", 0, match.start()) + 1
+        keys.extend((line_no, k.strip()) for k in match.group(1).split(",") if k.strip())
+    for match in _PANDOC_CITE_RE.finditer(text):
+        line_no = text.count("\n", 0, match.start()) + 1
+        keys.append((line_no, match.group(1)))
     return keys
 
 
 def check_document(path: Path, known_citekeys: set[str]) -> GateResult:
     result = GateResult(path=path)
-    for line_no, line in enumerate(path.read_text().splitlines(), start=1):
-        for key in extract_citekeys_from_line(line):
-            result.total_citations += 1
-            if key not in known_citekeys:
-                result.unknown.append((line_no, key))
+    for line_no, key in extract_citekeys(path.read_text()):
+        result.total_citations += 1
+        if key not in known_citekeys:
+            result.unknown.append((line_no, key))
     return result
 
 

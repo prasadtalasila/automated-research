@@ -147,3 +147,40 @@ class TestRun:
         assert rc == 0
         assert "found 0 bibliographic item(s)" in out
         assert "0 parsed, 0 unchanged, 0 without a PDF attachment, 0 failed" in out
+
+    def test_citekey_removed_from_bib_is_pruned_from_ledger(self, basic_corpus, monkeypatch, capsys):
+        # Without this, a citekey removed from bibliography.bib (the
+        # source of truth) stays "known" to citation_gate forever --
+        # AGENTS.md's fabricated-citekey invariant, just arriving via
+        # deletion instead of invention.
+        monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
+        sync.run()
+        capsys.readouterr()
+
+        write_bib(basic_corpus.BIB_FILE_PATH, BASIC_BIB.replace(
+            "@misc{noauthor_page_nodate,\n  title = {A Page With No Author},\n}\n\n", ""
+        ))
+        rc = sync.run()
+        out = capsys.readouterr().out
+
+        assert rc == 0
+        assert "pruned  noauthor_page_nodate" in out
+        assert "1 pruned" in out
+        con = ledger.connect()
+        try:
+            known = ledger.known_citekeys(con)
+        finally:
+            con.close()
+        assert "noauthor_page_nodate" not in known
+        assert known == {"smith_example_2024", "doe_broken_2023"}
+
+    def test_no_removed_citekeys_prunes_nothing(self, basic_corpus, monkeypatch, capsys):
+        monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
+        sync.run()
+        capsys.readouterr()
+
+        rc = sync.run()
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "0 pruned" in out
+        assert "  pruned  " not in out
