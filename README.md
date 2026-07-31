@@ -41,7 +41,11 @@ mkdir -p papers && cp /path/to/your/exported-library.bib papers/bibliography.bib
 #    stages -- see "What works on this host" below.
 bash scripts/install_full_pipeline.sh
 
-# 3. Sync the content layer from papers/bibliography.bib
+# 3. Sync the content layer from papers/bibliography.bib. A citekey that
+#    later drops out of the bib file (a paper removed from your reference
+#    manager) is only *reported* by default; re-run with --remove-stale
+#    to actually delete its ledger row once you've reviewed the reported
+#    list (see "Removing a paper" below) -- not needed on a first run.
 .venv-full/bin/python -m src.sync
 
 # 4. Inspect what it found
@@ -61,8 +65,8 @@ for row in ledger.all_items(con): print(dict(row))
 
 # 6. Manually re-run any step of that chain yourself (no venv needed for any of these)
 python3 -m src.citation_gate path/to/draft.md
-python3 -m src.references path/to/draft.md
-python3 -m src.heavy.render_output path/to/draft.md --format pdf
+python3 -m src.references path/to/draft.md --heading "References"    # --heading default: "References"
+python3 -m src.heavy.render_output path/to/draft.md --format pdf     # also: --documentclass, --fontsize, --margin (--help for all)
 ```
 
 ### Exporting your library from Zotero
@@ -95,6 +99,14 @@ Zotero entirely (e.g. an OpenAlex/Semantic Scholar/arXiv metadata-API
 search with no reference-manager entry at all) -- see
 [`src/heavy/corpus.py`](src/heavy/corpus.py) and AGENTS.md's citekey
 invariant. Zotero's own exported attachments never belong there.
+
+```bash
+# Add a raw, not-yet-cataloged PDF for the heavy pipeline to consider
+# (topic modeling / embeddings only via src/heavy/corpus.py -- it is
+# NEVER citable this way; add it to your reference manager, re-export,
+# and re-run sync before citing it).
+mkdir -p papers/pdfs && cp /path/to/some-paper.pdf papers/pdfs/
+```
 
 To add more papers later: add the entry in Zotero, re-export the same way
 (re-check **Export Files** so new attachments are included), then re-run
