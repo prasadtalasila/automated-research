@@ -29,6 +29,14 @@ Every genre skill (`survey-writer`, `thesis-chapter-writer`, `tutorial-writer`
 in `.claude/skills/`) must run `python -m src.citation_gate <file>` on its own
 output and only present the draft once it exits 0. This is a gate, not a
 lint suggestion -- treat a `FAIL` the same way you'd treat a failing test.
+A PostToolUse hook (`.claude/hooks/citation_gate_hook.py`, wired up in
+`.claude/settings.json`) now also enforces this mechanically: any Write/Edit
+under `content/drafts/*.md` or `*.tex` runs the gate automatically and blocks
+the write with a `FAIL` reason on the offending citekey(s) if it doesn't
+pass. Treat the instruction above as belt-and-suspenders, not the only line
+of defense -- but still run the gate by hand before calling a draft done,
+since the hook only fires on the tool call that wrote the file, not on
+demand.
 
 ## The bib file is the source of truth (not this pipeline)
 
