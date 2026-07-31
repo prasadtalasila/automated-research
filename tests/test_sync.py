@@ -14,6 +14,21 @@ def write_bib(path, body):
     path.write_text(body, encoding="utf-8")
 
 
+@pytest.fixture(autouse=True)
+def _pdftotext_present_by_default(monkeypatch):
+    # Every test in this file exercises sync's own parse-loop logic via a
+    # mocked pdf_text.extract_text, not the real pdftotext binary -- but
+    # sync.run() now probes pdf_text.is_available() before that loop
+    # (src/pdf_text.py's missing-binary handling), so without this these
+    # tests would silently depend on pdftotext actually being on PATH on
+    # whatever host runs them (true here, but os-deps -- the stage that
+    # installs poppler-utils -- is explicitly opt-in per AGENTS.md, and
+    # test_pdf_text.py already contemplates hosts where it isn't). The
+    # dedicated test_missing_pdftotext_* tests below override this back
+    # to False afterward -- monkeypatch is last-write-wins within a test.
+    monkeypatch.setattr(pdf_text, "is_available", lambda: True)
+
+
 BASIC_BIB = """
 @article{smith_example_2024,
   title = {An Example Paper},
