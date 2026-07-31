@@ -2,7 +2,7 @@
   "topic": "composable digital twins",
   "generated": "2026-07-28",
   "method": "Queried open, keyless metadata APIs (OpenAlex title-search, Semantic Scholar, arXiv) for terms: 'composable digital twin', 'compositional digital twin', 'digital twin composition', 'modular digital twin', 'digital twin as a service'. Cross-checked all non-downloaded DOIs against Unpaywall for an alternate OA PDF location -- it returned no locations beyond what OpenAlex already found (i.e. no new wins). Google Scholar and IEEE Xplore were not scraped directly (no API, CAPTCHA/paywall, no institutional credentials in this environment) -- IEEE-published items were reached instead via their DOI/OpenAlex/Unpaywall metadata.",
-  "note": "None of these citekeys exist in content/ledger.sqlite yet. They must NOT be used as citekeys by survey-writer/thesis-chapter-writer/tutorial-writer until added to Zotero and picked up by `python -m src.sync` -- see CLAUDE.md's citekey invariant.",
+  "note": "None of these citekeys exist in content/ledger.sqlite yet. They must NOT be used as citekeys by survey-writer/thesis-chapter-writer/tutorial-writer until added to Zotero and picked up by `python -m src.sync` -- see AGENTS.md's citekey invariant.",
   "items": [
     {
       "title": "Composable digital twins on Digital Twin as a Service platform",

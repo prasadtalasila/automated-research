@@ -34,7 +34,7 @@ def make_real_pdf(md_path, pdf_path, body):
 class TestFullPipelineNoMocks:
     """bib -> sync (real pdftotext) -> draft -> citation_gate -> references
     -> render_output.render, with nothing mocked -- the real workflow
-    CLAUDE.md describes, end to end."""
+    AGENTS.md describes, end to end."""
 
     def test_full_chain_with_real_binaries(self, isolated_config, tmp_path):
         pdf_md = tmp_path / "source.md"
@@ -78,7 +78,7 @@ class TestFullPipelineNoMocks:
         assert out_path.read_text().strip()
 
     def test_fabricated_citation_is_blocked_before_render(self, isolated_config, tmp_path):
-        """The hard invariant (CLAUDE.md): a citekey not in the ledger
+        """The hard invariant (AGENTS.md): a citekey not in the ledger
         must fail the gate, not silently make it to a rendered draft."""
         isolated_config.BIB_FILE_PATH.write_text(
             "@article{real_key_2024,\n  title = {Real},\n  author = {A, B},\n  year = {2024},\n}\n"
@@ -102,13 +102,13 @@ real_bib_available = (config.REPO_ROOT / "papers" / "bibliography.bib").exists()
 
 @pytest.mark.skipif(
     not real_bib_available,
-    reason="papers/bibliography.bib is gitignored, per-host data (CLAUDE.md) -- "
+    reason="papers/bibliography.bib is gitignored, per-host data (AGENTS.md) -- "
            "absent on a fresh clone/CI checkout until someone exports their own",
 )
 class TestRealBibliographySmoke:
     """Parses this repo's actual bibliography.bib (read-only) -- catches
     a regression against real export data that a synthetic 1-3 entry
-    fixture can't, which is exactly the failure class CLAUDE.md's hard
+    fixture can't, which is exactly the failure class AGENTS.md's hard
     invariant exists to prevent."""
 
     def test_real_bib_file_parses_without_error(self, isolated_config, monkeypatch):

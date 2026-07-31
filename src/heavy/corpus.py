@@ -12,7 +12,7 @@ Two sources, two identifier namespaces, on purpose:
   with no citekey. `doc_id` is
   `doc:<filename stem>` -- a shape that can never be a real bib citekey
   (those never contain a colon) and that `citation_gate.py` will always
-  reject, since it only checks membership in the ledger. Per CLAUDE.md's
+  reject, since it only checks membership in the ledger. Per AGENTS.md's
   invariant, these documents must not be cited until they are added to
   the reference manager, exported into the bib file, and picked up by
   `sync`.

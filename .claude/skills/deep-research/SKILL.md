@@ -12,7 +12,7 @@ Every claim must resolve to one of:
   or `src.heavy.embed_index.search()` if that stack has been built), cited
   `[@citekey]`;
 - a `source-pdfs` document, discussed in prose by title/doc_id and
-  explicitly marked **not citable** (per CLAUDE.md's invariant -- never
+  explicitly marked **not citable** (per AGENTS.md's invariant -- never
   given a citekey, never a formal citation); or
 - stated plainly as "not found in the corpus" -- never invented, never
   smoothed over.

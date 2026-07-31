@@ -28,7 +28,7 @@ BIB = config.BIB_FILE_PATH
 def bib_entry(citekey):
     if not BIB.exists():
         # papers/bibliography.bib is gitignored, per-host data (see
-        # CLAUDE.md) -- absent on a fresh clone/CI checkout until someone
+        # AGENTS.md) -- absent on a fresh clone/CI checkout until someone
         # exports their own. Treat that the same as "citekey not in the
         # bib file" rather than crashing on a raw FileNotFoundError.
         return ""

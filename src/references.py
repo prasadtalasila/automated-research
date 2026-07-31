@@ -3,13 +3,13 @@ sourced only from `content/ledger.sqlite` (citekey/title/year -- populated
 by `sync` from `bibliography.bib`, the source of truth). Stdlib-only
 (`sqlite3`), like `citation_gate.py`, so it runs with bare `python3` -- no
 `bibtexparser`/venv needed. Deliberately doesn't read `bibliography.bib`
-itself; `src/bib_reader.py` is the only module that does (CLAUDE.md).
+itself; `src/bib_reader.py` is the only module that does (AGENTS.md).
 
 Only ever lists citekeys the draft already cites (found with
 `citation_gate`'s own extraction regexes), so it can never introduce a
 citekey that hasn't already passed the gate. Run this *after*
 `python -m src.citation_gate` has reported `OK`. A cited key with no
-matching ledger row is a hard error (CLAUDE.md's citekey invariant), not
+matching ledger row is a hard error (AGENTS.md's citekey invariant), not
 something to silently drop.
 
 Format matches the one already documented in

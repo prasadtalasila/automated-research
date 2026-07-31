@@ -7,6 +7,20 @@ correct output for a small corpus, not a bug. Don't lower
 min_cluster_size to force clusters into existence; report the outlier
 result honestly and let the topic model become meaningful once the
 corpus is large enough to justify it.
+
+BERTopic's clustering step is inherently whole-corpus -- adding one new
+document can shift every cluster assignment, so unlike
+embed_index.build_index() there's no "skip this doc" option for the
+clustering itself. What *is* skippable is the expensive part before it:
+re-embedding a document's full text with model.encode(). This module
+caches one whole-text embedding per doc_id (config.TOPIC_EMBED_CACHE_PATH,
+keyed by the same hash_text() embed_index.py uses for its own per-chunk
+cache) and only calls encode() for docs whose text hash changed since the
+last run, batching all of them into one encode() call rather than one per
+doc. Note this cache is intentionally separate from embed_index.py's
+Chroma collection: that one stores per-*chunk* embeddings for retrieval,
+this one stores one whole-document embedding per doc for clustering --
+different granularity, not reusable as-is between the two.
 """
 
 import json
@@ -16,23 +30,49 @@ from src.heavy import embed_index
 from src.heavy.corpus import CorpusDoc
 
 
+def _load_embed_cache() -> dict:
+    if config.TOPIC_EMBED_CACHE_PATH.exists():
+        return json.loads(config.TOPIC_EMBED_CACHE_PATH.read_text())
+    return {}
+
+
+def _save_embed_cache(cache: dict) -> None:
+    config.TOPIC_EMBED_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    config.TOPIC_EMBED_CACHE_PATH.write_text(json.dumps(cache))
+
+
 def run_topic_model(docs: list[CorpusDoc]) -> dict:
+    import numpy as np
     from bertopic import BERTopic
     from hdbscan import HDBSCAN
     from umap import UMAP
 
-    texts, doc_ids = [], []
+    doc_texts = {}
     for doc in docs:
         text = embed_index.get_text(doc)
         if text:
-            texts.append(text)
-            doc_ids.append(doc.doc_id)
+            doc_texts[doc.doc_id] = text
 
-    if len(texts) < 2:
-        raise ValueError(f"Need at least 2 documents with text to run BERTopic; got {len(texts)}")
+    if len(doc_texts) < 2:
+        raise ValueError(f"Need at least 2 documents with text to run BERTopic; got {len(doc_texts)}")
 
     _client, model = embed_index.get_client_and_model()  # reuse the same embedding model
-    embeddings = model.encode(texts, show_progress_bar=False)
+
+    cache = _load_embed_cache()
+    doc_hashes = {doc_id: embed_index.hash_text(text) for doc_id, text in doc_texts.items()}
+    stale_doc_ids = [
+        doc_id for doc_id in doc_texts
+        if doc_id not in cache or cache[doc_id]["hash"] != doc_hashes[doc_id]
+    ]
+    if stale_doc_ids:
+        new_vecs = model.encode([doc_texts[d] for d in stale_doc_ids], show_progress_bar=False)
+        for doc_id, vec in zip(stale_doc_ids, new_vecs):
+            cache[doc_id] = {"hash": doc_hashes[doc_id], "embedding": vec.tolist()}
+        _save_embed_cache(cache)
+
+    doc_ids = list(doc_texts)
+    texts = [doc_texts[d] for d in doc_ids]
+    embeddings = np.array([cache[d]["embedding"] for d in doc_ids])
 
     # UMAP's spectral initialization needs n_neighbors < n_samples or it
     # raises outright (not just a bad clustering) -- BERTopic's own

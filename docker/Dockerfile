@@ -5,7 +5,7 @@
 # embeddings/clustering stack (sentence-transformers + Chroma + BERTopic)
 # for hosts that don't have root, a JDK, TeX Live, or Pandoc available
 # directly. `pip install` outside a venv is blocked by PEP 668 regardless
-# of root, though -- see CLAUDE.md's "Environment constraints" section for
+# of root, though -- see AGENTS.md's "Environment constraints" section for
 # what is and isn't conditional on root access.
 #
 # NOT built or run in this session -- no Docker daemon is available here,

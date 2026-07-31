@@ -3,7 +3,7 @@
 **Status: not citation-gated.** These notes summarize `papers/pdfs/manifest.json`
 (22 candidate works surfaced via OpenAlex/Semantic Scholar/arXiv metadata search,
 2026-07-28). None of these works are in `content/ledger.sqlite` yet, so none of
-them have a citekey from `src.retrieval.search()`. Per CLAUDE.md's citekey
+them have a citekey from `src.retrieval.search()`. Per AGENTS.md's citekey
 invariant, this document cites by **(Author/venue, Year, DOI)** only — it must
 not be treated as a source of citekeys by `survey-writer`, `thesis-chapter-writer`,
 or `tutorial-writer`. To make these usable in a gated survey, add them to Zotero

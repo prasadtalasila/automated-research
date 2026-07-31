@@ -62,7 +62,7 @@ Per round (repeat for ROUNDS):
 
 No web fallback exists in this adaptation. A `source-pdfs` hit may be
 discussed in prose (by title/doc_id) but is never a citation -- see
-CLAUDE.md's citekey invariant.
+AGENTS.md's citekey invariant.
 
 The packet schema each interviewer returns is defined in
 `.claude/agents/deep-research-interviewer.md`.
