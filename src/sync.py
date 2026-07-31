@@ -3,6 +3,10 @@
 Safe to run unattended / on a schedule (idempotent, incremental):
     python -m src.sync
 
+A citekey that drops out of the bib file is only *reported* by default --
+pass --remove-stale to actually delete its content/ledger.sqlite row (see
+"Removing a paper" in README.md and src/ledger.py's find_stale/prune_missing).
+
 This is "job 1" of the two-job split: no generation, no LLM calls, just
 bringing the shared content layer up to date with the bibliography (see
 src/bib_reader.py -- the BibTeX-exported .bib file is the source of
@@ -16,13 +20,14 @@ venv's python. python -m src.citation_gate does not need it and still
 runs with the bare system interpreter.
 """
 
+import argparse
 import subprocess
 import sys
 
 from src import bib_reader, config, dedup, ledger, pdf_text
 
 
-def run() -> int:
+def run(remove_stale: bool = False) -> int:
     print(f"Reading bibliography from {config.BIB_FILE_PATH} ...")
     references = bib_reader.read_library()
     print(f"  found {len(references)} bibliographic item(s)")
@@ -49,6 +54,7 @@ def run() -> int:
     con = ledger.connect()
     parsed, failed, skipped, no_pdf = 0, 0, 0, 0
     pruned: list[tuple[str, str | None]] = []
+    stale: list[tuple[str, str | None]] = []
     try:
         for ref in references:
             needs_parse = ledger.upsert_reference(con, ref)
@@ -69,16 +75,47 @@ def run() -> int:
                 print(f"  FAILED  {ref.citekey}: {exc.stderr}", file=sys.stderr)
         # Only the ledger row is removed -- see prune_missing's own
         # docstring for why the corresponding content/parsed/<citekey>.txt
-        # is deliberately left in place.
-        pruned = ledger.prune_missing(con, {r.citekey for r in references})
-        for citekey, _parsed_path in pruned:
-            print(f"  pruned  {citekey} (no longer in {config.BIB_FILE_PATH.name})")
+        # is deliberately left in place. Deletion only happens with
+        # --remove-stale (default off): a bib file that comes back
+        # short a citekey is far more often a mistake (a botched
+        # re-export, BIB_FILE pointing at the wrong path) than an
+        # intentional removal, so the default is to report it and let a
+        # human confirm rather than delete on every routine sync.
+        seen_citekeys = {r.citekey for r in references}
+        if remove_stale:
+            pruned = ledger.prune_missing(con, seen_citekeys)
+            for citekey, _parsed_path in pruned:
+                print(f"  pruned  {citekey} (no longer in {config.BIB_FILE_PATH.name})")
+        else:
+            stale = ledger.find_stale(con, seen_citekeys)
+            if not seen_citekeys and stale:
+                # Same shape prune_missing's guard refuses on -- don't
+                # tell the user to run a command that's just going to
+                # raise. references came back completely empty against a
+                # non-empty ledger, so this is far more likely a botched
+                # re-export or BIB_FILE pointing at the wrong path than
+                # every citekey being legitimately removed at once.
+                print(
+                    f"  SUSPICIOUS: the bib file yielded 0 references, so all "
+                    f"{len(stale)} ledger item(s) show as stale. This usually "
+                    f"means the bib file is empty, corrupted, or BIB_FILE is "
+                    f"misconfigured -- not that every citekey was actually "
+                    f"removed. Fix the export/path and re-run sync rather than "
+                    f"passing --remove-stale (which would refuse and raise on "
+                    f"this exact shape)."
+                )
+            else:
+                for citekey, _parsed_path in stale:
+                    print(f"  stale   {citekey} (no longer in {config.BIB_FILE_PATH.name} -- "
+                          f"not removed, pass --remove-stale to remove)")
     finally:
         con.close()
 
+    stale_count = len(pruned) if remove_stale else len(stale)
+    stale_label = "pruned" if remove_stale else "stale (not removed)"
     print(
         f"Sync complete: {parsed} parsed, {skipped} unchanged, "
-        f"{no_pdf} without a PDF attachment, {failed} failed, {len(pruned)} pruned."
+        f"{no_pdf} without a PDF attachment, {failed} failed, {stale_count} {stale_label}."
     )
     print(f"Ledger:      {config.LEDGER_PATH}")
     print(f"Parsed text: {config.PARSED_DIR}/")
@@ -86,4 +123,12 @@ def run() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(run())
+    parser = argparse.ArgumentParser(
+        description="Sync content/ledger.sqlite from the bib file (job 1 -- deterministic pipeline)."
+    )
+    parser.add_argument(
+        "--remove-stale", action="store_true",
+        help="Delete ledger rows for citekeys no longer in the bib file (default: report only, don't delete)",
+    )
+    args = parser.parse_args()
+    raise SystemExit(run(remove_stale=args.remove_stale))

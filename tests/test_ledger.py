@@ -154,6 +154,35 @@ class TestKnownCitekeysAndAllItems:
         assert rows[0]["title"] == "Title A"
 
 
+class TestFindStale:
+    """Read-only counterpart to prune_missing -- must never delete."""
+
+    def test_finds_citekey_no_longer_in_bib(self, ledger_con):
+        ledger.upsert_reference(ledger_con, make_reference(citekey="kept_key"))
+        ledger.upsert_reference(ledger_con, make_reference(citekey="orphaned_key"))
+
+        stale = ledger.find_stale(ledger_con, seen_citekeys={"kept_key"})
+
+        assert [k for k, _ in stale] == ["orphaned_key"]
+        # Unlike prune_missing, nothing is actually removed.
+        assert ledger.known_citekeys(ledger_con) == {"kept_key", "orphaned_key"}
+
+    def test_no_stale_citekeys_is_empty(self, ledger_con):
+        ledger.upsert_reference(ledger_con, make_reference(citekey="kept_key"))
+
+        assert ledger.find_stale(ledger_con, seen_citekeys={"kept_key"}) == []
+
+    def test_never_raises_even_when_seen_citekeys_is_empty(self, ledger_con):
+        # prune_missing refuses (raises) on this exact shape -- find_stale
+        # is read-only, so there's nothing destructive to guard against.
+        ledger.upsert_reference(ledger_con, make_reference(citekey="kept_key"))
+
+        stale = ledger.find_stale(ledger_con, seen_citekeys=set())
+
+        assert [k for k, _ in stale] == ["kept_key"]
+        assert ledger.known_citekeys(ledger_con) == {"kept_key"}
+
+
 class TestPruneMissing:
     """Without this, a citekey removed from bibliography.bib stays "known"
     to citation_gate forever -- the fabricated-citekey failure mode
