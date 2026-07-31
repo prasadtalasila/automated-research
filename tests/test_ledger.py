@@ -1,5 +1,9 @@
 """src/ledger.py: the sqlite state that makes `sync` incremental."""
 
+import os
+import sqlite3
+import time
+
 import pytest
 
 from src import ledger
@@ -26,6 +30,108 @@ class TestConnect:
             assert ledger.all_items(con2) == []
         finally:
             con2.close()
+
+
+class TestSchemaMigration:
+    def test_fresh_database_is_at_current_schema_version(self, isolated_config):
+        con = ledger.connect()
+        try:
+            (version,) = con.execute("PRAGMA user_version").fetchone()
+            assert version == len(ledger._MIGRATIONS)
+            cols = {row[1] for row in con.execute("PRAGMA table_info(items)")}
+            assert {"pdf_size", "pdf_mtime_ns"} <= cols
+        finally:
+            con.close()
+
+    def test_legacy_database_predating_the_migration_gets_upgraded(self, isolated_config):
+        # Simulates a ledger written before pdf_size/pdf_mtime_ns existed:
+        # the original table shape, user_version still at sqlite's default
+        # of 0. CREATE TABLE IF NOT EXISTS alone would never add the new
+        # columns to this file -- only _migrate does.
+        isolated_config.CONTENT_DIR.mkdir(parents=True, exist_ok=True)
+        raw = sqlite3.connect(isolated_config.LEDGER_PATH)
+        raw.execute("""
+            CREATE TABLE items (
+                citekey TEXT PRIMARY KEY,
+                item_type TEXT,
+                title TEXT,
+                year TEXT,
+                doi TEXT,
+                url TEXT,
+                pdf_path TEXT,
+                pdf_hash TEXT,
+                status TEXT NOT NULL DEFAULT 'discovered',
+                parsed_path TEXT,
+                parse_error TEXT,
+                last_synced TEXT NOT NULL
+            )
+        """)
+        raw.execute(
+            "INSERT INTO items (citekey, status, last_synced) VALUES (?, ?, ?)",
+            ("legacy_key", "discovered", "2020-01-01T00:00:00+00:00"),
+        )
+        raw.commit()
+        raw.close()
+
+        con = ledger.connect()
+        try:
+            cols = {row[1] for row in con.execute("PRAGMA table_info(items)")}
+            assert {"pdf_size", "pdf_mtime_ns"} <= cols
+            (version,) = con.execute("PRAGMA user_version").fetchone()
+            assert version == len(ledger._MIGRATIONS)
+            assert ledger.known_citekeys(con) == {"legacy_key"}
+        finally:
+            con.close()
+
+    def test_already_migrated_database_is_a_no_op(self, isolated_config):
+        con1 = ledger.connect()
+        con1.close()
+
+        con2 = ledger.connect()
+        try:
+            (version,) = con2.execute("PRAGMA user_version").fetchone()
+            assert version == len(ledger._MIGRATIONS)
+        finally:
+            con2.close()
+
+    def test_columns_already_present_at_user_version_zero_does_not_raise(self, isolated_config):
+        # Pathological but guarded-against case: user_version somehow
+        # lagging behind a table that already has the target columns
+        # (e.g. a future column added directly to _SCHEMA instead of
+        # _MIGRATIONS). "ALTER TABLE ADD COLUMN" on an existing column
+        # raises OperationalError -- _migrate must check PRAGMA
+        # table_info(items) first instead of blindly trusting
+        # user_version, or this would crash every `sync` on every host
+        # that ever hit it.
+        isolated_config.CONTENT_DIR.mkdir(parents=True, exist_ok=True)
+        raw = sqlite3.connect(isolated_config.LEDGER_PATH)
+        raw.execute("""
+            CREATE TABLE items (
+                citekey TEXT PRIMARY KEY,
+                item_type TEXT,
+                title TEXT,
+                year TEXT,
+                doi TEXT,
+                url TEXT,
+                pdf_path TEXT,
+                pdf_hash TEXT,
+                pdf_size INTEGER,
+                pdf_mtime_ns INTEGER,
+                status TEXT NOT NULL DEFAULT 'discovered',
+                parsed_path TEXT,
+                parse_error TEXT,
+                last_synced TEXT NOT NULL
+            )
+        """)
+        raw.commit()
+        raw.close()
+
+        con = ledger.connect()  # must not raise
+        try:
+            (version,) = con.execute("PRAGMA user_version").fetchone()
+            assert version == len(ledger._MIGRATIONS)
+        finally:
+            con.close()
 
 
 class TestUpsertReference:
@@ -103,6 +209,89 @@ class TestUpsertReference:
         ).fetchone()
         assert row[0] == "Updated Title"
         assert len(ledger.known_citekeys(ledger_con)) == 1
+
+    def test_item_gaining_a_pdf_after_being_no_pdf_needs_parse(self, ledger_con, tmp_path):
+        # Row already exists (from the earlier no-pdf sync) but its stored
+        # pdf_hash is NULL -- the stat-unchanged fast path must not treat
+        # a NULL stored hash as "nothing changed" just because there's
+        # nothing yet to compare a size/mtime against.
+        ref_no_pdf = make_reference(pdf_path=None)
+        ledger.upsert_reference(ledger_con, ref_no_pdf)
+
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"now has content")
+        ref_with_pdf = make_reference(pdf_path=str(pdf))
+        assert ledger.upsert_reference(ledger_con, ref_with_pdf) is True
+
+        row = ledger_con.execute(
+            "SELECT status, pdf_hash FROM items WHERE citekey = ?", (ref_with_pdf.citekey,)
+        ).fetchone()
+        assert row[0] == "discovered"
+        assert row[1] is not None
+
+
+class TestUpsertReferenceRehashSkip:
+    """`sync` re-hashing the entire PDF corpus on every no-op run doesn't
+    scale (audited at 1.37GB) -- upsert_reference must compare (size,
+    mtime) against what was last recorded and only fall back to
+    sha256-hashing the file when that doesn't match."""
+
+    def test_unchanged_size_and_mtime_skips_hashing(self, ledger_con, tmp_path, monkeypatch):
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"stable content")
+        ref = make_reference(pdf_path=str(pdf))
+        ledger.upsert_reference(ledger_con, ref)
+
+        calls = []
+        original_hash_pdf = ledger._hash_pdf
+
+        def spy(path):
+            calls.append(path)
+            return original_hash_pdf(path)
+
+        monkeypatch.setattr(ledger, "_hash_pdf", spy)
+
+        needs_parse = ledger.upsert_reference(ledger_con, ref)
+
+        assert needs_parse is False
+        assert calls == []  # (size, mtime) matched -- hash was never recomputed
+
+    def test_changed_mtime_with_same_size_still_rehashes(self, ledger_con, tmp_path, monkeypatch):
+        # Same byte length, deliberately touched to a different mtime --
+        # size alone matching must not be treated as proof of unchanged
+        # content.
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"AAAAAAAAAA")
+        ref = make_reference(pdf_path=str(pdf))
+        ledger.upsert_reference(ledger_con, ref)
+
+        future = time.time() + 5
+        os.utime(pdf, (future, future))
+
+        calls = []
+        original_hash_pdf = ledger._hash_pdf
+
+        def spy(path):
+            calls.append(path)
+            return original_hash_pdf(path)
+
+        monkeypatch.setattr(ledger, "_hash_pdf", spy)
+
+        ledger.upsert_reference(ledger_con, ref)
+
+        assert calls == [str(pdf)]
+
+    def test_stored_size_and_mtime_are_persisted(self, ledger_con, tmp_path):
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"content")
+        ref = make_reference(pdf_path=str(pdf))
+        ledger.upsert_reference(ledger_con, ref)
+
+        st = pdf.stat()
+        row = ledger_con.execute(
+            "SELECT pdf_size, pdf_mtime_ns FROM items WHERE citekey = ?", (ref.citekey,)
+        ).fetchone()
+        assert row == (st.st_size, st.st_mtime_ns)
 
 
 class TestMarkParsed:

@@ -21,6 +21,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import bibtexparser
+# v1 legacy API (BibTexParser/customization/bibtexparser.load|loads), not
+# v2 -- a deliberate pin, not drift: see pyproject.toml's `bibtexparser =
+# ">=1.4,<2.0"` line for the full rationale (v2 replaces this API with an
+# incompatible one this module doesn't use). Don't migrate this import
+# without reading that comment and relaxing the ceiling first.
 from bibtexparser.bparser import BibTexParser
 from bibtexparser.customization import convert_to_unicode
 
@@ -129,6 +134,33 @@ def _clean_title(title: str) -> str:
     return re.sub(r"[{}]", "", title)
 
 
+# @comment/@string/@preamble are legitimate BibTeX constructs that never
+# show up in BibDatabase.entries (bibtexparser tracks them separately,
+# not as dropped entries) -- read_library parses with common_strings=True,
+# so a real export using any of these is plausible, and counting them as
+# "entries" would fire a false discrepancy warning on a perfectly good file.
+_NON_ENTRY_TYPES = {"comment", "string", "preamble"}
+_ENTRY_START_RE = re.compile(r"^@(\w+)\s*\{", re.MULTILINE)
+
+
+def _count_raw_entries(text: str) -> int:
+    """How many actual `@entrytype{...}` blocks the raw file text has,
+    independent of whether bibtexparser managed to parse each one.
+
+    bibtexparser (both BibTexParser.parse and the customization hook)
+    silently skips an entry it can't parse -- e.g. unbalanced braces --
+    with no exception and no entry in the returned BibDatabase, so
+    len(bib_database.entries) alone can't reveal a dropped entry.
+    Comparing against this raw count is the only way read_library can
+    tell "the file has exactly as many entries as it looks like" from
+    "some entries silently vanished."
+    """
+    return sum(
+        1 for m in _ENTRY_START_RE.finditer(text)
+        if m.group(1).lower() not in _NON_ENTRY_TYPES
+    )
+
+
 def read_library() -> list[Reference]:
     if not config.BIB_FILE_PATH.exists():
         raise FileNotFoundError(
@@ -137,10 +169,22 @@ def read_library() -> list[Reference]:
             "config.toml's [bib].path at wherever you keep it -- then re-run sync."
         )
 
+    raw_text = config.BIB_FILE_PATH.read_text(encoding="utf-8", errors="replace")
     parser = BibTexParser(common_strings=True)
     parser.customization = convert_to_unicode
-    with open(config.BIB_FILE_PATH) as f:
-        bib_database = bibtexparser.load(f, parser=parser)
+    bib_database = bibtexparser.loads(raw_text, parser=parser)
+
+    raw_count = _count_raw_entries(raw_text)
+    parsed_count = len(bib_database.entries)
+    if parsed_count < raw_count:
+        print(
+            f"  WARNING: bibtexparser parsed {parsed_count} entries but "
+            f"{config.BIB_FILE_PATH.name} has {raw_count} @entry block(s) -- "
+            f"{raw_count - parsed_count} may have been silently dropped "
+            "(bibtexparser skips an entry it can't parse -- e.g. unbalanced "
+            "braces/quotes -- without raising). Check the file by hand for "
+            "an entry whose citekey doesn't show up in this run's output."
+        )
 
     bib_dir = config.BIB_FILE_PATH.resolve().parent
     references = []

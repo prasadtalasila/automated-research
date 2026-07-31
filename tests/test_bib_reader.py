@@ -128,6 +128,41 @@ class TestResolvePdfPath:
         assert bib_reader._resolve_pdf_path(field, tmp_path) == (str(pdf), bib_reader.PDF_RESOLVED)
 
 
+class TestCountRawEntries:
+    def test_counts_each_entry_block(self):
+        text = """
+@article{one_2024,
+  title = {One},
+}
+
+@misc{two_2024,
+  title = {Two},
+}
+"""
+        assert bib_reader._count_raw_entries(text) == 2
+
+    def test_excludes_comment_string_and_preamble_blocks(self):
+        text = """
+@comment{just a note, not an entry}
+
+@string{someabbrev = {Some Journal}}
+
+@preamble{"some latex preamble"}
+
+@article{real_entry_2024,
+  title = {Real Entry},
+}
+"""
+        assert bib_reader._count_raw_entries(text) == 1
+
+    def test_entry_type_matching_is_case_insensitive(self):
+        text = "@ARTICLE{shouty_2024,\n  title = {Shouty},\n}\n"
+        assert bib_reader._count_raw_entries(text) == 1
+
+    def test_empty_text_counts_zero(self):
+        assert bib_reader._count_raw_entries("") == 0
+
+
 class TestReadLibrary:
     def test_missing_bib_file_raises(self, isolated_config):
         with pytest.raises(FileNotFoundError, match="No bib file"):
@@ -259,6 +294,86 @@ class TestReadLibrary:
         )
         refs = bib_reader.read_library()
         assert {r.citekey for r in refs} == {"one_2024", "two_2024"}
+
+    def test_no_warning_when_parsed_count_matches_raw_count(self, isolated_config, capsys):
+        write_bib(
+            isolated_config.BIB_FILE_PATH,
+            """
+@article{one_2024,
+  title = {One},
+  author = {A, One},
+  year = {2024},
+}
+
+@article{two_2024,
+  title = {Two},
+  author = {B, Two},
+  year = {2024},
+}
+""",
+        )
+        refs = bib_reader.read_library()
+        out = capsys.readouterr().out
+        assert len(refs) == 2
+        assert "WARNING" not in out
+
+    def test_no_warning_for_a_real_export_using_string_abbreviations(self, isolated_config, capsys):
+        # read_library parses with common_strings=True, so a real export
+        # legitimately using @string (a journal-name abbreviation, say)
+        # is plausible -- it must not be miscounted as a dropped entry
+        # just because _count_raw_entries and bibtexparser need to agree
+        # on what "an entry" is.
+        write_bib(
+            isolated_config.BIB_FILE_PATH,
+            """
+@string{jmlr = {Journal of Machine Learning Research}}
+
+@article{one_2024,
+  title = {One},
+  author = {A, One},
+  year = {2024},
+  journal = jmlr,
+}
+
+@article{two_2024,
+  title = {Two},
+  author = {B, Two},
+  year = {2024},
+}
+""",
+        )
+        refs = bib_reader.read_library()
+        out = capsys.readouterr().out
+        assert len(refs) == 2
+        assert "WARNING" not in out
+
+    def test_warns_when_a_malformed_entry_is_silently_dropped(self, isolated_config, capsys):
+        # Regression: bibtexparser drops an entry it can't parse (here,
+        # unbalanced braces in the title) with no exception and no trace
+        # in bib_database.entries -- read_library must notice the raw
+        # @entry count doesn't match what actually got parsed.
+        write_bib(
+            isolated_config.BIB_FILE_PATH,
+            """
+@article{good_2024,
+  title = {Good Entry},
+  author = {Smith, Jane},
+  year = {2024},
+}
+
+@article{bad_2024,
+  title = {Unbalanced {Braces},
+  author = {Doe, John},
+  year = {2023},
+}
+""",
+        )
+        refs = bib_reader.read_library()
+        out = capsys.readouterr().out
+        assert len(refs) == 1
+        assert "WARNING: bibtexparser parsed 1 entries but" in out
+        assert "bibliography.bib has 2 @entry block(s)" in out
+        assert "1 may have been silently dropped" in out
 
     def test_unicode_conversion_applied(self, isolated_config):
         write_bib(

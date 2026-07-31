@@ -52,7 +52,7 @@ PROVENANCE_DIR = CONTENT_DIR / "provenance"
 # Cached BM25 term-frequency index for src/retrieval.py -- keyed by a
 # cheap per-item fingerprint (parsed-file stat, not content), so a
 # search() call only re-tokenizes docs whose text actually changed since
-# the last run, mirroring src/ledger.py's own content-hash skip logic.
+# the last run, mirroring src/ledger.py's own stat-before-hash skip logic.
 RETRIEVAL_INDEX_PATH = CONTENT_DIR / "retrieval_index.json"
 
 SOURCE_PDFS_DIR = REPO_ROOT / _get("SOURCE_PDFS_DIR", "source_pdfs", "dir", default="papers/pdfs")

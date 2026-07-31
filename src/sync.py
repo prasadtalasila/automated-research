@@ -68,6 +68,24 @@ def run(remove_stale: bool = False) -> int:
     stale: list[tuple[str, str | None]] = []
     suspicious = False
     try:
+        # This loop -- including pdf_text.extract_text's pdftotext
+        # subprocess call -- runs serially, one reference at a time, even
+        # though a large corpus (454 PDFs/1.37GB at one audit) means a
+        # first-time or bulk sync can have a lot of documents to parse in
+        # a single run. Deliberately not parallelized (ProcessPoolExecutor
+        # was the candidate) for two reasons: (1) src/ledger.py's
+        # (size, mtime)-before-hash skip means a routine, non-bulk sync
+        # already parses zero-to-few documents per run -- the case
+        # parallelism would help doesn't come up often; (2) pdftotext is
+        # already an external subprocess (releases the GIL while it
+        # runs), so a ProcessPoolExecutor would add pickling/IPC overhead
+        # to buy the same OS-level concurrency a plain ThreadPoolExecutor
+        # gets for free. If a bulk/first-run sync's wall-clock time
+        # becomes a real problem, revisit with a ThreadPoolExecutor around
+        # this loop's pdf_text.extract_text call specifically -- keeping
+        # every ledger.mark_parsed/mark_parse_failed call on the main
+        # thread as futures complete, since a sqlite3 connection isn't
+        # safe to share across threads.
         for ref in references:
             needs_parse = ledger.upsert_reference(con, ref)
             if not ref.pdf_path:

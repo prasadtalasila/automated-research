@@ -23,6 +23,7 @@ sys.path.insert(0, str(REPO))
 from src import config  # noqa: E402 -- needs REPO on sys.path first
 
 BIB = config.BIB_FILE_PATH
+PARSED_DIR = config.PARSED_DIR
 
 
 def bib_entry(citekey):
@@ -45,11 +46,17 @@ def pdf_path(citekey):
     m = re.search(r"file = \{(.*?)\},", entry, re.S)
     if not m:
         return None
+    # Anchor a relative attachment path to the bib file's own directory,
+    # matching src.bib_reader._resolve_pdf_path -- not REPO, which is
+    # wrong the moment BIB_FILE points somewhere outside the checked-out
+    # repo (a relative path in the file field is only ever relative to
+    # wherever the .bib itself lives).
+    bib_dir = BIB.resolve().parent
     for part in m.group(1).split(";"):
         bits = part.split(":")
         for b in bits:
             if b.strip().endswith(".pdf"):
-                p = REPO / b.strip()
+                p = bib_dir / b.strip()
                 return p if p.exists() else None
     return None
 
@@ -58,7 +65,7 @@ def pages(citekey):
     """Return list of page texts, 1-indexed by position+1 (PDF page order)."""
     p = pdf_path(citekey)
     if p is None:
-        parsed = REPO / "content" / "parsed" / f"{citekey}.txt"
+        parsed = PARSED_DIR / f"{citekey}.txt"
         if not parsed.exists():
             return []
         # pdftotext leaves stray NUL/control bytes in some files, which

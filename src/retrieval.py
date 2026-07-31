@@ -1,12 +1,13 @@
 """BM25-ranked keyword retrieval over the shared content layer.
 
-This is a deliberate placeholder for embedding-based retrieval
-(sentence-transformers + Chroma/Qdrant, per the original pipeline
-design). That stack needs a venv (PEP 668 blocks system pip here), a
-model download, and a corpus large enough to justify clustering --
-none of which hold yet with a small library. `search()` below is the
-contract genre skills call against; swap the implementation later
-without changing callers.
+This is the default retrieval implementation genre skills call against
+(AGENTS.md's "Retrieval" section) -- stdlib-only, no venv or model
+download needed. `src/heavy/embed_index.py` (sentence-transformers +
+Chroma/Qdrant) is a verified, working embedding-based upgrade path with
+a matching `search(query, k)` shape, ready to swap in without changing
+callers once BM25 stops being enough for this corpus -- that's a
+deliberate call to make when it comes up, not a threshold this module
+should assert a number for.
 
 Ranking is Okapi BM25 (stdlib-only: no rank_bm25 dependency), not raw
 term-frequency -- term-frequency alone has no document-length
@@ -15,17 +16,16 @@ hits than a short one to outrank it, regardless of how small a
 fraction of the long document those hits represent.
 
 Scale: a naive implementation re-reads and re-tokenizes every
-document's parsed text from disk on every call, which is fine for a
-handful of documents but grows linearly with corpus size and with each
-document's length. Term-frequency stats per document are cached to
-disk (config.RETRIEVAL_INDEX_PATH), keyed by a cheap per-item
-fingerprint (parsed-file stat -- exists/size/mtime, not content), so a
-call only re-tokenizes documents whose text actually changed since the
-last run -- mirroring src/ledger.py's own content-hash skip logic and
-src/heavy/embed_index.py's embedding cache. Building a snippet for the
-returned top-k still reads those (bounded, small) documents' text
-fresh, since a snippet needs the real surrounding text, not just term
-counts.
+document's parsed text from disk on every call, which grows linearly
+with corpus size and with each document's length. Term-frequency stats
+per document are cached to disk (config.RETRIEVAL_INDEX_PATH), keyed by
+a cheap per-item fingerprint (parsed-file stat -- exists/size/mtime, not
+content), so a call only re-tokenizes documents whose text actually
+changed since the last run -- mirroring src/ledger.py's own
+stat-before-hash skip logic and src/heavy/embed_index.py's embedding
+cache. Building a snippet for the returned top-k still reads those
+(bounded, small) documents' text fresh, since a snippet needs the real
+surrounding text, not just term counts.
 """
 
 import json
