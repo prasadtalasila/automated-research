@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Catches the plausible human mistake of tagging a release before
+      # bumping pyproject.toml's version (or vice versa) -- scripts/release.py
+      # names its archive from pyproject.toml alone, so a mismatch here
+      # would otherwise silently ship a release/automated-research-<old
+      # version>.zip under a new-version tag.
+      - name: Verify tag matches pyproject.toml version
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          pyproject_version="$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['tool']['poetry']['version'])")"
+          if [ "$tag_version" != "$pyproject_version" ]; then
+            echo "Tag ${GITHUB_REF_NAME} (version $tag_version) does not match pyproject.toml's version $pyproject_version" >&2
+            exit 1
+          fi
+
+      # scripts/release.py is stdlib-only (tomllib/zipfile/shutil) and
+      # only needs `git` on PATH (already true after actions/checkout) --
+      # no poetry/heavy-group install needed just to build the archive.
+      - name: Build release archive
+        run: python3 scripts/release.py
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/automated-research-*.zip
+          generate_release_notes: true

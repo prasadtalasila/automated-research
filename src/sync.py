@@ -19,7 +19,7 @@ runs with the bare system interpreter.
 import subprocess
 import sys
 
-from src import bib_reader, config, ledger, pdf_text
+from src import bib_reader, config, dedup, ledger, pdf_text
 
 
 def run() -> int:
@@ -35,6 +35,16 @@ def run() -> int:
         for ref in incomplete:
             print(f"    {ref.citekey}: {ref.title[:80]!r}")
         print("  Fix the item type/metadata in your reference manager, re-export, and re-run sync.")
+
+    duplicate_groups = dedup.find_duplicates(references)
+    if duplicate_groups:
+        print(f"  WARNING: {len(duplicate_groups)} possible duplicate group(s) -- same DOI or "
+              f"near-identical title under different citekeys. A shared title doesn't always "
+              f"mean the same source (e.g. a blog post and a webinar about the same named "
+              f"report) -- check by hand before merging or removing either citekey:")
+        for group in duplicate_groups:
+            citekeys = " / ".join(ref.citekey for ref in group)
+            print(f"    {citekeys}: {group[0].title[:80]!r}")
 
     con = ledger.connect()
     parsed, failed, skipped, no_pdf = 0, 0, 0, 0

@@ -81,6 +81,20 @@ class TestRun:
         assert "WARNING: 1 item(s) have no author metadata" in out
         assert "noauthor_page_nodate" in out
 
+    def test_warns_about_duplicate_titles(self, isolated_config, monkeypatch, capsys):
+        write_bib(isolated_config.BIB_FILE_PATH, BASIC_BIB + """
+@misc{smith_example_2024_dup,
+  title = {An Example Paper},
+  author = {Smith, Jane},
+  year = {2024},
+}
+""")
+        monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
+        sync.run()
+        out = capsys.readouterr().out
+        assert "WARNING: 1 possible duplicate group(s)" in out
+        assert "smith_example_2024" in out and "smith_example_2024_dup" in out
+
     def test_second_run_is_idempotent_and_skips_unchanged(self, basic_corpus, monkeypatch, capsys):
         monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
         sync.run()

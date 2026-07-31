@@ -61,8 +61,10 @@ src/                      core pipeline (needs bibtexparser; citation_gate/refer
   ledger.py                 per-citekey status tracking (content/ledger.sqlite)
   pdf_text.py               pdftotext wrapper
   sync.py                   orchestrates the above -- the "job 1" entrypoint
+  dedup.py                  advisory near-duplicate citekey detection (shared DOI/title), called from sync
   retrieval.py              keyword search over the content layer
   citation_gate.py          hard citation-verification gate -- "job 2" must pass this
+  citation_coverage.py      ad-hoc review aid: retrieval-candidates-vs-actually-cited report, not a gate
   references.py             auto-generates a draft's "## References" section from its own cited citekeys
 src/heavy/                optional heavier pipeline (pyproject.toml's "heavy" Poetry group)
   corpus.py                 unifies ledger items + [source_pdfs].dir's raw PDFs (doc: prefixed, non-citable)
