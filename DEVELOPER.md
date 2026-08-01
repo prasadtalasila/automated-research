@@ -23,8 +23,9 @@ bash scripts/install_full_pipeline.sh dev-deps
 ```
 
 `tests/` covers both the core pipeline and `src/heavy/*` -- heavy
-dependencies (docling, chromadb, bertopic, sentence-transformers) are
-mocked via `sys.modules` for fast, deterministic unit tests, so the
+dependencies (docling, markitdown, chromadb, bertopic,
+sentence-transformers) are mocked via `sys.modules` for fast,
+deterministic unit tests, so the
 `dev-deps` group alone is *not* enough on its own: the `heavy` group
 (`python-deps`, step 1 of Quickstart) must already be installed too, since
 `tests/test_heavy_grobid_extract.py` needs `requests` and
@@ -64,7 +65,7 @@ src/                      core pipeline (needs bibtexparser; citation_gate/refer
   bib_reader.py             parses bibliography.bib -- the only citekey source
   ledger.py                 per-citekey status tracking (content/ledger.sqlite); find_stale/prune_missing
                           detect/remove rows for citekeys no longer in the bib file
-  pdf_text.py               pdftotext wrapper
+  pdf_text.py               PDF text extraction, dispatched to pdftotext/markitdown/docling by config.PARSER
   sync.py                   orchestrates the above -- the "job 1" entrypoint; --remove-stale opts into
                           deleting stale ledger rows (default: report only, see README's "Removing a paper")
   dedup.py                  advisory near-duplicate citekey detection (shared DOI/title), called from sync

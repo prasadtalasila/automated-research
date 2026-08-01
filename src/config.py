@@ -58,6 +58,12 @@ RETRIEVAL_INDEX_PATH = CONTENT_DIR / "retrieval_index.json"
 SOURCE_PDFS_DIR = REPO_ROOT / _get("SOURCE_PDFS_DIR", "source_pdfs", "dir", default="papers/pdfs")
 SOURCE_PDFS_MANIFEST = SOURCE_PDFS_DIR / "manifest.json"
 
+# Which backend src/pdf_text.py dispatches to -- see config.toml's
+# [parser] comment for the tradeoffs (speed, page-boundary loss) before
+# switching off the default.
+PARSER_BACKENDS = ("pdftotext", "markitdown", "docling")
+PARSER = _get("PARSER", "parser", "backend", default="pdftotext")
+
 # Heavier optional pipeline (pyproject.toml's "heavy" Poetry group), per src/heavy/.
 DOCLING_DIR = CONTENT_DIR / "docling"
 # Per-doc (size, mtime_ns) PDF fingerprint, so docling_parse.parse_doc()

@@ -21,7 +21,6 @@ runs with the bare system interpreter.
 """
 
 import argparse
-import subprocess
 import sys
 from collections import Counter
 
@@ -52,40 +51,44 @@ def run(remove_stale: bool = False) -> int:
             citekeys = " / ".join(ref.citekey for ref in group)
             print(f"    {citekeys}: {group[0].title[:80]!r}")
 
-    pdftotext_available = pdf_text.is_available()
-    if not pdftotext_available:
+    parser_available = pdf_text.is_available()
+    if not parser_available:
         print(
-            "  WARNING: 'pdftotext' not found on PATH -- PDF text extraction will be "
-            "skipped for every item that needs it this run (install poppler-utils: "
-            "scripts/install_full_pipeline.sh os-deps). Bibliographic metadata is "
+            f"  WARNING: {pdf_text.unavailable_reason()} Parsing will be skipped "
+            "for every item that needs it this run. Bibliographic metadata is "
             "still synced to the ledger."
         )
 
     con = ledger.connect()
-    parsed, failed, skipped, no_pdf, missing_binary = 0, 0, 0, 0, 0
+    parsed, failed, skipped, no_pdf, backend_unavailable = 0, 0, 0, 0, 0
     no_pdf_reasons: Counter[str] = Counter()
     pruned: list[tuple[str, str | None]] = []
     stale: list[tuple[str, str | None]] = []
     suspicious = False
     try:
-        # This loop -- including pdf_text.extract_text's pdftotext
-        # subprocess call -- runs serially, one reference at a time, even
-        # though a large corpus (454 PDFs/1.37GB at one audit) means a
-        # first-time or bulk sync can have a lot of documents to parse in
-        # a single run. Deliberately not parallelized (ProcessPoolExecutor
-        # was the candidate) for two reasons: (1) src/ledger.py's
-        # (size, mtime)-before-hash skip means a routine, non-bulk sync
-        # already parses zero-to-few documents per run -- the case
-        # parallelism would help doesn't come up often; (2) pdftotext is
-        # already an external subprocess (releases the GIL while it
-        # runs), so a ProcessPoolExecutor would add pickling/IPC overhead
-        # to buy the same OS-level concurrency a plain ThreadPoolExecutor
-        # gets for free. If a bulk/first-run sync's wall-clock time
-        # becomes a real problem, revisit with a ThreadPoolExecutor around
-        # this loop's pdf_text.extract_text call specifically -- keeping
-        # every ledger.mark_parsed/mark_parse_failed call on the main
-        # thread as futures complete, since a sqlite3 connection isn't
-        # safe to share across threads.
+        # This loop -- including pdf_text.extract_text's backend call
+        # (pdftotext/markitdown/docling, per config.PARSER) -- runs
+        # serially, one reference at a time, even though a large corpus
+        # (454 PDFs/1.37GB at one audit) means a first-time or bulk sync
+        # can have a lot of documents to parse in a single run.
+        # Deliberately not parallelized (ProcessPoolExecutor was the
+        # candidate) for two reasons: (1) src/ledger.py's (size,
+        # mtime)-before-hash skip means a routine, non-bulk sync already
+        # parses zero-to-few documents per run -- the case parallelism
+        # would help doesn't come up often; (2) with the default
+        # pdftotext backend specifically, pdftotext is already an
+        # external subprocess (releases the GIL while it runs), so a
+        # ProcessPoolExecutor would add pickling/IPC overhead to buy the
+        # same OS-level concurrency a plain ThreadPoolExecutor gets for
+        # free. Reason (2) doesn't hold for markitdown/docling (both run
+        # in-process, holding the GIL) -- but reason (1) does, for all
+        # three backends equally, which is why this is still deferred
+        # rather than backend-conditional. If a bulk/first-run sync's
+        # wall-clock time becomes a real problem, revisit with a
+        # ThreadPoolExecutor around this loop's pdf_text.extract_text
+        # call specifically -- keeping every ledger.mark_parsed/
+        # mark_parse_failed call on the main thread as futures complete,
+        # since a sqlite3 connection isn't safe to share across threads.
         for ref in references:
             needs_parse = ledger.upsert_reference(con, ref)
             if not ref.pdf_path:
@@ -97,27 +100,30 @@ def run(remove_stale: bool = False) -> int:
             if not needs_parse:
                 skipped += 1
                 continue
-            if not pdftotext_available:
-                missing_binary += 1
+            if not parser_available:
+                backend_unavailable += 1
                 continue
             try:
                 out_path = pdf_text.extract_text(ref.pdf_path, ref.citekey)
                 ledger.mark_parsed(con, ref.citekey, out_path)
                 parsed += 1
                 print(f"  parsed  {ref.citekey}")
-            except subprocess.CalledProcessError as exc:
-                ledger.mark_parse_failed(con, ref.citekey, exc.stderr or str(exc))
+            except pdf_text.ExtractionError as exc:
+                ledger.mark_parse_failed(con, ref.citekey, str(exc))
                 failed += 1
-                print(f"  FAILED  {ref.citekey}: {exc.stderr}", file=sys.stderr)
-            except pdf_text.MissingBinary:
-                # The up-front probe passed, but pdftotext vanished from
-                # PATH between then and this specific item (or otherwise
-                # disagreed with extract_text's own internal check) --
-                # count and report it the same as the up-front case
-                # instead of letting it crash sync uncaught, which is
-                # exactly the failure mode probing exists to prevent.
-                missing_binary += 1
-                print(f"  no-pdftotext  {ref.citekey}: pdftotext no longer on PATH", file=sys.stderr)
+                print(f"  FAILED  {ref.citekey}: {exc}", file=sys.stderr)
+            except pdf_text.BackendUnavailable as exc:
+                # The up-front probe passed, but the backend vanished
+                # (pdftotext dropped from PATH, or the markitdown/docling
+                # package became uninstallable) between then and this
+                # specific item -- count and report it the same as the
+                # up-front case instead of letting it crash sync
+                # uncaught, which is exactly the failure mode probing
+                # exists to prevent. str(exc) carries the same actionable
+                # install hint as the up-front WARNING (both come from
+                # pdf_text.unavailable_reason()), not just "unavailable".
+                backend_unavailable += 1
+                print(f"  no-{config.PARSER}  {ref.citekey}: {exc}", file=sys.stderr)
         # Only the ledger row is removed -- see prune_missing's own
         # docstring for why the corresponding content/parsed/<citekey>.txt
         # is deliberately left in place. Deletion only happens with
@@ -169,8 +175,8 @@ def run(remove_stale: bool = False) -> int:
         f"Sync complete: {parsed} parsed, {skipped} unchanged, "
         f"{no_pdf} without a PDF attachment, {failed} failed, {stale_count} {stale_label}."
     )
-    if missing_binary:
-        summary += f" {missing_binary} skipped (pdftotext not installed)."
+    if backend_unavailable:
+        summary += f" {backend_unavailable} skipped ({config.PARSER} unavailable)."
     print(summary)
     if no_pdf_reasons:
         # Least-churn fix for the masking this bucket used to cause: the
@@ -190,7 +196,7 @@ def run(remove_stale: bool = False) -> int:
               "--remove-stale to delete them from the ledger.")
     print(f"Ledger:      {config.LEDGER_PATH}")
     print(f"Parsed text: {config.PARSED_DIR}/")
-    return 1 if failed or missing_binary else 0
+    return 1 if failed or backend_unavailable else 0
 
 
 if __name__ == "__main__":
