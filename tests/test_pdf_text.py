@@ -295,6 +295,21 @@ class TestParseQualityGuard:
         assert ratio == 0.0
         assert total > 0
 
+    def test_counts_non_ascii_letters_as_letters(self, isolated_config):
+        """This corpus is full of names like Schroder-with-an-umlaut and
+        Greek in formulae. An ASCII-only pattern splits those into short
+        pieces, which both hides real fusion and shrinks the token count
+        toward min_tokens until the guard stops judging the document."""
+        text = " ".join(["Schr\u00f6der", "W\u00fcllnerstra\u00dfe", "\u03b1\u03b2\u03b3\u03b4"] * 100)
+        ratio, total = pdf_text.run_together_ratio(text)
+
+        assert total == 300, "accented and Greek words must count as single tokens"
+        assert ratio == 0.0
+
+    def test_fusion_is_still_detected_in_non_ascii_text(self, isolated_config):
+        fused = " ".join(["\u00fcbersetzungsfehlerbeispielwortkette"] * 250)
+        assert pdf_text.quality_warning(fused) is not None
+
     def test_threshold_is_configurable(self, isolated_config, monkeypatch):
         fused = " ".join(["averylongfusedtokenhere"] * 5 + ["ok"] * 295)
         monkeypatch.setattr(isolated_config, "PARSE_LONG_WORD_RATIO", 0.5)

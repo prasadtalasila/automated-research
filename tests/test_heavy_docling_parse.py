@@ -56,6 +56,8 @@ class FakeDocument:
         body = self._markdown
         for i in range(len(self.pictures)):
             body += f"\n\n![Image]({artifacts / f'image_{i:06d}_{"a" * 64}.png'})"
+        # NB: on Windows that interpolation yields backslashes, which is
+        # exactly the real behaviour the relativiser has to normalise.
         out.write_text(body)
 
 
@@ -256,6 +258,20 @@ class TestImageExtraction:
 
         assert names == ["doc_artifacts/img.png"]
         assert "![Image](doc_artifacts/img.png)" in md.read_text()
+
+    def test_relative_refs_use_forward_slashes_on_every_platform(self, images_on, tmp_path):
+        """A Markdown image reference is URL-ish and must use forward
+        slashes. Path.relative_to() renders backslashes on Windows, which
+        would make content/docling/ readable only on the box that wrote
+        it -- caught by this repo's windows-latest CI leg."""
+        md = tmp_path / "doc.md"
+        nested = md.parent / "doc_artifacts" / "sub" / "img.png"
+        md.write_text(f"text\n\n![Image]({nested})\n")
+
+        names = docling_parse._relativise_image_refs(md)
+
+        assert names == ["doc_artifacts/sub/img.png"]
+        assert "\\" not in md.read_text()
 
     def test_image_ref_outside_the_md_tree_is_left_alone(self, images_on, tmp_path):
         """An absolute path pointing somewhere else entirely stays put,

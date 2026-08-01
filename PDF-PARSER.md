@@ -117,7 +117,7 @@ Removed 2026-08-01, after measurement on this repository's own corpus
 rather than on its stated feature set.
 
 **The symptom.** Over the same 10 CPS papers, `markitdown` produced
-**3,641 alphabetic tokens longer than 20 characters (4.19% of all
+**3,647 alphabetic tokens longer than 20 characters (4.17% of all
 tokens)** against `pdftotext`'s **9 (0.01%)** -- a factor of 400 -- and
 23% fewer total words, because words were being *fused* rather than
 dropped. It is visible directly in retrieval snippets:

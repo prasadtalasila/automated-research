@@ -81,7 +81,11 @@ def parse_args():
 
 def main() -> int:
     args = parse_args()
-    selected = set(args.stages.split(","))
+    # Strip and drop blanks: "--stages 'embed, bertopic'" and a trailing
+    # comma are both natural to type, and without this the first makes a
+    # real stage look unknown (" bertopic" matches nothing) while the
+    # second puts an empty name in the warning below.
+    selected = {name.strip() for name in args.stages.split(",") if name.strip()}
 
     # An unrecognized stage name would otherwise be a silent no-op: the
     # loop below iterates STAGE_ORDER and skips anything not selected, so

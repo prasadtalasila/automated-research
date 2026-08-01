@@ -126,7 +126,15 @@ _EXTRACTORS = {
 # A "word" for the run-together check below. Letters only: digits and
 # punctuation produce long runs legitimately (DOIs, URLs, base64-ish
 # identifiers, table rules) and would otherwise dominate the count.
-_ALPHA_RUN = re.compile(r"[A-Za-z]+")
+#
+# `[^\W\d_]` is "word character, but not a digit or underscore" -- i.e.
+# any Unicode letter. Spelling it `[A-Za-z]` would silently split
+# accented and non-Latin words ("Schroder" + "der" out of "Schröder"),
+# which both hides real fusion, since a fused run containing an accent
+# gets broken into short pieces, and shrinks the token count toward
+# PARSE_MIN_TOKENS on non-English documents until the guard stops
+# looking at them at all.
+_ALPHA_RUN = re.compile(r"[^\W\d_]+")
 
 
 def run_together_ratio(text: str) -> tuple[float, int]:
@@ -141,10 +149,10 @@ def run_together_ratio(text: str) -> tuple[float, int]:
     query term buried inside a fused run.
 
     Measured on this project's own corpus: pdftotext produced 9 such
-    tokens out of 112,795 (0.01%) while markitdown produced 3,641 out of
-    86,941 (4.19%) over the same 10 PDFs -- three orders of magnitude
-    apart, so any threshold between them separates a healthy parse from
-    a broken one without needing to be tuned precisely.
+    tokens out of 113,195 (0.01%) while a since-removed backend produced
+    3,647 out of 87,395 (4.17%) over the same 10 PDFs -- three orders of
+    magnitude apart, so any threshold between them separates a healthy
+    parse from a broken one without needing to be tuned precisely.
     """
     tokens = _ALPHA_RUN.findall(text)
     if not tokens:

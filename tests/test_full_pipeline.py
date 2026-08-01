@@ -126,6 +126,25 @@ class TestMain:
         assert "WARNING: unknown stage(s) retired-stage" in out
         assert "embed" in out  # the valid stage alongside it still ran
 
+    def test_whitespace_and_empty_stage_segments_are_tolerated(self, monkeypatch, capsys):
+        """`--stages "docling, embed,"` is natural to type. Without
+        normalisation the space makes a real stage look unknown and the
+        trailing comma puts a blank name in the warning."""
+        docs = [CorpusDoc(doc_id="a", citekey="a", source="bib", title="t", pdf_path=None)]
+        monkeypatch.setattr(full_pipeline.corpus, "build_corpus", lambda: docs)
+        monkeypatch.setattr(sys, "argv", ["full_pipeline.py", "--stages", "docling, embed,"])
+
+        called = []
+        monkeypatch.setitem(full_pipeline.STAGE_FUNCS, "docling", lambda d, a: called.append("docling") or {"status": "ok", "detail": "d"})
+        monkeypatch.setitem(full_pipeline.STAGE_FUNCS, "embed", lambda d, a: called.append("embed") or {"status": "ok", "detail": "e"})
+
+        rc = full_pipeline.main()
+        out = capsys.readouterr().out
+
+        assert rc == 0
+        assert called == ["docling", "embed"]
+        assert "WARNING: unknown stage" not in out
+
     def test_stage_exception_does_not_abort_other_stages(self, monkeypatch, capsys):
         docs = [CorpusDoc(doc_id="a", citekey="a", source="bib", title="t", pdf_path=None)]
         monkeypatch.setattr(full_pipeline.corpus, "build_corpus", lambda: docs)

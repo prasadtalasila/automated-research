@@ -174,7 +174,13 @@ def _relativise_image_refs(md_path: Path) -> list[str]:
         path = Path(target)
         if path.is_absolute():
             try:
-                target = str(path.relative_to(base))
+                # as_posix(), not str(): a Markdown image reference is a
+                # URL-ish path and must use forward slashes. On Windows
+                # str() yields "dir\image.png", which is not a valid
+                # reference anywhere -- including on the Windows box that
+                # produced it -- and would make content/docling/ readable
+                # only on the platform it was generated on.
+                target = path.relative_to(base).as_posix()
             except ValueError:
                 # Somewhere outside the .md's own tree -- leave it alone
                 # rather than emit a fragile chain of `../`.
