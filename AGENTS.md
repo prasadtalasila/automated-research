@@ -169,10 +169,10 @@ target implies availability -- don't "fix" a skip by hardcoding
 target-specific behavior; fix the probe if it's wrong.
 
 `src/heavy/embed_index.py` and `src/heavy/topic_model.py` are
-incremental, mirroring `src/ledger.py`'s own content-hash skip logic for
-the core pipeline: a doc whose text hasn't changed since the last run
-isn't re-embedded. Docling itself (`src/heavy/docling_parse.py`) is not
-yet incremental -- that's a known, open gap (DEVELOPER.md), not an
+incremental, mirroring `src/ledger.py`'s own skip-what-hasn't-changed
+logic for the core pipeline: a doc whose text hasn't changed since the
+last run isn't re-embedded. Docling itself (`src/heavy/docling_parse.py`)
+is not yet incremental -- that's a known, open gap (DEVELOPER.md), not an
 oversight to silently work around.
 
 No stage in this pipeline calls out to an LLM or needs an API key --
@@ -194,19 +194,19 @@ should expect to find on disk.)
 ## Retrieval
 
 `src/retrieval.py` (BM25 ranking over a cached term-frequency index,
-stdlib-only) is what the genre skills use by default -- the corpus is
-still small enough that embeddings are overhead without payoff.
-Term-frequency stats per document are cached to disk
+stdlib-only, no venv or model download needed) is what the genre skills
+use by default. Term-frequency stats per document are cached to disk
 (`config.RETRIEVAL_INDEX_PATH`), keyed by a cheap per-item fingerprint
 (parsed-file stat, not content) so a call only re-tokenizes documents
 whose text actually changed since the last run -- the same incremental
-principle as `src/ledger.py`'s content-hash skip logic and
+principle as `src/ledger.py`'s stat-before-hash skip logic and
 `src/heavy/embed_index.py`'s embedding cache, just scoped to
 `src/retrieval.py` itself (this doesn't touch `sync`). `src/heavy/embed_index.py`
-(sentence-transformers + Chroma) is a verified, working upgrade path once
-BM25 stops being enough; its `search(query, k)` shape matches
-`src/retrieval.py`'s so callers don't need to change when you swap one
-for the other.
+(sentence-transformers + Chroma) is a verified, working upgrade path with
+a matching `search(query, k)` shape, ready to swap in without changing
+callers once BM25 stops being enough -- that's a deliberate call to make
+when it comes up (source text quality/volume, query patterns), not a
+corpus-size threshold to assert a number for here.
 
 ## Development process: agile, test-driven
 
