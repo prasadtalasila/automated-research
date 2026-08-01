@@ -121,7 +121,7 @@ def _extract_markitdown(pdf_path: str, out_path: Path) -> None:
         result = MarkItDown().convert(pdf_path)
     except MarkItDownException as exc:
         raise ExtractionError(str(exc)) from exc
-    out_path.write_text(result.text_content)
+    out_path.write_text(result.text_content, encoding="utf-8")
 
 
 def _extract_docling(pdf_path: str, out_path: Path) -> None:
@@ -136,7 +136,7 @@ def _extract_docling(pdf_path: str, out_path: Path) -> None:
         # common exception type to catch (same reporting shape as
         # src/heavy/docling_parse.py's own parse_corpus loop).
         raise ExtractionError(str(exc)) from exc
-    out_path.write_text(result.document.export_to_markdown())
+    out_path.write_text(result.document.export_to_markdown(), encoding="utf-8")
 
 
 _EXTRACTORS = {
