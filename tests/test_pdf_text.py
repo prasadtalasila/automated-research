@@ -19,7 +19,18 @@ from src import config, pdf_text
 
 
 class TestExtractTextPdftotext:
-    """Fast, deterministic: doesn't require pdftotext on PATH."""
+    """Fast, deterministic: doesn't require pdftotext on PATH.
+
+    extract_text() calls is_available() (shutil.which("pdftotext"))
+    before dispatching to _extract_pdftotext, so without stubbing that
+    too, every test below would actually depend on the real binary being
+    on PATH regardless of the subprocess.run mock -- true on this repo's
+    Linux CI (poppler-utils via os-deps), not guaranteed on every host
+    these tests might run on (PR #11 review)."""
+
+    @pytest.fixture(autouse=True)
+    def _pdftotext_present(self, monkeypatch):
+        monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/pdftotext")
 
     def test_calls_pdftotext_with_layout_flag(self, isolated_config, monkeypatch, tmp_path):
         calls = []
