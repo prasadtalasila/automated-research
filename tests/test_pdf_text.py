@@ -111,6 +111,21 @@ class TestExtractTextMarkitdown:
         with pytest.raises(pdf_text.ExtractionError, match="simulated markitdown failure"):
             pdf_text.extract_text(str(pdf), "key")
 
+    def test_broken_transitive_dependency_becomes_missing_dependency(
+        self, isolated_config, monkeypatch, tmp_path
+    ):
+        """The package is findable (is_available()'s find_spec probe
+        passes -- unlike TestExtractTextMissingDependency's case) but a
+        broken transitive dependency makes the actual `from markitdown
+        import ...` fail anyway (PR #11 review)."""
+        monkeypatch.setattr(config, "PARSER", "markitdown")
+        broken_module = types.ModuleType("markitdown")  # no MarkItDown attribute
+        broken_module.__spec__ = importlib.machinery.ModuleSpec("markitdown", loader=None)
+        monkeypatch.setitem(sys.modules, "markitdown", broken_module)
+
+        with pytest.raises(pdf_text.MissingDependency, match="markitdown"):
+            pdf_text.extract_text(str(tmp_path / "in.pdf"), "key")
+
 
 class FakeDoclingDocument:
     def __init__(self, markdown):
@@ -166,6 +181,23 @@ class TestExtractTextDocling:
         pdf = tmp_path / "explode.pdf"
         with pytest.raises(pdf_text.ExtractionError, match="simulated docling failure"):
             pdf_text.extract_text(str(pdf), "key")
+
+    def test_broken_transitive_dependency_becomes_missing_dependency(
+        self, isolated_config, monkeypatch, tmp_path
+    ):
+        """The package is findable (is_available()'s find_spec probe
+        passes) but a broken transitive dependency makes the actual
+        `from docling.document_converter import DocumentConverter` fail
+        anyway (PR #11 review)."""
+        monkeypatch.setattr(config, "PARSER", "docling")
+        fake_package = types.ModuleType("docling")
+        fake_package.__spec__ = importlib.machinery.ModuleSpec("docling", loader=None)
+        broken_submodule = types.ModuleType("docling.document_converter")  # no DocumentConverter attribute
+        monkeypatch.setitem(sys.modules, "docling", fake_package)
+        monkeypatch.setitem(sys.modules, "docling.document_converter", broken_submodule)
+
+        with pytest.raises(pdf_text.MissingDependency, match="docling"):
+            pdf_text.extract_text(str(tmp_path / "in.pdf"), "key")
 
 
 class TestUnknownParser:

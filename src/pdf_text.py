@@ -103,7 +103,17 @@ def _extract_pdftotext(pdf_path: str, out_path: Path) -> None:
 
 
 def _extract_markitdown(pdf_path: str, out_path: Path) -> None:
-    from markitdown import MarkItDown, MarkItDownException
+    # is_available()'s importlib.util.find_spec("markitdown") only checks
+    # that the package can be *found*, not that this specific import
+    # succeeds -- a broken transitive dependency (partially-installed
+    # heavy group) can still make this raise ImportError even though the
+    # up-front probe passed (PR #11 review). Caught here rather than left
+    # to escape as an uncaught traceback, the one failure mode probing
+    # exists to prevent in the first place.
+    try:
+        from markitdown import MarkItDown, MarkItDownException
+    except ImportError as exc:
+        raise MissingDependency(unavailable_reason()) from exc
 
     try:
         result = MarkItDown().convert(pdf_path)
@@ -113,7 +123,10 @@ def _extract_markitdown(pdf_path: str, out_path: Path) -> None:
 
 
 def _extract_docling(pdf_path: str, out_path: Path) -> None:
-    from docling.document_converter import DocumentConverter
+    try:
+        from docling.document_converter import DocumentConverter
+    except ImportError as exc:
+        raise MissingDependency(unavailable_reason()) from exc
 
     try:
         result = DocumentConverter().convert(pdf_path)
