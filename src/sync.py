@@ -54,8 +54,8 @@ def run(remove_stale: bool = False) -> int:
     parser_available = pdf_text.is_available()
     if not parser_available:
         print(
-            f"  WARNING: {pdf_text.unavailable_reason()} PDF text extraction will be "
-            "skipped for every item that needs it this run. Bibliographic metadata is "
+            f"  WARNING: {pdf_text.unavailable_reason()} Parsing will be skipped "
+            "for every item that needs it this run. Bibliographic metadata is "
             "still synced to the ledger."
         )
 
@@ -112,19 +112,18 @@ def run(remove_stale: bool = False) -> int:
                 ledger.mark_parse_failed(con, ref.citekey, str(exc))
                 failed += 1
                 print(f"  FAILED  {ref.citekey}: {exc}", file=sys.stderr)
-            except pdf_text.BackendUnavailable:
+            except pdf_text.BackendUnavailable as exc:
                 # The up-front probe passed, but the backend vanished
                 # (pdftotext dropped from PATH, or the markitdown/docling
                 # package became uninstallable) between then and this
                 # specific item -- count and report it the same as the
                 # up-front case instead of letting it crash sync
                 # uncaught, which is exactly the failure mode probing
-                # exists to prevent.
+                # exists to prevent. str(exc) carries the same actionable
+                # install hint as the up-front WARNING (both come from
+                # pdf_text.unavailable_reason()), not just "unavailable".
                 backend_unavailable += 1
-                print(
-                    f"  no-{config.PARSER}  {ref.citekey}: {config.PARSER} backend no longer available",
-                    file=sys.stderr,
-                )
+                print(f"  no-{config.PARSER}  {ref.citekey}: {exc}", file=sys.stderr)
         # Only the ledger row is removed -- see prune_missing's own
         # docstring for why the corresponding content/parsed/<citekey>.txt
         # is deliberately left in place. Deletion only happens with
