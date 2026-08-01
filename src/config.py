@@ -75,8 +75,20 @@ SOURCE_PDFS_MANIFEST = SOURCE_PDFS_DIR / "manifest.json"
 # Which backend src/pdf_text.py dispatches to -- see config.toml's
 # [parser] comment for the tradeoffs (speed, page-boundary loss) before
 # switching off the default.
-PARSER_BACKENDS = ("pdftotext", "markitdown", "docling")
+PARSER_BACKENDS = ("pdftotext", "docling")
 PARSER = _get("PARSER", "parser", "backend", default="pdftotext")
+
+# Parse-quality guard (src/pdf_text.quality_warning): a PDF extractor
+# that sets its glyph-spacing tolerance too coarse fuses adjacent words
+# together, which src/retrieval.py's whitespace tokenizer then cannot
+# match against. Measured over the same 10 PDFs, pdftotext produced
+# 0.01% such tokens and a since-removed backend produced 4.19% -- three
+# orders of magnitude apart -- so 1% sits well clear of both.
+PARSE_LONG_WORD_CHARS = int(_get_float("PARSE_LONG_WORD_CHARS", "parser", "long_word_chars", default=20))
+PARSE_LONG_WORD_RATIO = _get_float("PARSE_LONG_WORD_RATIO", "parser", "long_word_ratio", default=0.01)
+# Below this many words the ratio is too noisy to mean anything (a
+# cover page, or a scan that yielded almost no text).
+PARSE_MIN_TOKENS = int(_get_float("PARSE_MIN_TOKENS", "parser", "min_tokens", default=200))
 
 # Heavier optional pipeline (pyproject.toml's "heavy" Poetry group), per src/heavy/.
 DOCLING_DIR = CONTENT_DIR / "docling"

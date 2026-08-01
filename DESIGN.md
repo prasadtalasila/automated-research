@@ -108,7 +108,6 @@ Suggested improvement:
 ### 1. Add a parser abstraction layer
 Create a unified text extraction interface, with implementations such as:
 - `pdftotext`
-- `markitdown`
 - `docling`
 
 That would make backend selection explicit and cleaner.
@@ -165,16 +164,17 @@ This would improve evidence quality substantially.
 ## Quality tradeoff summary for this repository
 
 - **`pdftotext`**: fastest, simplest, lowest fidelity
-- **`markitdown`**: more flexible normalization, medium fidelity, medium cost
 - **`docling`**: best structural fidelity for PDFs, but slowest and heaviest
 
 For this repository’s goals, the ideal shape is a layered system:
 - `pdftotext` for speed
-- `markitdown` for broader normalization
 - `docling` for structured scholarly parsing
 
-(`grobid` was evaluated as a fourth backend and removed on 2026-08-01 --
-see PDF-PARSER.md's "Why GROBID was removed".)
+(Two further backends were evaluated and removed on 2026-08-01:
+`grobid`, which was a metadata/reference extractor rather than a text
+backend, and `markitdown`, which lost word boundaries on this corpus.
+See PDF-PARSER.md's "Why GROBID was removed" and "Why markitdown was
+removed".)
 
 ## Overall assessment
 

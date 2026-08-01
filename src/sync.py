@@ -61,13 +61,14 @@ def run(remove_stale: bool = False) -> int:
 
     con = ledger.connect()
     parsed, failed, skipped, no_pdf, backend_unavailable = 0, 0, 0, 0, 0
+    low_quality: list[str] = []
     no_pdf_reasons: Counter[str] = Counter()
     pruned: list[tuple[str, str | None]] = []
     stale: list[tuple[str, str | None]] = []
     suspicious = False
     try:
         # This loop -- including pdf_text.extract_text's backend call
-        # (pdftotext/markitdown/docling, per config.PARSER) -- runs
+        # (pdftotext/docling, per config.PARSER) -- runs
         # serially, one reference at a time, even though a large corpus
         # (454 PDFs/1.37GB at one audit) means a first-time or bulk sync
         # can have a lot of documents to parse in a single run.
@@ -80,9 +81,9 @@ def run(remove_stale: bool = False) -> int:
         # external subprocess (releases the GIL while it runs), so a
         # ProcessPoolExecutor would add pickling/IPC overhead to buy the
         # same OS-level concurrency a plain ThreadPoolExecutor gets for
-        # free. Reason (2) doesn't hold for markitdown/docling (both run
-        # in-process, holding the GIL) -- but reason (1) does, for all
-        # three backends equally, which is why this is still deferred
+        # free. Reason (2) doesn't hold for docling (it runs
+        # in-process, holding the GIL) -- but reason (1) does, for both
+        # backends equally, which is why this is still deferred
         # rather than backend-conditional. If a bulk/first-run sync's
         # wall-clock time becomes a real problem, revisit with a
         # ThreadPoolExecutor around this loop's pdf_text.extract_text
@@ -108,13 +109,23 @@ def run(remove_stale: bool = False) -> int:
                 ledger.mark_parsed(con, ref.citekey, out_path)
                 parsed += 1
                 print(f"  parsed  {ref.citekey}")
+                # Reported per document rather than only in the summary:
+                # the fix is usually per document (a scan, an unusual
+                # font) or global (the wrong backend), and seeing which
+                # citekeys trip it is what tells the two apart.
+                warning = pdf_text.quality_warning(
+                    out_path.read_text(encoding="utf-8", errors="replace")
+                )
+                if warning:
+                    low_quality.append(ref.citekey)
+                    print(f"  WARNING {ref.citekey}: {warning}", file=sys.stderr)
             except pdf_text.ExtractionError as exc:
                 ledger.mark_parse_failed(con, ref.citekey, str(exc))
                 failed += 1
                 print(f"  FAILED  {ref.citekey}: {exc}", file=sys.stderr)
             except pdf_text.BackendUnavailable as exc:
                 # The up-front probe passed, but the backend vanished
-                # (pdftotext dropped from PATH, or the markitdown/docling
+                # (pdftotext dropped from PATH, or the docling
                 # package became uninstallable) between then and this
                 # specific item -- count and report it the same as the
                 # up-front case instead of letting it crash sync
@@ -178,6 +189,15 @@ def run(remove_stale: bool = False) -> int:
     if backend_unavailable:
         summary += f" {backend_unavailable} skipped ({config.PARSER} unavailable)."
     print(summary)
+    if low_quality:
+        # Named in full rather than counted: a handful of citekeys points
+        # at those documents, while most of the corpus tripping it points
+        # at the backend, and the list is what distinguishes the two.
+        print(
+            f"  WARNING: {len(low_quality)} document(s) look like the parser lost "
+            f"word boundaries: {', '.join(low_quality)}. See config.toml's "
+            f"[parser] quality-guard settings and PDF-PARSER.md."
+        )
     if no_pdf_reasons:
         # Least-churn fix for the masking this bucket used to cause: the
         # aggregate "N without a PDF attachment" count above is unchanged

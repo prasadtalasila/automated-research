@@ -6,7 +6,7 @@ This repository needs PDF processing that balances speed, text quality, structur
 
 The main candidates are:
 - `pdftotext`
-- `markitdown`
+- `markitdown` -- **removed 2026-08-01**, see ["Why markitdown was removed"](#why-markitdown-was-removed)
 - `docling`
 
 `grobid` was evaluated as a fourth candidate and **removed from the repo on 2026-08-01**. It is kept in the comparison below as a record of that decision, not as an available backend -- see ["Why GROBID was removed"](#why-grobid-was-removed).
@@ -16,7 +16,7 @@ The main candidates are:
 | Tool | Best at | Strengths | Weaknesses | Relative speed vs `pdftotext` | Fit for this repo |
 |---|---|---|---|---|---|
 | `pdftotext` | Plain text extraction | Very fast, simple, stable, low dependency footprint | Weak on layout, tables, headings, and reading order | 1x | Best lightweight baseline |
-| `markitdown` | General file-to-Markdown conversion | Flexible normalization, multi-format support, good Markdown output | Less specialized for scholarly PDF structure; may miss layout details | ~17x slower (measured, 5 real bib PDFs) | Good fallback / normalization layer |
+| `markitdown` | General file-to-Markdown conversion | Flexible normalization, multi-format support | Fuses adjacent words on this corpus (4.19% of tokens), which breaks whitespace-tokenized retrieval | ~17x slower (measured, 5 real bib PDFs) | **Removed 2026-08-01** -- see below |
 | `docling` | Layout-aware PDF parsing | Better reading order, sections, tables, and structured Markdown | Heavy, slower, model/runtime complexity | ~42x slower (measured, 5 real bib PDFs) | Best quality parser for the heavy path |
 | `grobid` | Scholarly structure and references | Excellent for title, abstract, sections, and references | Not a general-purpose plain-text extractor; needs a JDK 21 build and a long-running service | Separate from the main speed scale | **Removed 2026-08-01** -- see below |
 
@@ -26,7 +26,7 @@ The main candidates are:
 This is the fastest option and the easiest to operate. It is well suited to the repo's lightweight core pipeline when the goal is simply to get searchable text into the ledger and retrieval index.
 
 ### `markitdown`
-This is more of a general conversion tool than a scholarly parser. For mixed document collections or when Markdown normalization matters, it can be useful. It is meaningfully slower than `pdftotext` (~17x measured), not just marginally.
+A general conversion tool rather than a scholarly parser, and meaningfully slower than `pdftotext` (~17x measured). Measurement on this repo's own corpus later showed it loses word boundaries here, which is why it is no longer a backend -- see below.
 
 ### `docling`
 This is the best fit when the PDF's structure matters: headings, tables, reading order, and section boundaries. It is much slower and heavier (~42x measured), but the output is more useful for later chunking, retrieval, and topic modeling.
@@ -39,8 +39,7 @@ GROBID is most valuable for reference extraction and scholarly structure. It was
 A practical tiered strategy:
 
 1. **`pdftotext`** for the fast baseline path
-2. **`markitdown`** for broader conversion / fallback
-3. **`docling`** for high-quality structured parsing
+2. **`docling`** for high-quality structured parsing
 
 That tiering matches the repository's design philosophy:
 - probe first
@@ -52,9 +51,6 @@ That tiering matches the repository's design philosophy:
 ### If speed is the priority
 Use `pdftotext`.
 
-### If normalized Markdown is the priority
-Use `markitdown`.
-
 ### If PDF structure is the priority
 Use `docling`.
 
@@ -64,7 +60,6 @@ Use `docling`.
 ## Notes on cross-platform support
 
 - `pdftotext` depends on an external system package, so it is not the most portable option.
-- `markitdown` is more flexible as a general converter, but still depends on available backend support.
 - `docling` is the heaviest option and may be the hardest to support consistently across operating systems.
 
 If cross-platform support is important, the best approach is to treat these as **optional backends** and keep a fallback ladder rather than relying on a single tool.
@@ -74,7 +69,6 @@ If cross-platform support is important, the best approach is to treat these as *
 A robust design for this repo would be:
 
 - core pipeline: `pdftotext`
-- optional normalization path: `markitdown`
 - heavy structured path: `docling`
 
 That gives a good balance of:
@@ -87,7 +81,6 @@ That gives a good balance of:
 
 For this repository:
 - `pdftotext` is the fastest and simplest
-- `markitdown` is the best general converter fallback
 - `docling` is the best structured PDF parser
 
 The best overall outcome is not choosing one tool, but combining them in a layered backend strategy.
@@ -117,3 +110,57 @@ multi-GB multi-minute Gradle build, and a long-running service on port
 If corpus-growth-by-snowballing later becomes a real workflow, the case
 to revisit is for `/api/processFulltextDocument` specifically -- not the
 header endpoint that was here.
+
+## Why markitdown was removed
+
+Removed 2026-08-01, after measurement on this repository's own corpus
+rather than on its stated feature set.
+
+**The symptom.** Over the same 10 CPS papers, `markitdown` produced
+**3,641 alphabetic tokens longer than 20 characters (4.19% of all
+tokens)** against `pdftotext`'s **9 (0.01%)** -- a factor of 400 -- and
+23% fewer total words, because words were being *fused* rather than
+dropped. It is visible directly in retrieval snippets:
+
+```
+isaninputtooranoutputfromafunction
+AnnualReviewsinControl51(2021)357-373
+theapplicationofthevery same principles
+```
+
+**Why that matters.** `src/retrieval.py` is BM25 over whitespace
+tokens. A query for "cyber physical" cannot match text fused into
+`cyberphysicalsystems`, so this is a silent ranking failure, not a
+cosmetic one.
+
+**The cause.** `markitdown` extracts PDFs via `pdfplumber`, calling
+`page.extract_text()` with no arguments. pdfplumber's default
+`x_tolerance` is 3 points: glyphs closer than that are treated as one
+word. These papers set inter-word spacing below 3pt. Measured on four
+of them, dropping to `x_tolerance=1` eliminated every over-long token
+(179 -> 0, 83 -> 0, 164 -> 0, 141 -> 0) and roughly doubled the word
+count. `pdftotext` reads the same files correctly, so the spacing
+information is present in the PDFs -- this is the extractor's threshold,
+not damaged input.
+
+**Why it wasn't fixable here.** `markitdown`'s PDF converter hardcodes
+both `page.extract_text()` and `extract_words(x_tolerance=3,
+y_tolerance=3)`. Its `convert()` accepts `**kwargs` but never forwards
+them, so the tolerance is unreachable through its public API. Its own
+source comments that the heuristic is "not for multi-column text layouts
+in scientific documents" -- which is this entire corpus.
+
+**What replaced it.** Nothing: `markitdown` sat in the middle of a
+three-way ladder while being worse than `pdftotext` on text and worse
+than `docling` on structure, so the ladder is now two rungs. Using
+`pdfplumber` directly with a tuned tolerance was considered and
+deferred -- it would no longer be "markitdown", and no current use case
+needs a tier between the two remaining backends.
+
+**What was added instead.** A parse-quality guard
+(`src/pdf_text.quality_warning`, wired into `sync`) that warns when more
+than 1% of a document's words exceed 20 characters. The two backends sit
+three orders of magnitude apart on that measure, so the threshold does
+not need precise tuning. Had it existed earlier, this would have been
+reported by `sync` on the first run instead of being noticed by eye in a
+retrieval snippet.

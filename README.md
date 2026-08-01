@@ -200,19 +200,26 @@ file, e.g. `BIB_FILE=/path/to/other.bib python -m src.sync`.
 | `[bib]` | `path` | `BIB_FILE` | `papers/bibliography.bib` | The BibTeX export `src/bib_reader.py` parses -- the only source of citekeys (AGENTS.md's hard invariant). Gitignored, per-host -- see DEVELOPER.md's "Repository layout" |
 | `[content]` | `dir` | `CONTENT_DIR` | `content` | Where `sync`/heavy-pipeline outputs live: `ledger.sqlite`, `parsed/`, `docling/`, `chroma/`, `topics.json`, `rendered/` |
 | `[source_pdfs]` | `dir` | `SOURCE_PDFS_DIR` | `papers/pdfs` | Raw PDFs gathered outside the bib file, no citekey -- see `src/heavy/corpus.py` |
-| `[parser]` | `backend` | `PARSER` | `pdftotext` | Which backend `sync` uses to extract PDF text -- `pdftotext`, `markitdown`, or `docling` -- see below |
+| `[parser]` | `backend` | `PARSER` | `pdftotext` | Which backend `sync` uses to extract PDF text -- `pdftotext` or `docling` -- see below |
+| `[parser]` | `long_word_chars` | `PARSE_LONG_WORD_CHARS` | `20` | Word length above which a token counts as "run-together" for the parse-quality guard |
+| `[parser]` | `long_word_ratio` | `PARSE_LONG_WORD_RATIO` | `0.01` | Share of such words above which `sync` warns that the parser is losing word boundaries |
+| `[parser]` | `min_tokens` | `PARSE_MIN_TOKENS` | `200` | Documents shorter than this are too noisy to judge, and are skipped by the guard |
 | `[heavy]` | `embedding_model` | `EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Which sentence-transformers model `src/heavy/embed_index.py` loads for semantic search -- see below |
 | `[heavy]` | `docling_images` | `DOCLING_IMAGES` | `false` | Whether the Docling stage also extracts figure bitmaps + a `<doc>.figures.json` index -- see [DEVELOPER.md](DEVELOPER.md#figures-and-copyright). Changing it re-parses the whole corpus |
 | `[heavy]` | `docling_image_scale` | `DOCLING_IMAGE_SCALE` | `2.0` | Render scale for those bitmaps (~144 DPI) |
 
 ### Choosing a parser backend
 
-`src/pdf_text.py` (used by `sync`, i.e. job 1) dispatches to one of three
+`src/pdf_text.py` (used by `sync`, i.e. job 1) dispatches to one of two
 backends based on `config.PARSER`:
 
 - `pdftotext` (default)
-- `markitdown`
 - `docling`
+
+The dispatch is a table (`_EXTRACTORS`), so adding a backend is one
+`_extract_*` function plus one entry -- a third, `markitdown`, was added
+and later removed through that same seam (see
+[PDF-PARSER.md](PDF-PARSER.md#why-markitdown-was-removed)).
 
 Setting `config.PARSER = "docling"` here does **not** fold Docling into
 job 1, and doesn't make `src/heavy/docling_parse.py` (job 2's own,
@@ -240,16 +247,26 @@ all.
 | Backend | Speed | Dependency | Page boundaries in output? |
 |---|---|---|---|
 | `pdftotext` (default) | Fastest | `poppler-utils` on PATH, no Python package | Yes -- form-feed characters between pages |
-| `markitdown` | Medium (~17x `pdftotext` in total, measured on 5 real bib PDFs -- see Performance below) | `markitdown[pdf]`, pyproject.toml's "heavy" group | No -- one continuous document |
 | `docling` | Slowest (~42x `pdftotext` in total, measured on the same 5 real bib PDFs -- see Performance below) | `docling`, "heavy" group | No -- one continuous document |
 
 Losing page boundaries isn't cosmetic: `scripts/verbatim_check.py`'s
 `cmd_overlap`/`cmd_locate` report which PDF page a verbatim run came
 from by splitting on those form-feed characters, so switching a citekey
-to `markitdown`/`docling` makes every hit for it report `pdf p.1`
+to `docling` makes every hit for it report `pdf p.1`
 regardless of where the text actually sits. See PDF-PARSER.md for the
-full fidelity/speed comparison across these three backends, including
-a fourth candidate that was evaluated and not adopted.
+full fidelity/speed comparison, including two candidates that were
+evaluated and not adopted.
+
+#### Parse-quality guard
+
+`sync` checks each freshly extracted document and warns when an
+implausible share of its words are unusually long -- the signature of a
+backend that has lost the spaces between words. That failure is easy to
+miss by eye and expensive downstream: `src/retrieval.py` tokenizes on
+whitespace, so a query term fused into a longer run stops matching
+entirely. It is a warning, never a failure: the text is still usable,
+and an unusual corpus could trip it legitimately. Thresholds are the
+`[parser]` settings in the table above.
 
 #### Performance: measured on 5 real bibliography PDFs
 
@@ -258,8 +275,10 @@ reproducible measurement, run on this repo's documented A40 host (see
 ["Hardware requirements"](#hardware-requirements) above), Python 3.12.3,
 each backend run serially with no caching (`pdf_text.py` doesn't cache --
 these are cold-extraction times, not `sync`'s steady-state, which skips
-PDFs whose content hasn't changed). markitdown's PDF support here is
-`pdfminer.six`/`pdfplumber`-based, CPU-only, no GPU involved. Docling's
+PDFs whose content hasn't changed). The `markitdown` column is retained
+as the record behind its removal -- it is no longer a selectable
+backend. Its PDF support was `pdfminer.six`/`pdfplumber`-based,
+CPU-only, no GPU involved. Docling's
 layout/OCR models do use torch/onnxruntime, but GPU utilization wasn't
 independently confirmed for this run -- treat docling's numbers as this
 host's numbers, not a GPU-optimized floor.
@@ -291,7 +310,10 @@ three of the five
 *over*counts on the other two (`afrin_resource_2021`: 30,296 vs 27,095).
 That inconsistency, not an average, is the reason to spot-check
 `markitdown`'s output on a new corpus before trusting it as a drop-in --
-a consistent undercount would at least be predictable.
+a consistent undercount would at least be predictable. Later measurement
+found the underlying cause and it was not recoverable through
+markitdown's API, which is why it was removed; see
+[PDF-PARSER.md](PDF-PARSER.md#why-markitdown-was-removed).
 
 ### Choosing an embedding model
 
@@ -412,7 +434,7 @@ extension of job 2:
           v
 +---------------------------------------+
 | src/pdf_text.py                       |
-|   -> content/parsed/<citekey>.txt     |   pdftotext/markitdown/docling
+|   -> content/parsed/<citekey>.txt     |   pdftotext/docling
 +---------------------------------------+
           |
           v
@@ -479,7 +501,7 @@ page-locating a quoted phrase.
 | Capability | What it needs |
 |---|---|
 | Parse bib file, track citekeys + PDF paths | `bibtexparser` (venv, main Poetry group) |
-| Extract PDF text | `pdftotext` (poppler-utils, `os-deps` stage) by default -- `markitdown`/`docling` are opt-in alternatives, see ["Choosing a parser backend"](#choosing-a-parser-backend) |
+| Extract PDF text | `pdftotext` (poppler-utils, `os-deps` stage) by default -- `docling` is an opt-in alternative, see ["Choosing a parser backend"](#choosing-a-parser-backend) |
 | Track parse status incrementally | stdlib `sqlite3` |
 | BM25-ranked retrieval | stdlib only |
 | Citation verification gate, auto References section, standalone tex/pdf render | stdlib only, no venv needed (see "Venv requirement" above) |

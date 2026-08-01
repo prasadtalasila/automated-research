@@ -91,6 +91,38 @@ class TestRun:
         assert rows["noauthor_page_nodate"]["status"] == "no_pdf"
         assert rows["doe_broken_2023"]["status"] == "parse_failed"
 
+    def test_warns_when_parsed_text_looks_like_fused_words(self, basic_corpus, monkeypatch, capsys):
+        """The guard has to fire from sync, not just exist in pdf_text:
+        a backend losing word boundaries is invisible otherwise until it
+        shows up as bad retrieval much later."""
+        def fused(pdf_path, citekey):
+            out_path = config.PARSED_DIR / f"{citekey}.txt"
+            config.PARSED_DIR.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(" ".join(["isaninputtooranoutputfromafunction"] * 300))
+            return out_path
+
+        monkeypatch.setattr(pdf_text, "extract_text", fused)
+        sync.run()
+        captured = capsys.readouterr()
+
+        assert "losing spaces" in captured.err
+        assert "look like the parser lost word boundaries" in captured.out
+        assert "smith_example_2024" in captured.out
+
+    def test_no_quality_warning_for_healthy_text(self, basic_corpus, monkeypatch, capsys):
+        def healthy(pdf_path, citekey):
+            out_path = config.PARSED_DIR / f"{citekey}.txt"
+            config.PARSED_DIR.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(" ".join(["the quick brown fox jumps over a lazy dog"] * 40))
+            return out_path
+
+        monkeypatch.setattr(pdf_text, "extract_text", healthy)
+        sync.run()
+        captured = capsys.readouterr()
+
+        assert "losing spaces" not in captured.err
+        assert "look like the parser lost word boundaries" not in captured.out
+
     def test_warns_about_missing_author_metadata(self, basic_corpus, monkeypatch, capsys):
         monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
         sync.run()
