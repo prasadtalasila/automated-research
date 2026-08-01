@@ -26,10 +26,10 @@ The main candidates are:
 This is the fastest option and the easiest to operate. It is well suited to the repo's lightweight core pipeline when the goal is simply to get searchable text into the ledger and retrieval index.
 
 ### `markitdown`
-This is more of a general conversion tool than a scholarly parser. For mixed document collections or when Markdown normalization matters, it can be useful. It is slower than `pdftotext`, but usually not dramatically so for straightforward PDFs.
+This is more of a general conversion tool than a scholarly parser. For mixed document collections or when Markdown normalization matters, it can be useful. It is meaningfully slower than `pdftotext` (~17x measured), not just marginally.
 
 ### `docling`
-This is the best fit when the PDF's structure matters: headings, tables, reading order, and section boundaries. It is slower and heavier, but the output is more useful for later chunking, retrieval, and topic modeling.
+This is the best fit when the PDF's structure matters: headings, tables, reading order, and section boundaries. It is much slower and heavier (~42x measured), but the output is more useful for later chunking, retrieval, and topic modeling.
 
 ### `grobid`
 GROBID should usually stay separate because it is most valuable for reference extraction and scholarly structure. It is not a drop-in replacement for the other tools, but it can complement them.
