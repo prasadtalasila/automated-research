@@ -147,7 +147,46 @@ def _build_converter():
     return DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)})
 
 
-def _figure_records(doc: CorpusDoc, dl_doc) -> list[dict]:
+_IMAGE_REF_RE = re.compile(r"(!\[[^\]]*\]\()([^)]+)(\))")
+
+
+def _relativise_image_refs(md_path: Path) -> list[str]:
+    """Rewrite the .md's image references to be relative to the .md, and
+    return them in document order.
+
+    Docling's `save_as_markdown` writes *absolute* paths, which bakes this
+    host's directory layout into every file -- moving `content/docling/`,
+    or generating it in a container and reading it elsewhere, breaks all
+    of them. Relative refs keep the .md and its `_artifacts/` directory
+    movable as a unit.
+
+    The returned names are also what `_figure_records` records for each
+    picture: the document's own `pic.image.uri` is a `data:` URI carrying
+    the whole PNG base64-encoded, and `save_as_markdown` does not rewrite
+    it, so the markdown is the only place the written filename appears.
+    """
+    text = md_path.read_text()
+    base = md_path.parent
+    names: list[str] = []
+
+    def rewrite(match):
+        target = match.group(2)
+        path = Path(target)
+        if path.is_absolute():
+            try:
+                target = str(path.relative_to(base))
+            except ValueError:
+                # Somewhere outside the .md's own tree -- leave it alone
+                # rather than emit a fragile chain of `../`.
+                pass
+        names.append(target)
+        return match.group(1) + target + match.group(3)
+
+    md_path.write_text(_IMAGE_REF_RE.sub(rewrite, text))
+    return names
+
+
+def _figure_records(doc: CorpusDoc, dl_doc, image_names: list[str] | None = None) -> list[dict]:
     """One record per extracted picture: where it sits in the source, and
     the exact string to cite it by.
 
@@ -155,9 +194,16 @@ def _figure_records(doc: CorpusDoc, dl_doc) -> list[dict]:
     reproduce the image -- see DEVELOPER.md's "Figures and copyright".
     A figure whose caption carries no number is cited by page, rather
     than by a number this module would otherwise have to invent.
+
+    `image_names` pairs positionally with `dl_doc.pictures` (both are in
+    document order). A count mismatch means that assumption broke, so
+    every record drops the filename rather than risk pointing a figure at
+    someone else's image.
     """
+    if image_names is not None and len(image_names) != len(dl_doc.pictures):
+        image_names = None
     records = []
-    for pic in dl_doc.pictures:
+    for index, pic in enumerate(dl_doc.pictures):
         caption = (pic.caption_text(dl_doc) or "").strip()
         page = pic.prov[0].page_no if pic.prov else None
         label_match = _CAPTION_LABEL_RE.match(caption)
@@ -176,7 +222,7 @@ def _figure_records(doc: CorpusDoc, dl_doc) -> list[dict]:
             "page": page,
             "caption": caption or None,
             "cite": cite,
-            "image": pic.image.uri.path if pic.image and pic.image.uri else None,
+            "image": image_names[index] if image_names else None,
         })
     return records
 
@@ -208,12 +254,14 @@ def parse_doc(doc: CorpusDoc, cache: dict | None = None) -> Path:
         from docling_core.types.doc import ImageRefMode
 
         # save_as_markdown (not export_to_markdown) so Docling writes the
-        # PNGs itself, into <stem>_artifacts/ beside the .md, and rewrites
-        # each reference to point at them. Paths land relative to the .md,
-        # which is what keeps content/docling/ movable between hosts.
+        # PNGs itself, into <stem>_artifacts/ beside the .md, and points
+        # each reference at them. It writes those references as absolute
+        # paths, so _relativise_image_refs rewrites them afterwards --
+        # see its docstring.
         dl_doc.save_as_markdown(out_path, image_mode=ImageRefMode.REFERENCED)
+        image_names = _relativise_image_refs(out_path)
         figures_path = config.DOCLING_DIR / f"{stem}.figures.json"
-        figures_path.write_text(json.dumps(_figure_records(doc, dl_doc), indent=2))
+        figures_path.write_text(json.dumps(_figure_records(doc, dl_doc, image_names), indent=2))
     else:
         out_path.write_text(dl_doc.export_to_markdown())
 

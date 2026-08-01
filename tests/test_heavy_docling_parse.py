@@ -5,6 +5,7 @@ at module top), so these stay fast and don't need real model weights.
 """
 
 import json
+import re
 import sys
 import types
 from pathlib import Path
@@ -16,15 +17,21 @@ from src.heavy.corpus import CorpusDoc
 
 
 class FakePicture:
-    """Enough of a docling PictureItem for _figure_records: a caption, a
-    page provenance, and optionally extracted bitmap data."""
+    """Enough of a docling PictureItem for _figure_records: a caption and
+    a page provenance.
 
-    def __init__(self, caption="", page=1, uri_path=None):
+    `image.uri.path` deliberately carries a base64 `data:` payload, which
+    is what real Docling holds -- `save_as_markdown` does NOT rewrite it
+    to the written filename. An earlier fake returned a tidy path here,
+    which let a bug through: the records inlined ~17MB of base64 across
+    one real corpus instead of naming the files.
+    """
+
+    def __init__(self, caption="", page=1):
         self._caption = caption
         self.prov = [types.SimpleNamespace(page_no=page)] if page is not None else []
-        self.image = (
-            types.SimpleNamespace(uri=types.SimpleNamespace(path=uri_path))
-            if uri_path else None
+        self.image = types.SimpleNamespace(
+            uri=types.SimpleNamespace(path="image/png;base64,iVBORw0KGgoAAAANSUhEUg" + "A" * 200)
         )
 
     def caption_text(self, _doc):
@@ -42,8 +49,14 @@ class FakeDocument:
         return self._markdown
 
     def save_as_markdown(self, path, image_mode=None):
+        """Mirrors the real behaviour: writes ABSOLUTE artifact paths."""
         FakeDocument.last_image_mode = image_mode
-        Path(path).write_text(self._markdown)
+        out = Path(path)
+        artifacts = out.parent / f"{out.stem}_artifacts"
+        body = self._markdown
+        for i in range(len(self.pictures)):
+            body += f"\n\n![Image]({artifacts / f'image_{i:06d}_{"a" * 64}.png'})"
+        out.write_text(body)
 
 
 class FakeConversionResult:
@@ -163,7 +176,7 @@ class TestImageExtraction:
 
     def test_figure_index_cites_by_the_papers_own_number(self, images_on, fake_docling, tmp_path):
         FakeDocumentConverter.pictures = [
-            FakePicture("Figure 3. Sensor placement", page=7, uri_path="a_artifacts/img3.png"),
+            FakePicture("Figure 3. Sensor placement", page=7),
         ]
         docling_parse.parse_doc(self._doc(tmp_path))
 
@@ -173,7 +186,6 @@ class TestImageExtraction:
         assert records[0]["cite"] == "Figure 3 of [@richstein_characterizing_2024], p.7"
         assert records[0]["page"] == 7
         assert records[0]["caption"] == "Figure 3. Sensor placement"
-        assert records[0]["image"] == "a_artifacts/img3.png"
 
     @pytest.mark.parametrize("caption,expected", [
         # Chapter-scoped numbering. Real captions from
@@ -211,6 +223,60 @@ class TestImageExtraction:
         cites = [r["cite"] for r in records]
         assert len(set(cites)) == 4, cites
         assert "Figure 1.3 of [@richstein_characterizing_2024], p.5" in cites
+
+
+    def test_image_field_names_the_file_and_never_inlines_base64(self, images_on, fake_docling, tmp_path):
+        """The regression: pic.image.uri is a base64 data: URI that
+        save_as_markdown does not rewrite, so reading it put the whole
+        PNG in the JSON (~17MB across one real corpus)."""
+        FakeDocumentConverter.pictures = [FakePicture("Figure 1. A plot", page=2)]
+        docling_parse.parse_doc(self._doc(tmp_path))
+
+        raw = (images_on.DOCLING_DIR / "richstein_characterizing_2024.figures.json").read_text()
+        assert "base64" not in raw
+        records = json.loads(raw)
+        assert records[0]["image"] == f"richstein_characterizing_2024_artifacts/image_000000_{'a' * 64}.png"
+
+    def test_markdown_image_refs_are_relative_to_the_md(self, images_on, fake_docling, tmp_path):
+        """Docling writes absolute paths, which bake this host's layout
+        into content/docling/ and break if the folder moves."""
+        FakeDocumentConverter.pictures = [FakePicture("Figure 1", page=1), FakePicture("Figure 2", page=2)]
+        out_path = docling_parse.parse_doc(self._doc(tmp_path))
+
+        refs = re.findall(r"!\[[^\]]*\]\(([^)]+)\)", out_path.read_text())
+        assert len(refs) == 2
+        assert all(not r.startswith("/") for r in refs), refs
+        assert all(r.startswith("richstein_characterizing_2024_artifacts/") for r in refs), refs
+
+    def test_already_relative_ref_is_passed_through_unchanged(self, images_on, tmp_path):
+        md = tmp_path / "doc.md"
+        md.write_text("text\n\n![Image](doc_artifacts/img.png)\n")
+
+        names = docling_parse._relativise_image_refs(md)
+
+        assert names == ["doc_artifacts/img.png"]
+        assert "![Image](doc_artifacts/img.png)" in md.read_text()
+
+    def test_image_ref_outside_the_md_tree_is_left_alone(self, images_on, tmp_path):
+        """An absolute path pointing somewhere else entirely stays put,
+        rather than becoming a fragile chain of `../`."""
+        md = tmp_path / "doc.md"
+        outside = tmp_path.parent / "elsewhere" / "img.png"
+        md.write_text(f"text\n\n![Image]({outside})\n")
+
+        names = docling_parse._relativise_image_refs(md)
+
+        assert names == [str(outside)]
+        assert str(outside) in md.read_text()
+
+    def test_image_is_dropped_when_ref_count_disagrees_with_picture_count(self, images_on, fake_docling, tmp_path):
+        """Rather than pair a figure with someone else's image."""
+        names = ["only_one.png"]
+        pics = [FakePicture("Figure 1", page=1), FakePicture("Figure 2", page=2)]
+        doc = self._doc(tmp_path)
+        records = docling_parse._figure_records(doc, types.SimpleNamespace(pictures=pics), names)
+        assert [r["image"] for r in records] == [None, None]
+        assert records[0]["cite"].startswith("Figure 1 of")  # citation still works
 
     def test_uncaptioned_picture_is_cited_by_page_not_an_invented_number(
         self, images_on, fake_docling, tmp_path
