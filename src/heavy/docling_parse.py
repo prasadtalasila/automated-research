@@ -55,7 +55,10 @@ from src.heavy.corpus import CorpusDoc, safe_filename
 # forever. Mirrors src/retrieval.py's _INDEX_SCHEMA_VERSION.
 # config.DOCLING_IMAGES is stored alongside it for the same reason:
 # it's a *runtime* toggle, so it can't be folded into this constant.
-_CACHE_VERSION = 1
+# 2: added <stem>.passages.json, so a cache written by version 1 has
+# no sidecar for citation_provenance to read even though its .md is
+# current.
+_CACHE_VERSION = 2
 
 
 def _load_cache() -> dict:
@@ -192,6 +195,44 @@ def _relativise_image_refs(md_path: Path) -> list[str]:
     return names
 
 
+# Docling labels each text item. Running heads, page numbers and figure
+# captions are not prose a claim can be supported by, so they are left
+# out of the passage sidecar -- keeping them would let a claim "match"
+# a journal name repeated on all 17 pages.
+_PASSAGE_LABELS = frozenset({"text", "list_item", "section_header", "title"})
+
+
+def _passage_records(dl_doc) -> list[dict]:
+    """One record per prose text item: what it says and where it sits.
+
+    This is what makes a *quotable* passage possible. `pdftotext -layout`
+    preserves a page's visual arrangement rather than its reading order,
+    so on a two-column paper each output line splices together two
+    unrelated columns (82%-89% of long lines, measured over this
+    project's own sample). Any excerpt drawn from that text is a
+    two-argument collage. Docling resolves reading order, so an item here
+    is a real paragraph that can be shown to a reviewer verbatim.
+
+    The bounding box rides along because Docling already has it, and it
+    is what a future click-through highlight would need; nothing in this
+    repo consumes it yet.
+    """
+    records = []
+    for item in getattr(dl_doc, "texts", []):
+        label = str(getattr(item, "label", "")).split(".")[-1].lower()
+        text = (getattr(item, "text", "") or "").strip()
+        if label not in _PASSAGE_LABELS or not text:
+            continue
+        prov = item.prov[0] if getattr(item, "prov", None) else None
+        record = {"text": text, "label": label,
+                  "page": getattr(prov, "page_no", None) if prov else None}
+        bbox = getattr(prov, "bbox", None) if prov else None
+        if bbox is not None:
+            record["bbox"] = [getattr(bbox, side, None) for side in ("l", "t", "r", "b")]
+        records.append(record)
+    return records
+
+
 def _figure_records(doc: CorpusDoc, dl_doc, image_names: list[str] | None = None) -> list[dict]:
     """One record per extracted picture: where it sits in the source, and
     the exact string to cite it by.
@@ -270,6 +311,12 @@ def parse_doc(doc: CorpusDoc, cache: dict | None = None) -> Path:
         figures_path.write_text(json.dumps(_figure_records(doc, dl_doc, image_names), indent=2))
     else:
         out_path.write_text(dl_doc.export_to_markdown())
+
+    # Written for every doc, images on or off: src/citation_provenance.py
+    # reads it to quote a real passage rather than a window sliced out of
+    # column-spliced flat text. Cheap next to the parse that produced it.
+    passages_path = config.DOCLING_DIR / f"{stem}.passages.json"
+    passages_path.write_text(json.dumps(_passage_records(dl_doc), indent=2))
 
     cache[doc.doc_id] = fingerprint
     if owns_cache:

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Orchestrates the full heavy pipeline:
 
-    Docling -> sentence-transformers/Chroma -> BERTopic -> Pandoc/LaTeX
+    Docling -> sentence-transformers/Chroma -> BERTopic
+    -> citation provenance -> Pandoc/LaTeX
 
 One script for both the host and the Docker target (docker/Dockerfile) --
 the two don't need separate implementations. Each stage probes its own
@@ -30,9 +31,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.heavy import corpus, docling_parse, embed_index, render_output, topic_model
-from src import config
+from src import citation_provenance, config
 
-STAGE_ORDER = ["docling", "embed", "bertopic", "render"]
+STAGE_ORDER = ["docling", "embed", "bertopic", "provenance", "render"]
 
 
 def stage_docling(docs, args):
@@ -50,6 +51,17 @@ def stage_bertopic(docs, args):
     return {"status": "ok", "detail": {"n_docs": result["n_docs"], "assignments": result["assignments"]}}
 
 
+def stage_provenance(docs, args):
+    if not args.input:
+        return {"status": "skipped", "detail": "no --input given"}
+    written = citation_provenance.write_report(Path(args.input), ["md", "tex", "pdf"])
+    missing = [f for f in ("tex", "pdf") if f not in written]
+    return {
+        "status": "ok" if not missing else "partial",
+        "detail": {fmt: str(path) for fmt, path in written.items()},
+    }
+
+
 def stage_render(docs, args):
     if not args.input:
         return {"status": "skipped", "detail": "no --input given"}
@@ -63,6 +75,7 @@ STAGE_FUNCS = {
     "docling": stage_docling,
     "embed": stage_embed,
     "bertopic": stage_bertopic,
+    "provenance": stage_provenance,
     "render": stage_render,
 }
 

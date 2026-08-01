@@ -55,6 +55,31 @@ class TestStageBertopic:
         assert "topic_info" not in result["detail"]
 
 
+class TestStageProvenance:
+    def test_skipped_without_input(self):
+        result = full_pipeline.stage_provenance([], make_args(input=None))
+        assert result == {"status": "skipped", "detail": "no --input given"}
+
+    def test_ok_when_all_formats_written(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(
+            full_pipeline.citation_provenance, "write_report",
+            lambda path, formats: {"md": tmp_path / "r.md", "tex": tmp_path / "r.tex",
+                                   "pdf": tmp_path / "r.pdf"})
+        result = full_pipeline.stage_provenance([], make_args(input="draft.md"))
+        assert result["status"] == "ok"
+        assert set(result["detail"]) == {"md", "tex", "pdf"}
+
+    def test_partial_when_a_render_was_skipped(self, monkeypatch, tmp_path):
+        """pandoc/pdflatex absent is a normal host condition here, so the
+        stage reports partial rather than failing the run."""
+        monkeypatch.setattr(
+            full_pipeline.citation_provenance, "write_report",
+            lambda path, formats: {"md": tmp_path / "r.md"})
+        result = full_pipeline.stage_provenance([], make_args(input="draft.md"))
+        assert result["status"] == "partial"
+        assert set(result["detail"]) == {"md"}
+
+
 class TestStageRender:
     def test_skipped_without_input(self):
         result = full_pipeline.stage_render([], make_args(input=None))

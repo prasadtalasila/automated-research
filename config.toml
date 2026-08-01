@@ -56,6 +56,16 @@ long_word_chars = 20
 long_word_ratio = 0.01
 min_tokens = 200
 
+[provenance]
+# src/citation_provenance.py bands the fraction of a citing sentence's
+# distinctive words found in the best-matching source passage. Below
+# weak_score a finding reads "no support found", which means "go look at
+# this one first" -- never "this citation is wrong". The report is a
+# reading order for a human, not a pass/fail line, which is why these are
+# round numbers rather than tuned ones.
+weak_score = 0.20
+good_score = 0.50
+
 [heavy]
 # Only used by src/heavy/* (pyproject.toml's "heavy" Poetry group), not
 # by the core sync/citation_gate pipeline.

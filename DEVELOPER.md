@@ -10,6 +10,7 @@ Architecture docs and [DOCKER.md](DOCKER.md) for the container build.
 - [Running tests](#running-tests)
 - [Repository layout](#repository-layout)
 - [Figures and copyright](#figures-and-copyright)
+- [Citation provenance](#citation-provenance)
 - [Open questions and unbuilt features](#open-questions-and-unbuilt-features)
 
 ## Running tests
@@ -71,6 +72,8 @@ src/                      core pipeline (needs bibtexparser; citation_gate/refer
   retrieval.py              BM25 search over the content layer, backed by a cached term-frequency index
   citation_gate.py          hard citation-verification gate -- "job 2" must pass this
   citation_coverage.py      ad-hoc review aid: retrieval-candidates-vs-actually-cited report, not a gate
+  citation_provenance.py    ad-hoc review aid: what in each cited source supports the claim citing it, not a gate
+                            (see CITATION-PROVENANCE.md)
   references.py             auto-generates a draft's "## References" section from its own cited citekeys
 src/heavy/                optional heavier pipeline (pyproject.toml's "heavy" Poetry group)
   corpus.py                 unifies ledger items + [source_pdfs].dir's raw PDFs (doc: prefixed, non-citable)
@@ -142,6 +145,29 @@ Two details worth knowing about that `cite` string:
 For a `[source_pdfs]` document the `cite` string is deliberately *not* a
 `[@citekey]`, since those documents are outside the bib file and can
 never be cited (AGENTS.md's citekey invariant).
+
+## Citation provenance
+
+`python -m src.citation_provenance content/drafts/<slug>.md` reports, for
+every citation in a draft, what in the cited source supports it and where
+-- ordered worst match first. It writes
+`content/provenance/<slug>.provenance.md` plus `.tex`/`.pdf` renders, and
+is also a heavy-pipeline stage (`--stages provenance --input <draft>`).
+
+A **review aid, not a gate**, deliberately: matching is lexical, so it
+cannot tell "the source doesn't say this" from "the source says it in
+words I didn't recognise". `citation_gate` blocks because it checks
+something exact (ledger membership); this reports because it doesn't.
+
+Passage quality depends on what has been parsed. With the Docling stage
+run, `content/docling/<citekey>.passages.json` supplies reading-ordered
+paragraphs and the report quotes them. Without it, `pdftotext` output is
+used and the report gives a page number **without quoting** -- on a
+two-column paper that text splices two columns onto every line, so any
+excerpt would be a collage of two arguments.
+
+Full design rationale, including the measurements behind those choices:
+[CITATION-PROVENANCE.md](CITATION-PROVENANCE.md).
 
 ## Open questions and unbuilt features
 
