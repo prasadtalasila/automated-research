@@ -8,6 +8,16 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# A push to the same branch/PR while a previous run is still going
+# (routine during iterative fix-and-repush work, e.g. addressing a
+# Copilot review comment) cancels that stale, now-superseded run
+# instead of letting both consume CI minutes -- github.ref is stable
+# per branch/PR, so this only ever cancels an earlier run of the same
+# ref, never a different branch's.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -63,9 +73,16 @@ jobs:
         shell: bash
         run: bash scripts/install_full_pipeline.sh dev-deps
 
+      # poetry run (not a hardcoded .venv-full/bin/python) resolves
+      # correctly on both venv layouts (POSIX bin/ vs a native Windows
+      # Python's Scripts/) via poetry.toml's virtualenvs.create = false
+      # + VIRTUAL_ENV, instead of this workflow needing to know which
+      # one .venv-full actually has.
       - name: Run test suite with coverage
         shell: bash
-        run: .venv-full/bin/python -m pytest --cov=src --cov=scripts --cov-report=term-missing
+        run: |
+          export VIRTUAL_ENV="$PWD/.venv-full"
+          poetry run python -m pytest --cov=src --cov=scripts --cov-report=term-missing
 
       - name: poetry check
         shell: bash
