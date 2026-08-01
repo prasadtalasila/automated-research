@@ -1,5 +1,5 @@
-"""scripts/full_pipeline.py: the orchestrator -- Docling -> GROBID ->
-embed -> BERTopic -> Pandoc/LaTeX. Each stage_* wrapper's ok/partial/
+"""scripts/full_pipeline.py: the orchestrator -- Docling -> embed ->
+BERTopic -> Pandoc/LaTeX. Each stage_* wrapper's ok/partial/
 skipped/missing-binary shaping is tested directly against mocked
 underlying module calls; main()'s stage-selection and per-stage
 exception isolation are tested against a fully mocked STAGE_FUNCS/corpus."""
@@ -10,7 +10,7 @@ import types
 import pytest
 
 import scripts.full_pipeline as full_pipeline
-from src.heavy import docling_parse, embed_index, grobid_extract, render_output, topic_model
+from src.heavy import docling_parse, embed_index, render_output, topic_model
 from src.heavy.corpus import CorpusDoc
 
 
@@ -34,21 +34,6 @@ class TestStageDocling:
         monkeypatch.setattr(docling_parse, "parse_corpus", lambda docs: {"a": "ok: /x", "b": "error: boom"})
         result = full_pipeline.stage_docling([], make_args())
         assert result["status"] == "partial"
-
-
-class TestStageGrobid:
-    def test_skipped_when_unavailable(self, monkeypatch):
-        monkeypatch.setattr(grobid_extract, "is_available", lambda: False)
-        result = full_pipeline.stage_grobid([], make_args())
-        assert result["status"] == "skipped"
-        assert "not reachable" in result["detail"]
-
-    def test_ok_when_available(self, monkeypatch):
-        monkeypatch.setattr(grobid_extract, "is_available", lambda: True)
-        monkeypatch.setattr(grobid_extract, "extract_corpus", lambda docs: {"a": "ok: /x"})
-        result = full_pipeline.stage_grobid([], make_args())
-        assert result["status"] == "ok"
-        assert result["detail"] == {"a": "ok: /x"}
 
 
 class TestStageEmbed:
@@ -114,15 +99,32 @@ class TestMain:
         called = []
         monkeypatch.setitem(full_pipeline.STAGE_FUNCS, "docling", lambda d, a: called.append("docling") or {"status": "ok", "detail": "d"})
         monkeypatch.setitem(full_pipeline.STAGE_FUNCS, "embed", lambda d, a: called.append("embed") or {"status": "ok", "detail": "e"})
-        monkeypatch.setitem(full_pipeline.STAGE_FUNCS, "grobid", lambda d, a: called.append("grobid") or {"status": "ok", "detail": "g"})
+        monkeypatch.setitem(full_pipeline.STAGE_FUNCS, "bertopic", lambda d, a: called.append("bertopic") or {"status": "ok", "detail": "b"})
 
         rc = full_pipeline.main()
         out = capsys.readouterr().out
 
         assert rc == 0
-        assert called == ["docling", "embed"]  # grobid not selected, never called
+        assert called == ["docling", "embed"]  # bertopic not selected, never called
         assert "docling" in out and "ok" in out
         assert "=== Summary ===" in out
+        assert "WARNING: unknown stage" not in out  # every selected name is real
+
+    def test_warns_on_unknown_stage(self, monkeypatch, capsys):
+        """`--stages grobid` (a stage this pipeline used to have) would
+        otherwise be a silent no-op -- main() iterates STAGE_ORDER and
+        skips anything unselected, so an unused name never surfaces."""
+        docs = [CorpusDoc(doc_id="a", citekey="a", source="bib", title="t", pdf_path=None)]
+        monkeypatch.setattr(full_pipeline.corpus, "build_corpus", lambda: docs)
+        monkeypatch.setattr(sys, "argv", ["full_pipeline.py", "--stages", "grobid,embed"])
+        monkeypatch.setitem(full_pipeline.STAGE_FUNCS, "embed", lambda d, a: {"status": "ok", "detail": "e"})
+
+        rc = full_pipeline.main()
+        out = capsys.readouterr().out
+
+        assert rc == 0  # a bad stage name warns, it doesn't fail the run
+        assert "WARNING: unknown stage(s) grobid" in out
+        assert "embed" in out  # the valid stage alongside it still ran
 
     def test_stage_exception_does_not_abort_other_stages(self, monkeypatch, capsys):
         docs = [CorpusDoc(doc_id="a", citekey="a", source="bib", title="t", pdf_path=None)]

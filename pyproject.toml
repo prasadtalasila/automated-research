@@ -29,7 +29,7 @@ bibtexparser = ">=1.4,<2.0"
 # relax this ceiling without rewriting that module against v2's API first.
 
 # Optional group (`poetry install --with heavy`): everything src/heavy/*
-# (the Docling/GROBID/embeddings/Pandoc pipeline, scripts/full_pipeline.py)
+# (the Docling/embeddings/Pandoc pipeline, scripts/full_pipeline.py)
 # needs. All of the below were installed and import-verified in a host
 # venv on 2026-07-28 (docker/requirements-full.txt, since replaced by this
 # group); sentence-transformers/chromadb/bertopic/docling were also
@@ -55,7 +55,6 @@ bibtexparser = ">=1.4,<2.0"
 optional = true
 
 [tool.poetry.group.heavy.dependencies]
-requests = ">=2.34,<3.0"
 sentence-transformers = ">=5.6,<6.0"
 chromadb = ">=1.5,<2.0"
 bertopic = ">=0.17,<0.18"
@@ -77,8 +76,8 @@ markitdown = {version = "^0.1.7", extras = ["pdf"]}
 # Optional group (`poetry install --with dev`): pytest/pytest-cov are
 # dev-time tooling, not needed to run the pipeline itself -- but the test
 # suite they run is NOT correspondingly light: tests/ exercises
-# bibtexparser (bib_reader) and the whole heavy group (requests via
-# grobid_extract, docling/chromadb/bertopic/sentence-transformers via
+# bibtexparser (bib_reader) and the whole heavy group
+# (docling/chromadb/bertopic/sentence-transformers via
 # their own test modules), so `poetry install --with heavy` must already
 # have run before `--with dev` for the full suite to pass.
 [tool.poetry.group.dev]

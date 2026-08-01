@@ -32,7 +32,6 @@ def isolated_config(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "SOURCE_PDFS_MANIFEST", source_pdfs_dir / "manifest.json")
     monkeypatch.setattr(config, "DOCLING_DIR", content_dir / "docling")
     monkeypatch.setattr(config, "DOCLING_CACHE_PATH", content_dir / "docling_cache.json")
-    monkeypatch.setattr(config, "GROBID_DIR", content_dir / "grobid")
     monkeypatch.setattr(config, "CHROMA_DIR", content_dir / "chroma")
     monkeypatch.setattr(config, "TOPICS_PATH", content_dir / "topics.json")
     monkeypatch.setattr(config, "TOPIC_EMBED_CACHE_PATH", content_dir / "topic_embed_cache.json")

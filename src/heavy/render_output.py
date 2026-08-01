@@ -36,7 +36,7 @@ call, but those are the project's fixed defaults.
 with bare `python3` (no heavy venv) -- it depends only on stdlib plus
 `src.config`/`src.citation_gate`/`src.references` (all three stdlib-only,
 same as this module), deliberately independent of `scripts/full_pipeline.py`,
-which drags in the full corpus build and the docling/embed/grobid/topic_model
+which drags in the full corpus build and the docling/embed/topic_model
 imports for stages this one doesn't need. The genre-writing skills under
 `.claude/skills/` call this CLI directly.
 """
@@ -224,7 +224,7 @@ def render(
 def main() -> int:
     """CLI entry point -- deliberately independent of scripts/full_pipeline.py.
 
-    That script imports docling/embed/grobid/topic_model at module load and
+    That script imports docling/embed/topic_model at module load and
     builds the whole corpus before any stage runs, which drags in the
     multi-GB `.venv-full` for a stage that itself only needs stdlib +
     `src.config` + `src.citation_gate`. Genre skills that just want a

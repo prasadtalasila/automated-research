@@ -71,7 +71,6 @@ DOCLING_DIR = CONTENT_DIR / "docling"
 # pipeline -- for a PDF that's new or has actually changed since the last
 # call, mirroring src/ledger.py's own stat-before-hash skip logic.
 DOCLING_CACHE_PATH = CONTENT_DIR / "docling_cache.json"
-GROBID_DIR = CONTENT_DIR / "grobid"
 CHROMA_DIR = CONTENT_DIR / "chroma"
 TOPICS_PATH = CONTENT_DIR / "topics.json"
 # Per-doc whole-text embedding cache keyed by content hash, so
@@ -80,13 +79,6 @@ TOPICS_PATH = CONTENT_DIR / "topics.json"
 TOPIC_EMBED_CACHE_PATH = CONTENT_DIR / "topic_embed_cache.json"
 RENDERED_DIR = CONTENT_DIR / "rendered"
 
-GROBID_URL = _get("GROBID_URL", "heavy", "grobid_url", default="http://localhost:8070")
-GROBID_HEALTH_TIMEOUT = _get_float(
-    "GROBID_HEALTH_TIMEOUT", "heavy", "grobid_health_timeout", default=3.0,
-)
-GROBID_EXTRACT_TIMEOUT = _get_float(
-    "GROBID_EXTRACT_TIMEOUT", "heavy", "grobid_extract_timeout", default=60.0,
-)
 EMBEDDING_MODEL = _get(
     "EMBEDDING_MODEL", "heavy", "embedding_model",
     default="sentence-transformers/all-MiniLM-L6-v2",

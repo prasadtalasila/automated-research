@@ -21,8 +21,7 @@ a paper the bibliography actually holds.
 - [Acknowledgements](#acknowledgements)
 
 See also: [DEVELOPER.md](DEVELOPER.md) (tests, repo layout, open
-questions), [DOCKER.md](DOCKER.md) (running this repo in a container) and
-[GROBID.md](GROBID.md) (building/running GROBID standalone on a bare host).
+questions) and [DOCKER.md](DOCKER.md) (running this repo in a container).
 
 ## Quickstart
 
@@ -44,9 +43,9 @@ mkdir -p papers/pdfs && cp /path/to/some-paper.pdf papers/pdfs/
 #    install --with heavy` into it: bibtexparser (core pipeline) plus the
 #    full src/heavy/ stack. Dependencies/versions live in pyproject.toml +
 #    poetry.lock; Poetry here is a lockfile/venv manager only, nothing is
-#    published (see DEVELOPER.md's "Repository layout"). OS-level packages (JDK,
-#    TeX Live, Pandoc, Poetry itself) and GROBID are separate, opt-in
-#    stages -- see "What works on this host" below.
+#    published (see DEVELOPER.md's "Repository layout"). OS-level packages
+#    (TeX Live, Pandoc, Poetry itself) are a separate, opt-in
+#    stage -- see "What works on this host" below.
 bash scripts/install_full_pipeline.sh
 
 # 3. Sync the content layer from papers/bibliography.bib. A citekey that
@@ -162,11 +161,11 @@ driver 555.42.02) on 2026-07-30:
 
 | Resource | Minimum (core pipeline only) | Recommended (`src/heavy/` in regular use) |
 |---|---|---|
-| Disk | ~1GB (bibtexparser + content/) | **10-20GB+** -- the full venv alone is **6.0GB** (torch pulled in twice over via sentence-transformers/docling, plus docling's own layout/OCR models); a GROBID build and TeX Live add several GB more on top |
+| Disk | ~1GB (bibtexparser + content/) | **10-20GB+** -- the full venv alone is **6.0GB** (torch pulled in twice over via sentence-transformers/docling, plus docling's own layout/OCR models); TeX Live adds several GB more on top |
 | RAM | ~1-2GB (sync, citation_gate, keyword retrieval are all lightweight) | **8GB minimum, 16GB+ better**. At ~3GB free, Docling parsing a 17-page PDF pushed the process to 3.6GB RSS and the host swapped 6.3GB -- it still finished, just slowly. Bigger PDFs or a bigger corpus will make this worse |
 | CPU | 1-2 cores | **4+ cores** without a GPU -- Docling's layout inference and BERTopic's UMAP/HDBSCAN are CPU-bound if there's no GPU to offload to; more cores directly reduces wall-clock time |
 | GPU | none needed | **none required**, but if present, `scripts/install_full_pipeline.sh`'s `ensure_gpu_torch` detects the NVIDIA driver's supported CUDA ceiling (`nvidia-smi`) and automatically reinstalls torch from a matching CUDA-tagged wheel index -- verified end-to-end on an A40 (driver capped at CUDA 12.5; the default pip/Poetry-resolved torch wheel needed CUDA 13 and silently ran CPU-only until this ran). sentence-transformers/Docling/BERTopic all then use the GPU automatically |
-| Network | needed once, for `poetry install` | also needed for first-run model downloads (the embedding model, Docling's layout/OCR models, GROBID's Maven dependencies during its Gradle build) |
+| Network | needed once, for `poetry install` | also needed for first-run model downloads (the embedding model, Docling's layout/OCR models) |
 
 Tips:
 - **No GPU, disk tight**: `pip`/Poetry's default torch wheel pulls a full
@@ -202,9 +201,6 @@ file, e.g. `BIB_FILE=/path/to/other.bib python -m src.sync`.
 | `[content]` | `dir` | `CONTENT_DIR` | `content` | Where `sync`/heavy-pipeline outputs live: `ledger.sqlite`, `parsed/`, `docling/`, `chroma/`, `topics.json`, `rendered/` |
 | `[source_pdfs]` | `dir` | `SOURCE_PDFS_DIR` | `papers/pdfs` | Raw PDFs gathered outside the bib file, no citekey -- see `src/heavy/corpus.py` |
 | `[parser]` | `backend` | `PARSER` | `pdftotext` | Which backend `sync` uses to extract PDF text -- `pdftotext`, `markitdown`, or `docling` -- see below |
-| `[heavy]` | `grobid_url` | `GROBID_URL` | `http://localhost:8070` | Where `src/heavy/grobid_extract.py` looks for a running GROBID instance |
-| `[heavy]` | `grobid_health_timeout` | `GROBID_HEALTH_TIMEOUT` | `3.0` (seconds) | Kept low -- `is_available()` runs before every extraction and shouldn't itself become the slow part of a fast-fail path |
-| `[heavy]` | `grobid_extract_timeout` | `GROBID_EXTRACT_TIMEOUT` | `60.0` (seconds) | Must outlast a real header extraction on a real PDF, not just a health check |
 | `[heavy]` | `embedding_model` | `EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Which sentence-transformers model `src/heavy/embed_index.py` loads for semantic search -- see below |
 
 ### Choosing a parser backend
@@ -250,10 +246,10 @@ Losing page boundaries isn't cosmetic: `scripts/verbatim_check.py`'s
 from by splitting on those form-feed characters, so switching a citekey
 to `markitdown`/`docling` makes every hit for it report `pdf p.1`
 regardless of where the text actually sits. See PDF-PARSER.md for the
-full fidelity/speed comparison across all four tools this repo evaluates
-(the fourth, GROBID, is kept out of this rotation on purpose -- it's a
-references/metadata extractor, not a general text backend, per that
-document).
+full fidelity/speed comparison across these three backends. That
+document also records why GROBID, evaluated as a fourth candidate, was
+never a general text backend and has since been removed from the repo
+entirely (2026-08-01).
 
 #### Performance: measured on 5 real bibliography PDFs
 
@@ -451,7 +447,7 @@ JOB 1 -- deterministic, unattended-safe     JOB 2 -- generative, on demand, revi
                                                              v
                                      +-----------------------------------------------+
                                      | THE HEAVY PIPELINE (src/heavy/)               |
-                                     | Docling -> GROBID -> embeddings/Chroma ->     |
+                                     | Docling -> embeddings/Chroma ->               |
                                      | BERTopic -> (same render_output.py above)     |
                                      | each stage reports: ok / skipped /            |
                                      | missing-binary                                |
@@ -488,11 +484,7 @@ page-locating a quoted phrase.
 | BM25-ranked retrieval | stdlib only |
 | Citation verification gate, auto References section, standalone tex/pdf render | stdlib only, no venv needed (see "Venv requirement" above) |
 | Docling layout-aware parsing, embeddings/Chroma, BERTopic | venv, `heavy` Poetry group (`src/heavy/`) |
-| Bibliographic-quality parsing (GROBID: references, sections) | JDK 21 + a standalone GROBID build -- see [GROBID.md](GROBID.md) |
 | Compiling generated `.tex` chapters to PDF (Pandoc/TeX Live) | `pandoc`, `pdflatex`, `latexmk` (`os-deps` stage) |
-
-See [GROBID.md](GROBID.md) for the full GROBID build/run/troubleshooting
-walkthrough (previously an inline subsection here).
 
 Retrieval by default is a BM25 ranker over a disk-cached term-frequency
 index (`src/retrieval.py`, stdlib only) -- deliberately: swapping in
@@ -506,8 +498,8 @@ actually changed since the last call.
 
 ## The heavy pipeline
 
-`scripts/full_pipeline.py` runs Docling -> GROBID -> sentence-
-transformers/Chroma -> BERTopic -> Pandoc/LaTeX as one script for both the
+`scripts/full_pipeline.py` runs Docling -> sentence-transformers/Chroma
+-> BERTopic -> Pandoc/LaTeX as one script for both the
 host and Docker targets:
 
 ```bash

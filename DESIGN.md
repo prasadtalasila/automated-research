@@ -30,7 +30,7 @@ The repository is designed around a few hard constraints that strongly shape the
 ### 1. Pipeline architecture
 The project is fundamentally a staged pipeline:
 - BibTeX export -> ledger -> parsed text -> retrieval
-- Optional heavy pipeline: Docling -> GROBID -> embeddings -> BERTopic -> render
+- Optional heavy pipeline: Docling -> embeddings -> BERTopic -> render
 
 This is the dominant structural pattern and fits the use case well.
 
@@ -49,7 +49,6 @@ This is a strong point of the codebase.
 Several modules wrap command-line tools or services behind Python APIs:
 - `pdftotext`
 - Docling
-- GROBID
 - Pandoc/TeX Live
 
 This keeps the rest of the system insulated from tool-specific details.
@@ -136,7 +135,6 @@ The repository is cross-platform-friendly in code, but toolchain-dependent at ru
 Likely rough spots:
 - `pdftotext` availability
 - `pandoc`/`pdflatex`
-- GROBID setup
 - Docling model/runtime dependencies
 
 Suggested mitigations:
@@ -169,13 +167,14 @@ This would improve evidence quality substantially.
 - **`pdftotext`**: fastest, simplest, lowest fidelity
 - **`markitdown`**: more flexible normalization, medium fidelity, medium cost
 - **`docling`**: best structural fidelity for PDFs, but slowest and heaviest
-- **`grobid`**: best kept separate for scholarly structure, metadata, and references rather than general text extraction
 
 For this repository’s goals, the ideal shape is a layered system:
 - `pdftotext` for speed
 - `markitdown` for broader normalization
 - `docling` for structured scholarly parsing
-- `grobid` for references and section metadata
+
+(`grobid` was evaluated as a fourth backend and removed on 2026-08-01 --
+see PDF-PARSER.md's "Why GROBID was removed".)
 
 ## Overall assessment
 

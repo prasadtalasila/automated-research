@@ -49,11 +49,4 @@ backend = "pdftotext"
 [heavy]
 # Only used by src/heavy/* (pyproject.toml's "heavy" Poetry group), not
 # by the core sync/citation_gate pipeline.
-grobid_url = "http://localhost:8070"
-# Seconds. Kept low -- is_available() is called before every extraction
-# and shouldn't itself become the slow part of a fast-fail path.
-grobid_health_timeout = 3.0
-# Seconds. GROBID's header extraction on a real PDF is not instant;
-# this must outlast that, not just a health check.
-grobid_extract_timeout = 60.0
 embedding_model = "sentence-transformers/all-mpnet-base-v2"

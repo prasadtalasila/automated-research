@@ -77,11 +77,6 @@ class TestRealConfigToml:
         assert config.LEDGER_PATH == config.CONTENT_DIR / "ledger.sqlite"
         assert config.RETRIEVAL_INDEX_PATH == config.CONTENT_DIR / "retrieval_index.json"
 
-    def test_grobid_defaults(self):
-        assert config.GROBID_URL == "http://localhost:8070"
-        assert config.GROBID_HEALTH_TIMEOUT == 3.0
-        assert config.GROBID_EXTRACT_TIMEOUT == 60.0
-
     def test_embedding_model_default(self):
         assert config.EMBEDDING_MODEL == "sentence-transformers/all-mpnet-base-v2"
 
@@ -103,18 +98,18 @@ class TestModuleReloadWithEnvOverrides:
         importlib.reload(config)
         assert config.BIB_FILE_PATH == config.REPO_ROOT / "/tmp/other.bib"
 
-    def test_grobid_url_env_override(self, monkeypatch):
-        monkeypatch.setenv("GROBID_URL", "http://example.invalid:9999")
+    def test_embedding_model_env_override(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_MODEL", "sentence-transformers/other-model")
         importlib.reload(config)
-        assert config.GROBID_URL == "http://example.invalid:9999"
+        assert config.EMBEDDING_MODEL == "sentence-transformers/other-model"
 
     def test_custom_config_path(self, monkeypatch, tmp_path):
         custom_toml = tmp_path / "custom.toml"
         custom_toml.write_text(
-            '[bib]\npath = "elsewhere.bib"\n[heavy]\ngrobid_url = "http://custom:1234"\n'
+            '[bib]\npath = "elsewhere.bib"\n[heavy]\nembedding_model = "custom/model"\n'
         )
         monkeypatch.setenv("CONFIG_PATH", str(custom_toml))
         importlib.reload(config)
         assert config.CONFIG_PATH == custom_toml
         assert config.BIB_FILE_PATH == config.REPO_ROOT / "elsewhere.bib"
-        assert config.GROBID_URL == "http://custom:1234"
+        assert config.EMBEDDING_MODEL == "custom/model"

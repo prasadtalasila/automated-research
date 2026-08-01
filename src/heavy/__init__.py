@@ -1,4 +1,4 @@
-"""Optional heavier pipeline: Docling -> GROBID -> sentence-transformers/Chroma
+"""Optional heavier pipeline: Docling -> sentence-transformers/Chroma
 -> BERTopic -> Pandoc/LaTeX.
 
 Most of what's in here needs pyproject.toml's "heavy" Poetry group

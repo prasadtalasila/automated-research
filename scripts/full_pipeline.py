@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """Orchestrates the full heavy pipeline:
 
-    Docling -> GROBID -> sentence-transformers/Chroma -> BERTopic
-    -> Pandoc/LaTeX
+    Docling -> sentence-transformers/Chroma -> BERTopic -> Pandoc/LaTeX
 
 One script for both the host and the Docker target (docker/Dockerfile) --
 the two don't need separate implementations. Each stage probes its own
-prerequisites (a reachable GROBID service, pandoc/pdflatex on PATH) and
-reports a real per-stage status instead of assuming the target implies
-availability. On a plain host that's missing Java/TeX Live, some stages
-report skipped/missing-binary -- that is a correct, honest result, not a
+prerequisites (pandoc/pdflatex on PATH) and reports a real per-stage
+status instead of assuming the target implies availability. On a plain
+host that's missing TeX Live, some stages report
+skipped/missing-binary -- that is a correct, honest result, not a
 bug in this script.
 
 Needs the venv populated by `poetry install --with heavy` (see
@@ -30,25 +29,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.heavy import corpus, docling_parse, embed_index, grobid_extract, render_output, topic_model
+from src.heavy import corpus, docling_parse, embed_index, render_output, topic_model
 from src import config
 
-STAGE_ORDER = ["docling", "grobid", "embed", "bertopic", "render"]
+STAGE_ORDER = ["docling", "embed", "bertopic", "render"]
 
 
 def stage_docling(docs, args):
     status = docling_parse.parse_corpus(docs)
     errors = {k: v for k, v in status.items() if v.startswith("error")}
     return {"status": "ok" if not errors else "partial", "detail": status}
-
-
-def stage_grobid(docs, args):
-    if not grobid_extract.is_available():
-        return {
-            "status": "skipped",
-            "detail": f"GROBID not reachable at {config.GROBID_URL} -- start it (docker/setup.sh, or standalone on the host; see README)",
-        }
-    return {"status": "ok", "detail": grobid_extract.extract_corpus(docs)}
 
 
 def stage_embed(docs, args):
@@ -71,7 +61,6 @@ def stage_render(docs, args):
 
 STAGE_FUNCS = {
     "docling": stage_docling,
-    "grobid": stage_grobid,
     "embed": stage_embed,
     "bertopic": stage_bertopic,
     "render": stage_render,
@@ -93,6 +82,14 @@ def parse_args():
 def main() -> int:
     args = parse_args()
     selected = set(args.stages.split(","))
+
+    # An unrecognized stage name would otherwise be a silent no-op: the
+    # loop below iterates STAGE_ORDER and skips anything not selected, so
+    # nothing ever reports that the name went unused. Say so instead --
+    # notably for `--stages grobid`, a stage this pipeline used to have.
+    unknown = sorted(selected - set(STAGE_ORDER))
+    if unknown:
+        print(f"WARNING: unknown stage(s) {', '.join(unknown)} -- known stages: {', '.join(STAGE_ORDER)}")
 
     docs = corpus.build_corpus()
     n_bib = sum(1 for d in docs if d.source == "bib")

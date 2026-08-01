@@ -59,9 +59,9 @@ jobs:
         shell: bash
         run: pip install poetry
 
-      # os-deps (apt-get: poppler-utils, TeX Live, Pandoc, JDK) is
+      # os-deps (apt-get: poppler-utils, TeX Live, Pandoc) is
       # Linux-only -- Windows gets the pure-Python python-deps stage
-      # only, so pdftotext/pandoc/pdflatex/GROBID-dependent tests
+      # only, so pdftotext/pandoc/pdflatex-dependent tests
       # self-skip there (DEVELOPER.md's "Running tests") rather than
       # this step failing outright.
       - name: Install Python dependencies (python-deps only -- os-deps is Linux/apt-only)

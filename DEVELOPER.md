@@ -3,8 +3,7 @@
 Material for working on this repository itself, as opposed to using it to
 draft content -- test running, the full source layout, and known gaps.
 See [README.md](README.md) for the user-facing Quickstart/Configuration/
-Architecture docs, [DOCKER.md](DOCKER.md) for the container build, and
-[GROBID.md](GROBID.md) for building GROBID standalone.
+Architecture docs and [DOCKER.md](DOCKER.md) for the container build.
 
 ## Table of contents
 
@@ -28,8 +27,8 @@ sentence-transformers) are mocked via `sys.modules` for fast,
 deterministic unit tests, so the
 `dev-deps` group alone is *not* enough on its own: the `heavy` group
 (`python-deps`, step 1 of Quickstart) must already be installed too, since
-`tests/test_heavy_grobid_extract.py` needs `requests` and
-`tests/test_bib_reader.py` needs `bibtexparser`. A handful of tests
+`tests/test_bib_reader.py` needs `bibtexparser` and the `src/heavy/` test
+modules need docling/chromadb/bertopic/sentence-transformers. A handful of tests
 (`tests/test_feature_workflows.py`, the `TestRenderReal`/`TestExtractTextReal`
 classes elsewhere) run the real `pdftotext`/`pandoc`/`pdflatex` binaries
 end to end rather than mocking them, and skip automatically if those
@@ -42,13 +41,12 @@ README.md                 you are here
 AGENTS.md                 instructions for coding agents working in this repo -- hard invariants, install
                           notes, dev process, commit/PR/release conventions
 DEVELOPER.md              this file -- test running, repo layout, open questions
-DOCKER.md                 running this repo in a container (docker/Dockerfile + docker/setup.sh)
-GROBID.md                 building/running GROBID standalone on a bare host, step by step
+DOCKER.md                 running this repo in a container (docker/Dockerfile)
 LICENSE                   MIT
 .github/workflows/        ci.yml (test suite + coverage + poetry check, on push/PR) and release.yml
                           (on a v* tag: verifies tag matches pyproject.toml's version, builds
                           scripts/release.py's zip, publishes it to a GitHub Release)
-config.toml               central config -- paths, GROBID URL/timeouts, embedding model (see README's "Configuration")
+config.toml               central config -- paths, parser backend, embedding model (see README's "Configuration")
 papers/                   gitignored, per-host data -- not shipped in the repo
   bibliography.bib          BibTeX export -- source of truth for citekeys/metadata (config.toml's [bib].path default)
   pdfs/                     [source_pdfs].dir default -- raw PDFs gathered outside the bib file, never citable;
@@ -75,10 +73,10 @@ src/                      core pipeline (needs bibtexparser; citation_gate/refer
   references.py             auto-generates a draft's "## References" section from its own cited citekeys
 src/heavy/                optional heavier pipeline (pyproject.toml's "heavy" Poetry group)
   corpus.py                 unifies ledger items + [source_pdfs].dir's raw PDFs (doc: prefixed, non-citable)
-  docling_parse.py, embed_index.py, topic_model.py, grobid_extract.py
+  docling_parse.py, embed_index.py, topic_model.py
   render_output.py          Pandoc/TeX Live rendering + standalone CLI -- stdlib-only, no heavy venv needed
 scripts/
-  install_full_pipeline.sh  single staged install path (os-deps/python-deps/grobid/dev-deps/all) for host + Docker
+  install_full_pipeline.sh  single staged install path (os-deps/python-deps/dev-deps/all) for host + Docker
   full_pipeline.py           orchestrates src/heavy/* stages
   verbatim_check.py          ad-hoc review aid: verbatim-overlap and page-locating checks against sources
   release.py                 bundles a distributable release/automated-research-<version>.zip, dev files excluded
@@ -91,7 +89,7 @@ content/                  generated, gitignored (regenerate with sync)
 .claude/hooks/            citation_gate_hook.py -- PostToolUse hook, mechanically enforces citation_gate on
                           every Write/Edit under content/drafts/*.md and *.tex (see AGENTS.md)
 .claude/settings.json     wires the hook above into the PostToolUse event
-docker/                   Dockerfile + setup.sh (GROBID/TeX Live/Pandoc/Poetry) -- unverified end-to-end, see DOCKER.md
+docker/                   Dockerfile (TeX Live/Pandoc/Poetry) -- unverified end-to-end, see DOCKER.md
 ```
 
 ## Open questions and unbuilt features
