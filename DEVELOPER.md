@@ -102,15 +102,17 @@ the following tasks need to be completed in priority order:
    continuous auto-export, `bibliography.bib` is a manual, point-in-time
    snapshot -- a cron job watching only its mtime does nothing until a
    human re-exports it.
-2. ~~The heavy stages have no incremental skip logic.~~ **Done for
-   embed/bertopic** (`src/heavy/embed_index.py`'s `build_index()` skips
-   `model.encode()` for docs whose text hash is unchanged since the last
-   call; `src/heavy/topic_model.py` caches per-doc whole-text embeddings
-   the same way, re-clustering the full corpus but only re-encoding
-   changed docs). **Docling is still not incremental** -- `full_pipeline.py
-   --stages docling` reprocesses every PDF on every call (373 seconds for
-   5 PDFs, documented above), the same problem this item originally
-   described, just not yet fixed for that one stage.
+2. ~~The heavy stages have no incremental skip logic.~~ **Done.**
+   `src/heavy/embed_index.py`'s `build_index()` skips `model.encode()`
+   for docs whose text hash is unchanged since the last call;
+   `src/heavy/topic_model.py` caches per-doc whole-text embeddings the
+   same way, re-clustering the full corpus but only re-encoding changed
+   docs. `src/heavy/docling_parse.py`'s `parse_doc()`/`parse_corpus()`
+   now skip a PDF whose `(size, mtime_ns)` is unchanged since the last
+   call (cached in `config.DOCLING_CACHE_PATH`) and whose output file
+   still exists -- closing the one stage this item used to call out as
+   still reprocessing every PDF on every call (373 seconds for 5 PDFs,
+   documented above).
 3. **No scheduling mechanism exists yet** -- no crontab entry, no systemd
    timer. Given `sync` is already cheap and idempotent, a stateless cron
    entry polling every N minutes is the right shape (survives reboots

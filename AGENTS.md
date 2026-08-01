@@ -168,12 +168,12 @@ reports honestly (`skipped`/`missing-binary`) rather than assuming the
 target implies availability -- don't "fix" a skip by hardcoding
 target-specific behavior; fix the probe if it's wrong.
 
-`src/heavy/embed_index.py` and `src/heavy/topic_model.py` are
-incremental, mirroring `src/ledger.py`'s own skip-what-hasn't-changed
-logic for the core pipeline: a doc whose text hasn't changed since the
-last run isn't re-embedded. Docling itself (`src/heavy/docling_parse.py`)
-is not yet incremental -- that's a known, open gap (DEVELOPER.md), not an
-oversight to silently work around.
+`src/heavy/embed_index.py`, `src/heavy/topic_model.py`, and
+`src/heavy/docling_parse.py` are all incremental, mirroring
+`src/ledger.py`'s own skip-what-hasn't-changed logic for the core
+pipeline: a doc whose text hasn't changed since the last run isn't
+re-embedded, and a PDF whose `(size, mtime_ns)` hasn't changed since the
+last run (`config.DOCLING_CACHE_PATH`) isn't re-parsed by Docling.
 
 No stage in this pipeline calls out to an LLM or needs an API key --
 Docling, GROBID, embeddings/Chroma, BERTopic, and the Pandoc/LaTeX render
