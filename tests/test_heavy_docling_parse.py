@@ -16,6 +16,12 @@ from src.heavy import docling_parse
 from src.heavy.corpus import CorpusDoc
 
 
+# Docling names artifacts image_<index>_<sha256>.png. The digest is
+# irrelevant to these tests, so a constant stand-in keeps the expected
+# filename readable in both the fake and the assertions.
+FAKE_IMAGE_NAME = "image_{i:06d}_" + "a" * 64 + ".png"
+
+
 class FakePicture:
     """Enough of a docling PictureItem for _figure_records: a caption and
     a page provenance.
@@ -55,9 +61,13 @@ class FakeDocument:
         artifacts = out.parent / f"{out.stem}_artifacts"
         body = self._markdown
         for i in range(len(self.pictures)):
-            body += f"\n\n![Image]({artifacts / f'image_{i:06d}_{"a" * 64}.png'})"
-        # NB: on Windows that interpolation yields backslashes, which is
-        # exactly the real behaviour the relativiser has to normalise.
+            # Built in two steps rather than as a nested f-string: PEP 701
+            # makes the nested form legal on this project's Python (^3.12),
+            # but it reads badly and is a syntax error on 3.11 and older.
+            filename = FAKE_IMAGE_NAME.format(i=i)
+            body += f"\n\n![Image]({artifacts / filename})"
+        # NB: on Windows that join yields backslashes, which is exactly
+        # the real behaviour the relativiser has to normalise.
         out.write_text(body)
 
 
@@ -237,7 +247,7 @@ class TestImageExtraction:
         raw = (images_on.DOCLING_DIR / "richstein_characterizing_2024.figures.json").read_text()
         assert "base64" not in raw
         records = json.loads(raw)
-        assert records[0]["image"] == f"richstein_characterizing_2024_artifacts/image_000000_{'a' * 64}.png"
+        assert records[0]["image"] == f"richstein_characterizing_2024_artifacts/{FAKE_IMAGE_NAME.format(i=0)}"
 
     def test_markdown_image_refs_are_relative_to_the_md(self, images_on, fake_docling, tmp_path):
         """Docling writes absolute paths, which bake this host's layout
