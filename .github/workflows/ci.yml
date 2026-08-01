@@ -13,7 +13,17 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    # windows-latest is exploratory (DESIGN.md's cross-platform-CI
+    # recommendation) -- this repo's install path and every doc
+    # (AGENTS.md, DEVELOPER.md) assume Linux, so don't let it block the
+    # Linux leg (this repo's actual gate) while real gaps get found and
+    # fixed one at a time instead of guessed at up front.
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -22,15 +32,29 @@ jobs:
       # steps here -- this is also, itself, a real end-to-end test that
       # the install script still works on a clean host.
       - name: Install OS + Python dependencies (os-deps + python-deps)
+        if: runner.os == 'Linux'
         run: bash scripts/install_full_pipeline.sh all
 
+      # os-deps (apt-get: poppler-utils, TeX Live, Pandoc, JDK) is
+      # Linux-only -- Windows gets the pure-Python python-deps stage
+      # only, so pdftotext/pandoc/pdflatex/GROBID-dependent tests
+      # self-skip there (DEVELOPER.md's "Running tests") rather than
+      # this step failing outright.
+      - name: Install Python dependencies (python-deps only -- os-deps is Linux/apt-only)
+        if: runner.os != 'Linux'
+        shell: bash
+        run: bash scripts/install_full_pipeline.sh python-deps
+
       - name: Install dev dependencies (pytest/pytest-cov)
+        shell: bash
         run: bash scripts/install_full_pipeline.sh dev-deps
 
       - name: Run test suite with coverage
+        shell: bash
         run: .venv-full/bin/python -m pytest --cov=src --cov=scripts --cov-report=term-missing
 
       - name: poetry check
+        shell: bash
         run: |
           export VIRTUAL_ENV="$PWD/.venv-full"
           poetry check
