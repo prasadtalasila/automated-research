@@ -128,9 +128,16 @@ Two details worth knowing about that `cite` string:
   too -- on a real 17-page MDPI paper, 6 of the 13 extracted pictures
   were furniture rather than figures -- so the Nth picture is routinely
   not the paper's Figure N.
+- The number is captured *whole*, including chapter-scoped forms
+  (`Fig. 1.1` ... `Fig. 1.4`, the convention in edited book chapters)
+  and sub-figure letters (`Figure 2a`). Matching only the leading
+  integer would collapse a chapter's four distinct figures onto one
+  `Figure 1` -- a citation pointing at the wrong picture.
 - A picture whose caption carries no number is cited by page instead
   (`"the figure on p.1 of [@key]"`), rather than being given a number
-  this repo would have to invent.
+  this repo would have to invent. Two panels of one figure (captions
+  beginning `(a)` / `(b)`) therefore share a page-based citation; that
+  is the fallback behaving correctly, not a collision.
 
 For a `[source_pdfs]` document the `cite` string is deliberately *not* a
 `[@citekey]`, since those documents are outside the bib file and can

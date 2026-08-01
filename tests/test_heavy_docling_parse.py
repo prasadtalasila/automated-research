@@ -175,6 +175,43 @@ class TestImageExtraction:
         assert records[0]["caption"] == "Figure 3. Sensor placement"
         assert records[0]["image"] == "a_artifacts/img3.png"
 
+    @pytest.mark.parametrize("caption,expected", [
+        # Chapter-scoped numbering. Real captions from
+        # larsen_engineering_2024, which first exposed this: matching only
+        # the leading integer collapsed all four onto "Fig 1".
+        ("Fig. 1.1: A CPS composed of Physical and Computational parts", "Figure 1.1"),
+        ("Fig. 1.2: Overview of a DT-Enabled System concept.", "Figure 1.2"),
+        ("Fig. 1.4: Fields related to Digital Twins.", "Figure 1.4"),
+        # Plain, sub-figure, deeper nesting, and the other label words.
+        ("Figure 3. Sensor placement", "Figure 3"),
+        ("Figure 2a. Detail view", "Figure 2a"),
+        ("Fig 10.2.3 Something nested", "Figure 10.2.3"),
+        ("Table 2: Comparison of approaches", "Table 2"),
+        ("Scheme 4 - reaction pathway", "Scheme 4"),
+    ])
+    def test_caption_number_is_captured_whole(self, images_on, fake_docling, tmp_path, caption, expected):
+        FakeDocumentConverter.pictures = [FakePicture(caption, page=3)]
+        docling_parse.parse_doc(self._doc(tmp_path))
+
+        records = json.loads(
+            (images_on.DOCLING_DIR / "richstein_characterizing_2024.figures.json").read_text()
+        )
+        assert records[0]["cite"] == f"{expected} of [@richstein_characterizing_2024], p.3"
+
+    def test_distinct_subfigures_do_not_collapse_onto_one_number(self, images_on, fake_docling, tmp_path):
+        """The actual regression: four figures, four distinct citations."""
+        FakeDocumentConverter.pictures = [
+            FakePicture(f"Fig. 1.{n}: caption {n}", page=n + 2) for n in (1, 2, 3, 4)
+        ]
+        docling_parse.parse_doc(self._doc(tmp_path))
+
+        records = json.loads(
+            (images_on.DOCLING_DIR / "richstein_characterizing_2024.figures.json").read_text()
+        )
+        cites = [r["cite"] for r in records]
+        assert len(set(cites)) == 4, cites
+        assert "Figure 1.3 of [@richstein_characterizing_2024], p.5" in cites
+
     def test_uncaptioned_picture_is_cited_by_page_not_an_invented_number(
         self, images_on, fake_docling, tmp_path
     ):

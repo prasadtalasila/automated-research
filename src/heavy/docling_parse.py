@@ -111,12 +111,21 @@ def _save_cache(cache: dict) -> None:
         )
 
 
-# Leading "Figure 3." / "Fig. 3" / "Table 2:" in a caption -- the
+# Leading "Figure 3." / "Fig. 1.1" / "Table 2:" in a caption -- the
 # paper's *own* numbering, which is the only trustworthy source for it.
 # Docling's picture order can't stand in: publisher logos and licence
 # badges are pictures too (3 of the first 3 on a real MDPI paper), so
 # the Nth picture is routinely not the paper's Figure N.
-_CAPTION_LABEL_RE = re.compile(r"^\s*(Figure|Fig\.?|Table|Scheme)\s*(\d+)", re.IGNORECASE)
+#
+# The number has to be captured whole. Chapter-scoped numbering ("Fig.
+# 1.1" ... "Fig. 1.4", the convention in every edited book chapter in
+# this corpus) and sub-figures ("Figure 2a") are both common, and
+# matching only the leading integer collapses all four of that chapter's
+# distinct figures onto a single "Fig 1" -- a citation that points at
+# the wrong picture, which is worse than declining to number it.
+_CAPTION_LABEL_RE = re.compile(
+    r"^\s*(Figure|Fig\.?|Table|Scheme)\s*(\d+(?:\.\d+)*[a-z]?)\b", re.IGNORECASE
+)
 
 
 def _build_converter():
@@ -154,8 +163,12 @@ def _figure_records(doc: CorpusDoc, dl_doc) -> list[dict]:
         label_match = _CAPTION_LABEL_RE.match(caption)
         ref = f"[@{doc.citekey}]" if doc.citekey else f"({doc.doc_id} -- not citable)"
         if label_match:
-            label = f"{label_match.group(1).rstrip('.')} {label_match.group(2)}"
-            cite = f"{label} of {ref}" + (f", p.{page}" if page else "")
+            kind = label_match.group(1).rstrip(".")
+            # "Fig"/"Fig." -> "Figure", so the citation reads the way a
+            # reader would write it, rather than echoing the source's
+            # abbreviation into the middle of a sentence.
+            kind = "Figure" if kind.lower().startswith("fig") else kind.capitalize()
+            cite = f"{kind} {label_match.group(2)} of {ref}" + (f", p.{page}" if page else "")
         else:
             cite = (f"the figure on p.{page} of {ref}" if page
                     else f"an unplaced figure in {ref}")
