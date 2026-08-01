@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Single install path for both a bare host and the Docker image -- one
-# source of truth for how every dependency gets installed (OS packages,
-# GROBID, and the Python venv), so a fix discovered on one target
+# source of truth for how every dependency gets installed (OS packages
+# and the Python venv), so a fix discovered on one target
 # automatically applies to both, instead of drifting between a hand-run
 # host command and separate Dockerfile RUN lines.
 #
@@ -14,11 +14,9 @@
 #                only -- package-mode = false in pyproject.toml, nothing
 #                is published or pip-installable from this repo.
 #   os-deps      -- apt-get the system packages the heavy pipeline needs
-#                (JDK 21, TeX Live, Pandoc, poppler-utils, Poetry itself,
+#                (TeX Live, Pandoc, poppler-utils, Poetry itself,
 #                git/curl/unzip). Needs root; auto-sudo's if not already
 #                root. Opt-in -- not everyone wants this script touching apt.
-#   grobid       -- fetch + build GROBID standalone (multi-GB, slow).
-#                Opt-in and not part of `all` for the same reason.
 #   dev-deps     -- `poetry install --with dev` (pytest, pytest-cov) into
 #                the same venv as python-deps. Only needed to run the
 #                test suite, not the pipeline itself -- opt-in, and not
@@ -27,14 +25,13 @@
 #
 # Host usage:
 #   bash scripts/install_full_pipeline.sh all
-#   bash scripts/install_full_pipeline.sh grobid     # optional, heavy
 #   bash scripts/install_full_pipeline.sh dev-deps   # optional, to run tests
 #   then: .venv-full/bin/python -m src.sync
 #         .venv-full/bin/python scripts/full_pipeline.py
 #         .venv-full/bin/python -m pytest
 #
 # Docker usage: docker/Dockerfile calls this once per stage as separate
-# RUN lines (os-deps, grobid, then python-deps with SKIP_VENV=1 into the
+# RUN lines (os-deps, then python-deps with SKIP_VENV=1 into the
 # /opt/venv it creates) so each stage is its own cached layer -- editing
 # later Dockerfile content or repo files doesn't force earlier ones to
 # rebuild.
@@ -54,8 +51,6 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-GROBID_VERSION="${GROBID_VERSION:-0.9.0}"
-GROBID_DIR="${GROBID_DIR:-$HOME/grobid-${GROBID_VERSION}}"
 
 sudo_if_needed() {
     if [ "$(id -u)" = "0" ]; then
@@ -70,14 +65,13 @@ sudo_if_needed() {
 }
 
 install_os_deps() {
-    echo "Installing OS packages (JDK 21, TeX Live, Pandoc, poppler-utils, Poetry) ..."
+    echo "Installing OS packages (TeX Live, Pandoc, poppler-utils, Poetry) ..."
     sudo_if_needed apt-get update
     sudo_if_needed apt-get install -y --no-install-recommends \
         python3 python3-venv python3-pip \
         python3-poetry \
         poppler-utils \
         git curl ca-certificates unzip zip \
-        openjdk-21-jdk-headless \
         pandoc \
         texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended latexmk \
         lmodern
@@ -90,12 +84,12 @@ install_os_deps() {
     # texlive-latex-recommended pulls in the latter but not the former.
     # Pandoc's default LaTeX template \usepackage{lmodern}s unconditionally,
     # so without it every pandoc/pdflatex render fails with "File
-    # `lmodern.sty' not found", not a docling/GROBID-side problem. Found
+    # `lmodern.sty' not found", not a docling-side problem. Found
     # by hand rendering a real draft after the rest of the toolchain
     # reported fine.
-    # zip: scripts/release.py itself only needs stdlib zipfile, not this
-    # binary -- it's here so a human can inspect/repack a release archive
-    # by hand (unzip was already required for GROBID's own extraction).
+    # zip/unzip: scripts/release.py itself only needs stdlib zipfile,
+    # not these binaries -- they're here so a human can inspect/repack a
+    # release archive by hand.
 }
 
 check_poetry() {
@@ -249,86 +243,6 @@ ensure_gpu_torch() {
     (cd "$REPO_ROOT" && poetry install --with heavy)
 }
 
-# GROBID's build.gradle pins a Java 21 toolchain, and its bundled Kotlin
-# compiler (2.0.21) throws `IllegalArgumentException: 25.0.3` trying to
-# parse a JDK 25 version string -- it predates JDK 25's existence.
-# Discovered by hand the slow way (install 25, watch the build fail deep
-# inside the Kotlin compiler, reinstall 21); checking up front turns that
-# into one clear line of output instead.
-check_java21() {
-    if ! command -v java >/dev/null 2>&1; then
-        echo "java not found. Run '$0 os-deps' first, or install a JDK 21 manually." >&2
-        exit 1
-    fi
-    if ! command -v javac >/dev/null 2>&1; then
-        echo "javac not found -- you have a JRE, not a JDK. GROBID compiles" >&2
-        echo "Kotlin/Java from source and needs a full JDK, not just a JRE." >&2
-        exit 1
-    fi
-    local ver
-    ver="$(java -version 2>&1 | head -1 | grep -oE '"[0-9]+' | tr -d '"')"
-    if [ "$ver" != "21" ]; then
-        echo "java is version ${ver:-unknown}, but GROBID needs exactly JDK 21" >&2
-        echo "(not whatever's newest): its build.gradle pins a Java 21" >&2
-        echo "toolchain, and its bundled Kotlin compiler (2.0.21) cannot parse" >&2
-        echo "a non-21 (e.g. JDK 25) version string." >&2
-        local jdk21
-        jdk21="$(ls -d /usr/lib/jvm/*21* 2>/dev/null | head -1)"
-        if [ -n "$jdk21" ]; then
-            echo "A JDK 21 looks already installed at ${jdk21} -- it's just not" >&2
-            echo "the default 'java'. Either of these fixes it (don't need both):" >&2
-            echo "  sudo update-alternatives --config java   # changes the system default" >&2
-            echo "  echo 'org.gradle.java.home=${jdk21}' >> ${GROBID_DIR}/gradle.properties   # scoped to this GROBID checkout only" >&2
-        else
-            echo "Install JDK 21 specifically, e.g.:" >&2
-            echo "  sudo apt-get install -y openjdk-21-jdk-headless" >&2
-        fi
-        exit 1
-    fi
-}
-
-install_grobid() {
-    if ! command -v curl >/dev/null 2>&1 || ! command -v unzip >/dev/null 2>&1; then
-        echo "curl and unzip are required to fetch GROBID. Run '$0 os-deps'" >&2
-        echo "first, or install them manually." >&2
-        exit 1
-    fi
-    check_java21
-
-    if [ -x "${GROBID_DIR}/gradlew" ]; then
-        echo "GROBID source already present at ${GROBID_DIR}, skipping fetch."
-    else
-        echo "Fetching GROBID ${GROBID_VERSION} from grobidOrg/grobid ..."
-        mkdir -p "${GROBID_DIR}"
-        curl -fsSL -o /tmp/grobid.zip \
-            "https://github.com/grobidOrg/grobid/archive/refs/tags/${GROBID_VERSION}.zip"
-        # unzip has no tar-style --strip-components: passing it as an
-        # unzip flag is silently treated as a filename filter that
-        # matches nothing, so it extracts zero files (found by hand: the
-        # first cut of this line "succeeded" but left GROBID_DIR empty).
-        # GitHub's source zip wraps everything in one top-level
-        # "grobid-<version>/" dir, so extract to a scratch dir and move
-        # its contents up into GROBID_DIR ourselves.
-        local tmp_extract
-        tmp_extract="$(mktemp -d)"
-        unzip -q /tmp/grobid.zip -d "$tmp_extract"
-        shopt -s dotglob
-        mv "$tmp_extract"/*/* "${GROBID_DIR}/"
-        shopt -u dotglob
-        rm -rf "$tmp_extract" /tmp/grobid.zip
-    fi
-
-    echo "Building GROBID (first run only; this step is what's slow/multi-GB) ..."
-    (cd "${GROBID_DIR}" && ./gradlew clean build -x test)
-
-    echo
-    echo "Built. GROBID_DIR=${GROBID_DIR}"
-    echo "Start it with:"
-    echo "  (cd ${GROBID_DIR} && ./gradlew run)"
-    echo "-- or build+run the standalone distribution; see README's"
-    echo "'Building GROBID standalone' section for that recipe."
-}
-
 install_dev_deps() {
     check_poetry
     local venv_dir="${VENV_DIR:-$REPO_ROOT/.venv-full}"
@@ -363,12 +277,11 @@ for stage in "${STAGES[@]}"; do
     case "$stage" in
         os-deps) install_os_deps ;;
         python-deps) install_python_deps ;;
-        grobid) install_grobid ;;
         dev-deps) install_dev_deps ;;
         all) install_os_deps; install_python_deps ;;
         *)
             echo "Unknown stage: $stage" >&2
-            echo "Expected one of: os-deps, python-deps, grobid, dev-deps, all" >&2
+            echo "Expected one of: os-deps, python-deps, dev-deps, all" >&2
             exit 1
             ;;
     esac

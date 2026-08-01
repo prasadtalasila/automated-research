@@ -1,10 +1,10 @@
 """src/pdf_text.py: dispatches PDF text extraction to whichever backend
-config.PARSER names (pdftotext/markitdown/docling).
+config.PARSER names (pdftotext/docling).
 
-markitdown and docling are mocked via sys.modules (both are imported
-lazily inside their _extract_* function, not at module top), matching
+docling is mocked via sys.modules (it is imported
+lazily inside its _extract_* function, not at module top), matching
 tests/test_heavy_docling_parse.py's pattern -- fast, deterministic, and
-doesn't need the real packages installed.
+doesn't need the real package installed.
 """
 
 import importlib.machinery
@@ -70,71 +70,6 @@ class TestExtractTextPdftotext:
 
         monkeypatch.setattr(subprocess, "run", fake_run)
         with pytest.raises(pdf_text.ExtractionError, match="bad PDF"):
-            pdf_text.extract_text(str(tmp_path / "in.pdf"), "key")
-
-
-class FakeMarkItDownException(Exception):
-    pass
-
-
-class FakeMarkItDownResult:
-    def __init__(self, text):
-        self.text_content = text
-
-
-class FakeMarkItDown:
-    last_convert_path = None
-
-    def convert(self, pdf_path):
-        FakeMarkItDown.last_convert_path = pdf_path
-        if "explode" in str(pdf_path):
-            raise FakeMarkItDownException("simulated markitdown failure")
-        return FakeMarkItDownResult(f"Parsed content of {pdf_path}")
-
-
-@pytest.fixture
-def fake_markitdown(monkeypatch):
-    FakeMarkItDown.last_convert_path = None
-    fake_module = types.ModuleType("markitdown")
-    fake_module.MarkItDown = FakeMarkItDown
-    fake_module.MarkItDownException = FakeMarkItDownException
-    # importlib.util.find_spec("markitdown") (is_available()'s probe)
-    # raises ValueError if the name is already in sys.modules with no
-    # __spec__ set -- a bare types.ModuleType() has none, unlike a
-    # normally-imported module.
-    fake_module.__spec__ = importlib.machinery.ModuleSpec("markitdown", loader=None)
-    monkeypatch.setitem(sys.modules, "markitdown", fake_module)
-    monkeypatch.setattr(config, "PARSER", "markitdown")
-    return FakeMarkItDown
-
-
-class TestExtractTextMarkitdown:
-    def test_writes_text_content(self, isolated_config, fake_markitdown, tmp_path):
-        pdf = tmp_path / "paper.pdf"
-        result = pdf_text.extract_text(str(pdf), "smith_2024")
-
-        assert result == isolated_config.PARSED_DIR / "smith_2024.txt"
-        assert "Parsed content" in result.read_text()
-        assert FakeMarkItDown.last_convert_path == str(pdf)
-
-    def test_backend_exception_becomes_extraction_error(self, isolated_config, fake_markitdown, tmp_path):
-        pdf = tmp_path / "explode.pdf"
-        with pytest.raises(pdf_text.ExtractionError, match="simulated markitdown failure"):
-            pdf_text.extract_text(str(pdf), "key")
-
-    def test_broken_transitive_dependency_becomes_missing_dependency(
-        self, isolated_config, monkeypatch, tmp_path
-    ):
-        """The package is findable (is_available()'s find_spec probe
-        passes -- unlike TestExtractTextMissingDependency's case) but a
-        broken transitive dependency makes the actual `from markitdown
-        import ...` fail anyway (PR #11 review)."""
-        monkeypatch.setattr(config, "PARSER", "markitdown")
-        broken_module = types.ModuleType("markitdown")  # no MarkItDown attribute
-        broken_module.__spec__ = importlib.machinery.ModuleSpec("markitdown", loader=None)
-        monkeypatch.setitem(sys.modules, "markitdown", broken_module)
-
-        with pytest.raises(pdf_text.MissingDependency, match="markitdown"):
             pdf_text.extract_text(str(tmp_path / "in.pdf"), "key")
 
 
@@ -237,16 +172,6 @@ class TestIsAvailable:
         monkeypatch.setattr(shutil, "which", lambda name: None)
         assert pdf_text.is_available() is False
 
-    def test_true_when_markitdown_importable(self, monkeypatch):
-        monkeypatch.setattr(config, "PARSER", "markitdown")
-        monkeypatch.setattr(pdf_text.importlib.util, "find_spec", lambda name: object())
-        assert pdf_text.is_available() is True
-
-    def test_false_when_markitdown_not_importable(self, monkeypatch):
-        monkeypatch.setattr(config, "PARSER", "markitdown")
-        monkeypatch.setattr(pdf_text.importlib.util, "find_spec", lambda name: None)
-        assert pdf_text.is_available() is False
-
     def test_true_when_docling_importable(self, monkeypatch):
         monkeypatch.setattr(config, "PARSER", "docling")
         monkeypatch.setattr(pdf_text.importlib.util, "find_spec", lambda name: object())
@@ -262,10 +187,6 @@ class TestUnavailableReason:
     def test_pdftotext_mentions_poppler(self, monkeypatch):
         monkeypatch.setattr(config, "PARSER", "pdftotext")
         assert "poppler-utils" in pdf_text.unavailable_reason()
-
-    def test_markitdown_mentions_heavy_group(self, monkeypatch):
-        monkeypatch.setattr(config, "PARSER", "markitdown")
-        assert "poetry install --with heavy" in pdf_text.unavailable_reason()
 
     def test_docling_mentions_heavy_group(self, monkeypatch):
         monkeypatch.setattr(config, "PARSER", "docling")
@@ -301,12 +222,6 @@ class TestExtractTextMissingBinary:
 
 
 class TestExtractTextMissingDependency:
-    def test_raises_missing_dependency_for_markitdown(self, isolated_config, monkeypatch, tmp_path):
-        monkeypatch.setattr(config, "PARSER", "markitdown")
-        monkeypatch.setattr(pdf_text.importlib.util, "find_spec", lambda name: None)
-        with pytest.raises(pdf_text.MissingDependency, match="markitdown"):
-            pdf_text.extract_text(str(tmp_path / "in.pdf"), "key")
-
     def test_raises_missing_dependency_for_docling(self, isolated_config, monkeypatch, tmp_path):
         monkeypatch.setattr(config, "PARSER", "docling")
         monkeypatch.setattr(pdf_text.importlib.util, "find_spec", lambda name: None)
@@ -344,31 +259,60 @@ class TestExtractTextReal:
         assert "real test PDF" in result.read_text()
 
 
-class TestExtractTextRealMarkitdown:
-    """Not gated behind pdftotext's own skipif (a separate class from
-    TestExtractTextReal, not just a method on it) -- this needs
-    markitdown/pandoc/pdflatex, not pdftotext, and shouldn't skip on a
-    host that has the former but not the latter."""
 
-    def test_real_markitdown_on_a_real_pdf(self, isolated_config, monkeypatch, tmp_path):
-        """Regression coverage for pyproject.toml's markitdown comment:
-        this is what makes that "installed and functionally checked"
-        claim reproducible instead of only true in one shell session."""
-        pytest.importorskip("markitdown")
-        pandoc = shutil.which("pandoc")
-        pdflatex = shutil.which("pdflatex")
-        if not pandoc or not pdflatex:
-            pytest.skip("pandoc/pdflatex not installed -- can't generate a fixture PDF")
 
-        md = tmp_path / "doc.md"
-        md.write_text("# Hello\n\nThis is a real test PDF.\n")
-        pdf = tmp_path / "doc.pdf"
-        subprocess.run(
-            ["pandoc", str(md), "-o", str(pdf), "--pdf-engine=pdflatex"],
-            check=True, capture_output=True,
-        )
+class TestParseQualityGuard:
+    """The guard exists because a backend that fuses words together is
+    invisible in a spot check but silently breaks retrieval: BM25
+    tokenizes on whitespace, so a query term inside a fused run can
+    never match. Ratios below come from this repo's own corpus."""
 
-        monkeypatch.setattr(config, "PARSER", "markitdown")
-        result = pdf_text.extract_text(str(pdf), "real_markitdown_key")
-        assert result.exists()
-        assert "real test PDF" in result.read_text()
+    HEALTHY = " ".join(["the quick brown fox jumps over a lazy dog"] * 40)
+
+    def test_clean_text_produces_no_warning(self, isolated_config):
+        assert pdf_text.quality_warning(self.HEALTHY) is None
+
+    def test_fused_words_produce_a_warning(self, isolated_config):
+        fused = self.HEALTHY + " " + " ".join(["isaninputtooranoutputfromafunction"] * 30)
+        warning = pdf_text.quality_warning(fused)
+        assert warning is not None
+        assert "losing spaces" in warning
+
+    def test_short_documents_are_not_judged(self, isolated_config):
+        """Below min_tokens the ratio is noise -- a cover page or a scan
+        that yielded almost nothing shouldn't be reported as broken."""
+        assert pdf_text.quality_warning("averyverylongfusedtokenindeedyes short") is None
+
+    def test_empty_text_is_not_a_crash(self, isolated_config):
+        assert pdf_text.run_together_ratio("") == (0.0, 0)
+        assert pdf_text.quality_warning("") is None
+
+    def test_ratio_counts_only_alphabetic_runs(self, isolated_config):
+        """DOIs, URLs and long digit strings are legitimately long and
+        must not be mistaken for fused words."""
+        digits = " ".join(["10.1000/abcd1234567890123456789"] * 60)
+        ratio, total = pdf_text.run_together_ratio(digits)
+        assert ratio == 0.0
+        assert total > 0
+
+    def test_counts_non_ascii_letters_as_letters(self, isolated_config):
+        """This corpus is full of names like Schroder-with-an-umlaut and
+        Greek in formulae. An ASCII-only pattern splits those into short
+        pieces, which both hides real fusion and shrinks the token count
+        toward min_tokens until the guard stops judging the document."""
+        text = " ".join(["Schr\u00f6der", "W\u00fcllnerstra\u00dfe", "\u03b1\u03b2\u03b3\u03b4"] * 100)
+        ratio, total = pdf_text.run_together_ratio(text)
+
+        assert total == 300, "accented and Greek words must count as single tokens"
+        assert ratio == 0.0
+
+    def test_fusion_is_still_detected_in_non_ascii_text(self, isolated_config):
+        fused = " ".join(["\u00fcbersetzungsfehlerbeispielwortkette"] * 250)
+        assert pdf_text.quality_warning(fused) is not None
+
+    def test_threshold_is_configurable(self, isolated_config, monkeypatch):
+        fused = " ".join(["averylongfusedtokenhere"] * 5 + ["ok"] * 295)
+        monkeypatch.setattr(isolated_config, "PARSE_LONG_WORD_RATIO", 0.5)
+        assert pdf_text.quality_warning(fused) is None
+        monkeypatch.setattr(isolated_config, "PARSE_LONG_WORD_RATIO", 0.001)
+        assert pdf_text.quality_warning(fused) is not None

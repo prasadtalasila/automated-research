@@ -78,6 +78,82 @@ class TestPdfPath:
         )
         assert vc.pdf_path("smith_2024") is None
 
+    def test_field_after_a_multiline_value_is_still_found(self, fixture_repo):
+        """The second regression: bib_entry() stopped at the first "\\n}".
+        A field whose closing brace sits at the start of a line -- an
+        `annote` holding a URL is the real case -- truncated the entry
+        there, hiding every later field including `file`. Braces are
+        balanced; only the naive delimiter search was fooled. Cost 40
+        papers, each of which did have a PDF on disk.
+        """
+        pdf = fixture_repo / "paper.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        vc.BIB.write_text(
+            "@article{smith_2024,\n"
+            "\ttitle = {T},\n"
+            "\tannote = {codebase: https://example.invalid/x\n"
+            "},\n"
+            "\tfile = {paper.pdf:paper.pdf:application/pdf},\n"
+            "}\n"
+        )
+        assert "file =" in vc.bib_entry("smith_2024")
+        assert vc.pdf_path("smith_2024") == pdf
+
+    def test_html_attachment_before_pdf_still_finds_the_pdf(self, fixture_repo):
+        """Mirrors the real export: an arXiv HTML snapshot is listed
+        first, the PDF second."""
+        sub = fixture_repo / "pdfs" / "159"
+        sub.mkdir(parents=True)
+        pdf = sub / "Lu et al. - 2023 - EvoCLINICAL.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        vc.BIB.write_text(
+            "@article{smith_2024,\n\tfile = {arXiv.org Snapshot:pdfs/158/2309.html:text/html;"
+            "Submitted Version:pdfs/159/Lu et al. - 2023 - EvoCLINICAL.pdf:application/pdf},\n}\n"
+        )
+        assert vc.pdf_path("smith_2024") == pdf
+
+    def test_unbalanced_braces_returns_what_it_has(self, fixture_repo):
+        """A truncated/corrupt .bib shouldn't hang or raise -- hand back
+        the remainder and let the caller find no `file` field."""
+        vc.BIB.write_text("@article{smith_2024,\n\ttitle = {T},\n")
+        assert vc.bib_entry("smith_2024").startswith("@article{smith_2024,")
+        assert vc.pdf_path("smith_2024") is None
+
+    def test_description_differs_from_path(self, fixture_repo):
+        """The regression: this project's export writes
+        `Desc.pdf:real/path.pdf:application/pdf`. Taking the first
+        segment ending in `.pdf` picks the description, which only
+        resolves when it coincides with the path -- as it does in a flat
+        fixture dir, which is why every other test here missed this.
+        Lost 196 of 501 real PDFs."""
+        sub = fixture_repo / "pdfs" / "21"
+        sub.mkdir(parents=True)
+        pdf = sub / "Smith - 2024 - Title.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        vc.BIB.write_text(
+            "@article{smith_2024,\n  title = {T},\n"
+            "  file = {Smith - 2024 - Title.pdf:pdfs/21/Smith - 2024 - Title.pdf:application/pdf},\n}\n"
+        )
+        assert vc.pdf_path("smith_2024") == pdf
+
+    def test_absolute_path_in_file_field(self, fixture_repo, tmp_path):
+        pdf = tmp_path / "abs.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        vc.BIB.write_text(
+            "@article{smith_2024,\n  title = {T},\n"
+            f"  file = {{abs.pdf:{pdf}:application/pdf}},\n}}\n"
+        )
+        assert vc.pdf_path("smith_2024") == pdf
+
+    def test_malformed_attachment_segment_is_skipped(self, fixture_repo):
+        pdf = fixture_repo / "paper.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        vc.BIB.write_text(
+            "@article{smith_2024,\n  title = {T},\n"
+            "  file = {junk;paper.pdf:paper.pdf:application/pdf},\n}\n"
+        )
+        assert vc.pdf_path("smith_2024") == pdf
+
     def test_resolves_relative_to_bib_file_directory_not_repo_root(self, tmp_path, monkeypatch):
         # Regression: a relative attachment path must be anchored to
         # wherever BIB (== config.BIB_FILE_PATH, honoring a BIB_FILE

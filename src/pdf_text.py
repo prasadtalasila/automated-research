@@ -1,20 +1,24 @@
 """PDF text extraction: dispatches to whichever backend config.PARSER
 names (config.toml's [parser].backend, or the PARSER env var) --
-"pdftotext" (default), "markitdown", or "docling". All three write into
+"pdftotext" (default) or "docling". Both write into
 the same place, content/parsed/<citekey>.txt, so every downstream
 consumer (src/ledger.py, src/retrieval.py, scripts/verbatim_check.py)
 stays backend-agnostic; only this module needs to know which one is
 configured.
 
-pdftotext is the only backend with no Python dependency (a subprocess
-call to poppler-utils) and the only one whose output has page
-boundaries (form-feed characters between pages) -- markitdown and
-docling both produce one continuous document. See config.toml's
-[parser] comment for the full tradeoffs (speed, page-boundary loss)
-before switching off the default.
+pdftotext has no Python dependency (a subprocess call to poppler-utils)
+and is the only backend whose output has page boundaries (form-feed
+characters between pages) -- docling produces one continuous document.
+See config.toml's [parser] comment for the full tradeoffs (speed,
+page-boundary loss) before switching off the default.
+
+The dispatch is deliberately a table rather than an if/else: adding a
+backend is a `_extract_*` function plus one `_EXTRACTORS` entry, and
+markitdown was removed through the same seam (see PDF-PARSER.md for why).
 """
 
 import importlib.util
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -34,7 +38,7 @@ class MissingBinary(BackendUnavailable):
 
 
 class MissingDependency(BackendUnavailable):
-    """markitdown/docling specifically isn't installed (not on PATH --
+    """docling specifically isn't installed (not on PATH --
     a Python package, via pyproject.toml's "heavy" Poetry group)."""
 
 
@@ -46,11 +50,6 @@ _INSTALL_HINT = {
     "pdftotext": (
         "'pdftotext' not found on PATH. Install poppler-utils "
         "(scripts/install_full_pipeline.sh os-deps) to extract PDF text with it."
-    ),
-    "markitdown": (
-        "the 'markitdown' package isn't usable (not installed, or a "
-        "transitive dependency is broken). Run 'poetry install --with heavy' "
-        "(scripts/install_full_pipeline.sh python-deps) to extract PDF text with it."
     ),
     "docling": (
         "the 'docling' package isn't usable (not installed, or a "
@@ -80,7 +79,7 @@ def unavailable_reason() -> str:
     usable right now, and how to fix it. Meaningful when is_available()
     is False, and also reused as MissingDependency's message when a
     backend's import fails despite that probe passing (a broken
-    transitive dependency -- see _extract_markitdown/_extract_docling)."""
+    transitive dependency -- see _extract_docling)."""
     _check_parser(config.PARSER)
     return _INSTALL_HINT[config.PARSER]
 
@@ -104,26 +103,6 @@ def _extract_pdftotext(pdf_path: str, out_path: Path) -> None:
         raise ExtractionError(exc.stderr or str(exc)) from exc
 
 
-def _extract_markitdown(pdf_path: str, out_path: Path) -> None:
-    # is_available()'s importlib.util.find_spec("markitdown") only checks
-    # that the package can be *found*, not that this specific import
-    # succeeds -- a broken transitive dependency (partially-installed
-    # heavy group) can still make this raise ImportError even though the
-    # up-front probe passed (PR #11 review). Caught here rather than left
-    # to escape as an uncaught traceback, the one failure mode probing
-    # exists to prevent in the first place.
-    try:
-        from markitdown import MarkItDown, MarkItDownException
-    except ImportError as exc:
-        raise MissingDependency(unavailable_reason()) from exc
-
-    try:
-        result = MarkItDown().convert(pdf_path)
-    except MarkItDownException as exc:
-        raise ExtractionError(str(exc)) from exc
-    out_path.write_text(result.text_content, encoding="utf-8")
-
-
 def _extract_docling(pdf_path: str, out_path: Path) -> None:
     try:
         from docling.document_converter import DocumentConverter
@@ -141,9 +120,64 @@ def _extract_docling(pdf_path: str, out_path: Path) -> None:
 
 _EXTRACTORS = {
     "pdftotext": _extract_pdftotext,
-    "markitdown": _extract_markitdown,
     "docling": _extract_docling,
 }
+
+# A "word" for the run-together check below. Letters only: digits and
+# punctuation produce long runs legitimately (DOIs, URLs, base64-ish
+# identifiers, table rules) and would otherwise dominate the count.
+#
+# `[^\W\d_]` is "word character, but not a digit or underscore" -- i.e.
+# any Unicode letter. Spelling it `[A-Za-z]` would silently split
+# accented and non-Latin words ("Schroder" + "der" out of "Schröder"),
+# which both hides real fusion, since a fused run containing an accent
+# gets broken into short pieces, and shrinks the token count toward
+# PARSE_MIN_TOKENS on non-English documents until the guard stops
+# looking at them at all.
+_ALPHA_RUN = re.compile(r"[^\W\d_]+")
+
+
+def run_together_ratio(text: str) -> tuple[float, int]:
+    """Fraction of alphabetic tokens longer than
+    config.PARSE_LONG_WORD_CHARS, plus the total token count.
+
+    A PDF text extractor decides where the spaces go by comparing glyph
+    positions against a tolerance. Set that tolerance too coarse and
+    adjacent words fuse -- "isaninputtooranoutputfromafunction" -- which
+    is invisible in a spot check but silently wrecks retrieval, because
+    src/retrieval.py tokenizes on whitespace and can no longer match a
+    query term buried inside a fused run.
+
+    Measured on this project's own corpus: pdftotext produced 9 such
+    tokens out of 113,195 (0.01%) while a since-removed backend produced
+    3,647 out of 87,395 (4.17%) over the same 10 PDFs -- three orders of
+    magnitude apart, so any threshold between them separates a healthy
+    parse from a broken one without needing to be tuned precisely.
+    """
+    tokens = _ALPHA_RUN.findall(text)
+    if not tokens:
+        return 0.0, 0
+    long_tokens = sum(1 for tok in tokens if len(tok) > config.PARSE_LONG_WORD_CHARS)
+    return long_tokens / len(tokens), len(tokens)
+
+
+def quality_warning(text: str) -> str | None:
+    """A one-line complaint about `text`, or None if it looks fine.
+
+    Deliberately a warning rather than an error: the extraction did
+    succeed, the text is usable, and a corpus of scanned or unusual
+    documents could trip this legitimately. The point is that a
+    systematic regression gets *reported* by sync instead of being
+    noticed by eye in a retrieval snippet weeks later.
+    """
+    ratio, total = run_together_ratio(text)
+    if total < config.PARSE_MIN_TOKENS or ratio <= config.PARSE_LONG_WORD_RATIO:
+        return None
+    return (
+        f"{ratio:.1%} of words are longer than {config.PARSE_LONG_WORD_CHARS} "
+        f"characters ({total} words checked) -- the parser is probably losing "
+        f"spaces between words, which degrades retrieval"
+    )
 
 
 def extract_text(pdf_path: str, citekey: str) -> Path:

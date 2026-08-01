@@ -1,12 +1,10 @@
 # Running with Docker
 
-`docker/` (Dockerfile + `docker/setup.sh`) builds the same GROBID/TeX
-Live/Pandoc/Poetry stack inside a container, for hosts where the
-user doesn't hold root permissions. There's nothing Docker-exclusive
-about any individual piece -- `scripts/install_full_pipeline.sh` is the
-single install path for both the host and this image (see
-[GROBID.md](GROBID.md) for the bare-host equivalent of what this image
-does for GROBID specifically).
+`docker/Dockerfile` builds the same TeX Live/Pandoc/Poetry stack inside
+a container, for hosts where the user doesn't hold root permissions.
+There's nothing Docker-exclusive about any individual piece --
+`scripts/install_full_pipeline.sh` is the single install path for both
+the host and this image.
 
 **Untested end-to-end**: no Docker daemon has been available in any
 environment this was developed in, so nothing below has actually been
@@ -19,18 +17,18 @@ document, not something exercised. Validate before relying on it.
 docker build -t research-pipeline -f docker/Dockerfile .
 ```
 
-This runs `scripts/install_full_pipeline.sh` three times as separate,
-independently cached layers -- `os-deps`, then `grobid`, then
-`python-deps` (via Poetry, with `SKIP_VENV=1` so it installs into
-`/opt/venv` instead of creating its own) -- so editing later Dockerfile
-lines or unrelated repo files doesn't force earlier layers to rebuild.
-**Exception**: the script itself is `COPY`'d once, before any of the
-three stages run, so editing `scripts/install_full_pipeline.sh`
-invalidates all three layers, including the multi-GB `grobid` one --
+This runs `scripts/install_full_pipeline.sh` twice as separate,
+independently cached layers -- `os-deps`, then `python-deps` (via
+Poetry, with `SKIP_VENV=1` so it installs into `/opt/venv` instead of
+creating its own) -- so editing later Dockerfile lines or unrelated repo
+files doesn't force earlier layers to rebuild.
+**Exception**: the script itself is `COPY`'d once, before either of the
+two stages runs, so editing `scripts/install_full_pipeline.sh`
+invalidates both layers --
 Docker's cache keys each layer on the exact command *and* any files that
-command's `COPY` depends on, and this file feeds all of them. The
-`grobid` layer alone is multi-GB and multi-minute; expect a long first
-build.
+command's `COPY` depends on, and this file feeds both of them. The
+`python-deps` layer pulls torch and Docling's models; expect a long
+first build.
 
 ## Run
 
@@ -44,18 +42,15 @@ docker run -it --rm \
     research-pipeline
 ```
 
-## Start GROBID and verify the toolchain
+## Verify the toolchain
 
-GROBID is built into the image but not started automatically. Inside the
-running container:
+Inside the running container, check that the render and heavy-pipeline
+dependencies actually resolved:
 
 ```bash
-docker exec -it <container> /usr/local/bin/setup-grobid.sh
+command -v latexmk pandoc pdftotext
+python -c "import sentence_transformers, chromadb, bertopic, docling; print('heavy group OK')"
 ```
-
-This starts GROBID in the background and checks `latexmk`, `pandoc`,
-and the `sentence-transformers`/`chromadb`/`bertopic` imports, printing
-`OK`/`MISSING` for each.
 
 ## Running pipeline commands inside the container
 

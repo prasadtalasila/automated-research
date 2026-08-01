@@ -29,8 +29,7 @@ dir = "papers/pdfs"
 [parser]
 # Which backend `python -m src.sync` uses to turn a PDF into
 # content/parsed/<citekey>.txt: "pdftotext" (default -- fast, needs
-# poppler-utils on PATH, no Python dependency), "markitdown" (medium
-# fidelity, needs the "heavy" Poetry group), or "docling" (best
+# poppler-utils on PATH, no Python dependency) or "docling" (best
 # structural fidelity, needs the "heavy" Poetry group -- see
 # PDF-PARSER.md for the full tradeoff comparison). Two consequences
 # worth knowing before switching off the default:
@@ -40,20 +39,40 @@ dir = "papers/pdfs"
 #     unparsed corpus will take hours, not minutes, and that loop still
 #     runs serially (see src/sync.py's own comment on why).
 #   - only pdftotext's output has page boundaries (form-feed characters
-#     between pages). markitdown/docling both produce one continuous
+#     between pages). docling produces one continuous
 #     document with no page markers, so scripts/verbatim_check.py's
 #     "pdf p.N" locating degrades to reporting everything as page 1 for
-#     citekeys parsed with either of those backends.
+#     citekeys parsed with that backend.
 backend = "pdftotext"
+
+# Parse-quality guard. `sync` warns when an extracted document has more
+# than `long_word_ratio` of its words longer than `long_word_chars`,
+# which is what a backend losing the spaces between words looks like --
+# retrieval tokenizes on whitespace, so fused words stop matching
+# queries entirely. Documents shorter than `min_tokens` words are
+# skipped as too noisy to judge. A warning, never a failure: the text is
+# still usable, and an unusual corpus could trip it legitimately.
+long_word_chars = 20
+long_word_ratio = 0.01
+min_tokens = 200
 
 [heavy]
 # Only used by src/heavy/* (pyproject.toml's "heavy" Poetry group), not
 # by the core sync/citation_gate pipeline.
-grobid_url = "http://localhost:8070"
-# Seconds. Kept low -- is_available() is called before every extraction
-# and shouldn't itself become the slow part of a fast-fail path.
-grobid_health_timeout = 3.0
-# Seconds. GROBID's header extraction on a real PDF is not instant;
-# this must outlast that, not just a health check.
-grobid_extract_timeout = 60.0
 embedding_model = "sentence-transformers/all-mpnet-base-v2"
+# Whether the docling stage also extracts figure bitmaps, into
+# content/docling/<doc>_artifacts/, plus a <doc>.figures.json giving each
+# figure's page, caption, and the exact string to cite it by. The images
+# are a *reading aid* for checking a draft against its sources -- they
+# are never inserted into content/drafts/, since a figure's copyright is
+# not the paper's citekey to grant (see DEVELOPER.md's "Figures and
+# copyright"). Off by default; two costs to know before turning it on:
+#   - it invalidates the whole Docling cache when changed, so the next
+#     run re-parses every PDF from scratch (~42x pdftotext, per above).
+#     That re-parse is the point, not a bug -- the existing .md files
+#     genuinely don't have the figure references in them yet.
+#   - the PNGs are real disk: a 17-page paper produced 13 of them
+docling_images = false
+# Render scale for those bitmaps -- 2.0 is roughly 144 DPI, enough to
+# read a figure back without storing print-resolution files.
+docling_image_scale = 2.0

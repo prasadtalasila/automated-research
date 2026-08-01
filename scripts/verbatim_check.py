@@ -37,11 +37,36 @@ def bib_entry(citekey):
     m = re.search(r"@\w+\{" + re.escape(citekey) + r",", text)
     if not m:
         return ""
-    end = text.find("\n}", m.end())
-    return text[m.start():end]
+    # Brace-match to the entry's real end rather than stopping at the
+    # first "\n}": that sequence occurs *inside* multi-line field values
+    # too (an `annote` holding a URL list is the common case here), which
+    # truncated the entry mid-way and hid every field after it --
+    # including `file`, so 40 papers looked like they had no PDF at all.
+    depth = 0
+    for i in range(text.index("{", m.start()), len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[m.start():i + 1]
+    return text[m.start():]  # unbalanced braces: hand back what we have
 
 
 def pdf_path(citekey):
+    """The `file` field's attachment format is `Desc:path:mimetype`,
+    `;`-separated per attachment -- the same shape src.bib_reader
+    parses, and it must be split the same way here.
+
+    Splitting on ':' and taking the first segment that merely *ends in*
+    `.pdf` picks the human-readable description, not the path: this
+    project's export writes both, as
+    `Smith - 2024 - Title.pdf:pdfs/21/Smith - 2024 - Title.pdf:application/pdf`.
+    Those two coincide only when the attachment sits directly beside the
+    .bib, so the mistake was invisible in a flat fixture directory and
+    silently lost 196 of 501 real PDFs -- `locate`/`overlap` then fell
+    back to parsed text and reported page 1 for everything.
+    """
     entry = bib_entry(citekey)
     m = re.search(r"file = \{(.*?)\},", entry, re.S)
     if not m:
@@ -52,12 +77,17 @@ def pdf_path(citekey):
     # repo (a relative path in the file field is only ever relative to
     # wherever the .bib itself lives).
     bib_dir = BIB.resolve().parent
-    for part in m.group(1).split(";"):
-        bits = part.split(":")
-        for b in bits:
-            if b.strip().endswith(".pdf"):
-                p = bib_dir / b.strip()
-                return p if p.exists() else None
+    for attachment in m.group(1).split(";"):
+        parts = attachment.split(":")
+        if len(parts) < 3:
+            continue
+        if "pdf" not in parts[-1].lower():
+            continue
+        p = Path(":".join(parts[1:-1]).strip())
+        if not p.is_absolute():
+            p = bib_dir / p
+        if p.is_file():
+            return p
     return None
 
 

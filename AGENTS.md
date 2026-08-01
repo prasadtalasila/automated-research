@@ -82,7 +82,7 @@ non-empty ledger, for the same reason at the extreme -- see
 - **Job 1 -- deterministic pipeline** (`python -m src.sync`): bib file read
   -> ledger update -> PDF text extraction (paths come straight from the bib
   file's `file` field; `src/pdf_text.py` dispatches to pdftotext (default),
-  markitdown, or docling per `config.PARSER` -- see README's "Choosing a
+  or docling per `config.PARSER` -- see README's "Choosing a
   parser backend") -> advisory duplicate-citekey check (`src/dedup.py`)
   -> stale-citekey report, or removal with `--remove-stale` (see "The bib
   file is the source of truth" above). No LLM calls, no judgment calls,
@@ -121,13 +121,9 @@ host running this repo, though -- treat availability as something to
 probe, not assume, in either direction:
 
 - **When heavy-pipeline dependencies are present:** stages that need them
-  (GROBID; Pandoc/TeX Live rendering) work directly on the host, not only
-  inside `docker/` -- there is nothing docker-exclusive about GROBID
-  other than that `docker/setup.sh` happens to script it for that target.
-  Building GROBID standalone needs a JDK **21 specifically, not whatever's
-  newest**: its `build.gradle` pins a Java 21 toolchain, and its bundled
-  Kotlin compiler (2.0.21) cannot parse a JDK 25 version string. See
-  GROBID.md for the exact recipe and failure mode.
+  (Docling parsing; Pandoc/TeX Live rendering) work directly on the host,
+  not only inside `docker/` -- there is nothing docker-exclusive about
+  any of them.
 - **When they're absent:** don't hang, stack-trace, or silently skip
   without saying so. Every `src/heavy/*` stage already self-probes its
   own prerequisites and reports honestly (`ok`/`skipped`/`missing-binary`)
@@ -138,10 +134,9 @@ probe, not assume, in either direction:
 Install everything with:
 ```
 bash scripts/install_full_pipeline.sh              # Python deps only (default) -- what every host needs regardless of OS packages
-bash scripts/install_full_pipeline.sh os-deps      # apt-get: JDK 21, TeX Live, Pandoc, poppler-utils, Poetry, zip/unzip -- needs root, opt-in
-bash scripts/install_full_pipeline.sh grobid       # fetch + build GROBID standalone -- multi-GB, opt-in
+bash scripts/install_full_pipeline.sh os-deps      # apt-get: TeX Live, Pandoc, poppler-utils, Poetry, zip/unzip -- needs root, opt-in
 bash scripts/install_full_pipeline.sh dev-deps     # pytest/pytest-cov, to run the test suite -- opt-in
-bash scripts/install_full_pipeline.sh all          # os-deps + python-deps (not grobid -- too heavy to bundle by default)
+bash scripts/install_full_pipeline.sh all          # os-deps + python-deps
 ```
 This is **the single install script for both the host and Docker and CI**
 -- `docker/Dockerfile` calls it once per stage as separate `RUN` lines, and
@@ -153,8 +148,8 @@ or pip-installable). If you find a dependency-order issue, fix it once in
 `pyproject.toml` (+ `poetry lock` to update `poetry.lock`) and every
 target picks it up. Don't add a second install path.
 
-`docker/` (Dockerfile + `docker/setup.sh`) builds the same GROBID/TeX
-Live/Pandoc stack inside a container instead, for hosts where the
+`docker/` (Dockerfile) builds the same TeX Live/Pandoc stack inside a
+container instead, for hosts where the
 `os-deps` assumption above doesn't hold (no root, or root deliberately
 withheld). **It has still not been built or run in this environment** (no
 Docker daemon here) -- treat it as a draft to validate, not a tested
@@ -162,10 +157,10 @@ artifact.
 
 ## The heavy pipeline (`src/heavy/`, `scripts/full_pipeline.py`)
 
-Implements Docling -> GROBID -> sentence-transformers/Chroma ->
+Implements Docling -> sentence-transformers/Chroma ->
 BERTopic -> Pandoc/LaTeX, one script for both host and Docker
 (`scripts/full_pipeline.py --target host|docker`). Each stage self-probes
-its own prerequisites (reachable GROBID, pandoc/pdflatex on PATH) and
+its own prerequisites (pandoc/pdflatex on PATH) and
 reports honestly (`skipped`/`missing-binary`) rather than assuming the
 target implies availability -- don't "fix" a skip by hardcoding
 target-specific behavior; fix the probe if it's wrong.
@@ -178,7 +173,7 @@ re-embedded, and a PDF whose `(size, mtime_ns)` hasn't changed since the
 last run (`config.DOCLING_CACHE_PATH`) isn't re-parsed by Docling.
 
 No stage in this pipeline calls out to an LLM or needs an API key --
-Docling, GROBID, embeddings/Chroma, BERTopic, and the Pandoc/LaTeX render
+Docling, embeddings/Chroma, BERTopic, and the Pandoc/LaTeX render
 step are all local/deterministic. Any LLM-backed synthesis happens only
 via the `.claude/skills/` genre layer, invoked through a Claude Code
 session rather than a standalone API call.

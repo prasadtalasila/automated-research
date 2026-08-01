@@ -124,7 +124,53 @@ class TestChunkText:
         assert chunks == ["0 1 2 3", "3 4 5 6", "6 7 8 9", "9"]
 
 
+class TestStripImageRefs:
+    def test_drops_referenced_images_but_keeps_captions(self):
+        markdown = (
+            "## Results\n\n"
+            "![Image](paper_artifacts/image_000003_"
+            "f668750d27034c34410db49e47fdf48b467fade315f521d8a7697c87e25fec82.png)\n\n"
+            "Figure 3. Sensor placement on the test article.\n\n"
+            "The sensors were placed as shown.\n"
+        )
+        out = embed_index.strip_image_refs(markdown)
+
+        assert "![Image]" not in out
+        assert ".png" not in out
+        # The caption is a separate docling text item, not the image's alt
+        # text -- it's real prose about the figure and must survive.
+        assert "Figure 3. Sensor placement on the test article." in out
+        assert "The sensors were placed as shown." in out
+
+    def test_drops_bare_image_placeholders(self):
+        out = embed_index.strip_image_refs("intro\n\n<!-- image -->\n\nbody\n")
+        assert "<!-- image -->" not in out
+        assert "intro" in out and "body" in out
+
+    def test_collapses_the_gap_left_behind(self):
+        out = embed_index.strip_image_refs("a\n\n<!-- image -->\n\nb\n")
+        assert "\n\n\n" not in out
+
+    def test_leaves_inline_bang_bracket_text_alone(self):
+        """Only whole-line image references are markers; a bracket
+        sequence mid-sentence is prose and must not be eaten."""
+        prose = "The result was surprising![1] and worth noting.\n"
+        assert embed_index.strip_image_refs(prose) == prose
+
+
 class TestGetText:
+    def test_strips_image_refs_from_docling_output(self, isolated_config):
+        isolated_config.DOCLING_DIR.mkdir(parents=True)
+        (isolated_config.DOCLING_DIR / "doc_x.md").write_text(
+            "real text\n\n![Image](doc_x_artifacts/image_000000_abc.png)\n\nmore text\n"
+        )
+        doc = CorpusDoc(doc_id="doc:x", citekey=None, source="source-pdfs", title="t", pdf_path=None)
+
+        out = embed_index.get_text(doc)
+
+        assert "image_000000_abc.png" not in out
+        assert "real text" in out and "more text" in out
+
     def test_prefers_docling_output(self, isolated_config):
         isolated_config.DOCLING_DIR.mkdir(parents=True)
         (isolated_config.DOCLING_DIR / "doc_x.md").write_text("docling content")
