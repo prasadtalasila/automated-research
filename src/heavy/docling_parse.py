@@ -57,11 +57,24 @@ def _save_cache(cache: dict) -> None:
     previous, still-valid cache in place instead of a torn file --
     doesn't need src/retrieval.py's per-writer-unique temp name (its
     concurrent-subagent scenario doesn't apply: full_pipeline.py runs
-    this stage from a single process)."""
-    config.CONTENT_DIR.mkdir(parents=True, exist_ok=True)
-    tmp_path = config.DOCLING_CACHE_PATH.with_suffix(".json.tmp")
-    tmp_path.write_text(json.dumps(cache))
-    os.replace(tmp_path, config.DOCLING_CACHE_PATH)
+    this stage from a single process).
+
+    A failure to persist (permission, disk full) is reported, not
+    raised (PR #10 review): by the time this runs, the expensive part
+    -- Docling itself -- has already succeeded, so failing the whole
+    parse over a cache write is worse than the alternative of just
+    re-paying that one doc's parse cost next call."""
+    try:
+        config.DOCLING_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = config.DOCLING_CACHE_PATH.with_suffix(".json.tmp")
+        tmp_path.write_text(json.dumps(cache))
+        os.replace(tmp_path, config.DOCLING_CACHE_PATH)
+    except OSError as exc:
+        print(
+            f"  WARNING: couldn't persist Docling's incremental cache "
+            f"({exc}) -- next run will re-parse what was already done "
+            "this run."
+        )
 
 
 def parse_doc(doc: CorpusDoc, cache: dict | None = None) -> Path:

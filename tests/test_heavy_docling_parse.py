@@ -185,6 +185,35 @@ class TestCacheLoading:
         assert status["a2024"].startswith("ok:")
 
 
+class TestSaveCacheFailureIsNonFatal:
+    def test_save_cache_warns_and_does_not_raise(self, isolated_config, monkeypatch, capsys):
+        def boom(*args, **kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(docling_parse.os, "replace", boom)
+
+        docling_parse._save_cache({"a2024": [1, 2]})
+
+        assert "WARNING" in capsys.readouterr().out
+
+    def test_parse_doc_still_returns_output_when_cache_save_fails(
+        self, isolated_config, fake_docling, monkeypatch, tmp_path
+    ):
+        def boom(*args, **kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(docling_parse.os, "replace", boom)
+
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        doc = CorpusDoc(doc_id="a2024", citekey="a2024", source="bib", title="t", pdf_path=str(pdf))
+
+        out_path = docling_parse.parse_doc(doc)
+
+        assert out_path.exists()
+        assert "Parsed content" in out_path.read_text()
+
+
 class TestParseCorpus:
     def test_reports_per_doc_status_without_aborting_batch(self, isolated_config, fake_docling, tmp_path):
         (tmp_path / "a.pdf").write_bytes(b"%PDF a")
