@@ -111,19 +111,19 @@ class TestMain:
         assert "WARNING: unknown stage" not in out  # every selected name is real
 
     def test_warns_on_unknown_stage(self, monkeypatch, capsys):
-        """`--stages grobid` (a stage this pipeline used to have) would
-        otherwise be a silent no-op -- main() iterates STAGE_ORDER and
-        skips anything unselected, so an unused name never surfaces."""
+        """Naming a stage this pipeline no longer has would otherwise be
+        a silent no-op -- main() iterates STAGE_ORDER and skips anything
+        unselected, so an unused name never surfaces."""
         docs = [CorpusDoc(doc_id="a", citekey="a", source="bib", title="t", pdf_path=None)]
         monkeypatch.setattr(full_pipeline.corpus, "build_corpus", lambda: docs)
-        monkeypatch.setattr(sys, "argv", ["full_pipeline.py", "--stages", "grobid,embed"])
+        monkeypatch.setattr(sys, "argv", ["full_pipeline.py", "--stages", "retired-stage,embed"])
         monkeypatch.setitem(full_pipeline.STAGE_FUNCS, "embed", lambda d, a: {"status": "ok", "detail": "e"})
 
         rc = full_pipeline.main()
         out = capsys.readouterr().out
 
         assert rc == 0  # a bad stage name warns, it doesn't fail the run
-        assert "WARNING: unknown stage(s) grobid" in out
+        assert "WARNING: unknown stage(s) retired-stage" in out
         assert "embed" in out  # the valid stage alongside it still ran
 
     def test_stage_exception_does_not_abort_other_stages(self, monkeypatch, capsys):

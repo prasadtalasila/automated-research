@@ -90,7 +90,7 @@ DOCLING_CACHE_PATH = CONTENT_DIR / "docling_cache.json"
 # page/caption/citation for each. Changing this invalidates the whole
 # Docling cache -- it changes what every .md should contain, so the next
 # run re-parses the corpus from scratch. See DEVELOPER.md's "Figures".
-DOCLING_IMAGES = _get_bool("DOCLING_IMAGES", "heavy", "docling_images", default=True)
+DOCLING_IMAGES = _get_bool("DOCLING_IMAGES", "heavy", "docling_images", default=False)
 # Render scale for those bitmaps; 2.0 is ~144 DPI, legible for reading a
 # figure back while checking a draft without storing print-resolution PNGs.
 DOCLING_IMAGE_SCALE = _get_float("DOCLING_IMAGE_SCALE", "heavy", "docling_image_scale", default=2.0)

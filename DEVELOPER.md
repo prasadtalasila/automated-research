@@ -95,7 +95,7 @@ docker/                   Dockerfile (TeX Live/Pandoc/Poetry) -- unverified end-
 
 ## Figures and copyright
 
-With `[heavy].docling_images` on (the default), the Docling stage writes
+With `[heavy].docling_images` on (off by default), the Docling stage writes
 each paper's figure bitmaps to `content/docling/<doc>_artifacts/` and an
 index of them to `content/docling/<doc>.figures.json`.
 

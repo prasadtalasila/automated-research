@@ -86,7 +86,7 @@ def main() -> int:
     # An unrecognized stage name would otherwise be a silent no-op: the
     # loop below iterates STAGE_ORDER and skips anything not selected, so
     # nothing ever reports that the name went unused. Say so instead --
-    # notably for `--stages grobid`, a stage this pipeline used to have.
+    # notably for a stage name this pipeline used to have and no longer does.
     unknown = sorted(selected - set(STAGE_ORDER))
     if unknown:
         print(f"WARNING: unknown stage(s) {', '.join(unknown)} -- known stages: {', '.join(STAGE_ORDER)}")

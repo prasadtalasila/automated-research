@@ -202,7 +202,7 @@ file, e.g. `BIB_FILE=/path/to/other.bib python -m src.sync`.
 | `[source_pdfs]` | `dir` | `SOURCE_PDFS_DIR` | `papers/pdfs` | Raw PDFs gathered outside the bib file, no citekey -- see `src/heavy/corpus.py` |
 | `[parser]` | `backend` | `PARSER` | `pdftotext` | Which backend `sync` uses to extract PDF text -- `pdftotext`, `markitdown`, or `docling` -- see below |
 | `[heavy]` | `embedding_model` | `EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Which sentence-transformers model `src/heavy/embed_index.py` loads for semantic search -- see below |
-| `[heavy]` | `docling_images` | `DOCLING_IMAGES` | `true` | Whether the Docling stage also extracts figure bitmaps + a `<doc>.figures.json` index -- see [DEVELOPER.md](DEVELOPER.md#figures-and-copyright). Changing it re-parses the whole corpus |
+| `[heavy]` | `docling_images` | `DOCLING_IMAGES` | `false` | Whether the Docling stage also extracts figure bitmaps + a `<doc>.figures.json` index -- see [DEVELOPER.md](DEVELOPER.md#figures-and-copyright). Changing it re-parses the whole corpus |
 | `[heavy]` | `docling_image_scale` | `DOCLING_IMAGE_SCALE` | `2.0` | Render scale for those bitmaps (~144 DPI) |
 
 ### Choosing a parser backend
@@ -248,10 +248,8 @@ Losing page boundaries isn't cosmetic: `scripts/verbatim_check.py`'s
 from by splitting on those form-feed characters, so switching a citekey
 to `markitdown`/`docling` makes every hit for it report `pdf p.1`
 regardless of where the text actually sits. See PDF-PARSER.md for the
-full fidelity/speed comparison across these three backends. That
-document also records why GROBID, evaluated as a fourth candidate, was
-never a general text backend and has since been removed from the repo
-entirely (2026-08-01).
+full fidelity/speed comparison across these three backends, including
+a fourth candidate that was evaluated and not adopted.
 
 #### Performance: measured on 5 real bibliography PDFs
 
