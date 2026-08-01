@@ -17,6 +17,7 @@ import scripts.verbatim_check as vc
 def fixture_repo(tmp_path, monkeypatch):
     monkeypatch.setattr(vc, "REPO", tmp_path)
     monkeypatch.setattr(vc, "BIB", tmp_path / "bibliography.bib")
+    monkeypatch.setattr(vc, "PARSED_DIR", tmp_path / "content" / "parsed")
     return tmp_path
 
 
@@ -77,6 +78,27 @@ class TestPdfPath:
         )
         assert vc.pdf_path("smith_2024") is None
 
+    def test_resolves_relative_to_bib_file_directory_not_repo_root(self, tmp_path, monkeypatch):
+        # Regression: a relative attachment path must be anchored to
+        # wherever BIB (== config.BIB_FILE_PATH, honoring a BIB_FILE
+        # override) actually lives -- matching
+        # src.bib_reader._resolve_pdf_path -- not the checked-out repo
+        # root. A BIB_FILE pointing outside the repo used to silently fail
+        # to find PDFs sitting right next to it.
+        bib_dir = tmp_path / "elsewhere"
+        bib_dir.mkdir()
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        monkeypatch.setattr(vc, "REPO", repo_dir)
+        monkeypatch.setattr(vc, "BIB", bib_dir / "bibliography.bib")
+
+        pdf = bib_dir / "paper.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        vc.BIB.write_text(
+            "@article{smith_2024,\n  title = {T},\n  file = {paper.pdf:paper.pdf:application/pdf},\n}\n"
+        )
+        assert vc.pdf_path("smith_2024") == pdf
+
 
 class TestPages:
     def test_falls_back_to_parsed_text_when_no_pdf(self, fixture_repo):
@@ -91,6 +113,20 @@ class TestPages:
     def test_no_pdf_and_no_parsed_text_returns_empty(self, fixture_repo):
         vc.BIB.write_text("@article{smith_2024,\n  title = {T},\n}\n")
         assert vc.pages("smith_2024") == []
+
+    def test_parsed_fallback_respects_parsed_dir_override(self, tmp_path, monkeypatch):
+        # Regression: the parsed-text fallback must look wherever
+        # config.PARSED_DIR actually points (a CONTENT_DIR override) --
+        # not a hardcoded REPO/content/parsed that ignores it.
+        monkeypatch.setattr(vc, "REPO", tmp_path / "unrelated-repo")
+        monkeypatch.setattr(vc, "BIB", tmp_path / "bibliography.bib")
+        custom_parsed_dir = tmp_path / "custom-content" / "parsed"
+        monkeypatch.setattr(vc, "PARSED_DIR", custom_parsed_dir)
+        custom_parsed_dir.mkdir(parents=True)
+        (custom_parsed_dir / "smith_2024.txt").write_text("page one text")
+
+        vc.BIB.write_text("@article{smith_2024,\n  title = {T},\n}\n")
+        assert vc.pages("smith_2024") == ["page one text"]
 
     @pytest.mark.skipif(shutil.which("pdftotext") is None, reason="pdftotext not installed")
     def test_real_pdf_via_pdftotext(self, fixture_repo):

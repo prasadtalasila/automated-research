@@ -112,6 +112,24 @@ class TestRun:
         assert "WARNING: 1 possible duplicate group(s)" in out
         assert "smith_example_2024" in out and "smith_example_2024_dup" in out
 
+    def test_warns_when_bib_reader_drops_a_malformed_entry(self, isolated_config, monkeypatch, capsys):
+        # bib_reader.read_library() prints this warning itself (it's the
+        # only place with both the raw file text and the parsed count) --
+        # pin that it actually reaches sync's own output, not just
+        # read_library()'s own direct tests.
+        write_bib(isolated_config.BIB_FILE_PATH, BASIC_BIB + """
+@article{malformed_2024,
+  title = {Unbalanced {Braces},
+  author = {Roe, Jan},
+  year = {2022},
+}
+""")
+        monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
+        sync.run()
+        out = capsys.readouterr().out
+        assert "WARNING: bibtexparser parsed 3 entries but" in out
+        assert "1 may have been silently dropped" in out
+
     def test_second_run_is_idempotent_and_skips_unchanged(self, basic_corpus, monkeypatch, capsys):
         monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
         sync.run()
