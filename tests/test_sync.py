@@ -62,7 +62,7 @@ def basic_corpus(isolated_config):
 def fake_extract_text_factory(fail_citekeys=()):
     def fake_extract_text(pdf_path, citekey):
         if citekey in fail_citekeys:
-            raise subprocess.CalledProcessError(1, ["pdftotext"], stderr=f"{citekey}: bad PDF")
+            raise pdf_text.ExtractionError(f"{citekey}: bad PDF")
         out_path = config.PARSED_DIR / f"{citekey}.txt"
         config.PARSED_DIR.mkdir(parents=True, exist_ok=True)
         out_path.write_text(f"extracted text for {citekey}")

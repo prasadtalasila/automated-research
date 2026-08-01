@@ -199,10 +199,31 @@ file, e.g. `BIB_FILE=/path/to/other.bib python -m src.sync`.
 | `[bib]` | `path` | `BIB_FILE` | `papers/bibliography.bib` | The BibTeX export `src/bib_reader.py` parses -- the only source of citekeys (AGENTS.md's hard invariant). Gitignored, per-host -- see DEVELOPER.md's "Repository layout" |
 | `[content]` | `dir` | `CONTENT_DIR` | `content` | Where `sync`/heavy-pipeline outputs live: `ledger.sqlite`, `parsed/`, `docling/`, `chroma/`, `topics.json`, `rendered/` |
 | `[source_pdfs]` | `dir` | `SOURCE_PDFS_DIR` | `papers/pdfs` | Raw PDFs gathered outside the bib file, no citekey -- see `src/heavy/corpus.py` |
+| `[parser]` | `backend` | `PARSER` | `pdftotext` | Which backend `sync` uses to extract PDF text -- `pdftotext`, `markitdown`, or `docling` -- see below |
 | `[heavy]` | `grobid_url` | `GROBID_URL` | `http://localhost:8070` | Where `src/heavy/grobid_extract.py` looks for a running GROBID instance |
 | `[heavy]` | `grobid_health_timeout` | `GROBID_HEALTH_TIMEOUT` | `3.0` (seconds) | Kept low -- `is_available()` runs before every extraction and shouldn't itself become the slow part of a fast-fail path |
 | `[heavy]` | `grobid_extract_timeout` | `GROBID_EXTRACT_TIMEOUT` | `60.0` (seconds) | Must outlast a real header extraction on a real PDF, not just a health check |
 | `[heavy]` | `embedding_model` | `EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Which sentence-transformers model `src/heavy/embed_index.py` loads for semantic search -- see below |
+
+### Choosing a parser backend
+
+`src/pdf_text.py` (used by `sync`, not the heavy pipeline -- `src/heavy/docling_parse.py` is separate, corpus-wide, and always uses Docling) dispatches to one of three backends based on `config.PARSER`:
+
+| Backend | Speed | Dependency | Page boundaries in output? |
+|---|---|---|---|
+| `pdftotext` (default) | Fastest | `poppler-utils` on PATH, no Python package | Yes -- form-feed characters between pages |
+| `markitdown` | Medium | `markitdown[pdf]`, pyproject.toml's "heavy" group | No -- one continuous document |
+| `docling` | Slowest (5-20x `pdftotext`, ~75s/PDF measured) | `docling`, "heavy" group | No -- one continuous document |
+
+Losing page boundaries isn't cosmetic: `scripts/verbatim_check.py`'s
+`cmd_overlap`/`cmd_locate` report which PDF page a verbatim run came
+from by splitting on those form-feed characters, so switching a citekey
+to `markitdown`/`docling` makes every hit for it report `pdf p.1`
+regardless of where the text actually sits. See PDF-PARSER.md for the
+full fidelity/speed comparison across all four tools this repo evaluates
+(the fourth, GROBID, is kept out of this rotation on purpose -- it's a
+references/metadata extractor, not a general text backend, per that
+document).
 
 ### Choosing an embedding model
 

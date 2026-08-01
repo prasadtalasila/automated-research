@@ -60,6 +60,19 @@ sentence-transformers = ">=5.6,<6.0"
 chromadb = ">=1.5,<2.0"
 bertopic = ">=0.17,<0.18"
 docling = ">=2.115,<3.0"
+# The [pdf] extra pulls in pdfminer.six (the actual PDF backend) --
+# without it MarkItDown().convert() raises MissingDependencyException on
+# a .pdf instead of converting it. Also pulls in magika (an ML file-type
+# detector MarkItDown() always constructs, regardless of extras) plus
+# cryptography/cffi/pdfplumber/markdownify -- a smaller transitive
+# footprint than docling/torch, but not the near-zero one pdftotext's
+# subprocess call has. Verified against this repo's real corpus
+# convention (see the heavy-group note above): installed and
+# functionally checked against a real generated PDF on 2026-08-01 --
+# result.text_content (== result.markdown) is what src/pdf_text.py reads,
+# and a malformed PDF raises markitdown.MarkItDownException, not a bare
+# parser-internal exception, so that's what src/pdf_text.py catches.
+markitdown = {version = "^0.1.7", extras = ["pdf"]}
 
 # Optional group (`poetry install --with dev`): pytest/pytest-cov are
 # dev-time tooling, not needed to run the pipeline itself -- but the test

@@ -26,6 +26,25 @@ dir = "content"
 # migrated here the same day and is now retired.
 dir = "papers/pdfs"
 
+[parser]
+# Which backend `python -m src.sync` uses to turn a PDF into
+# content/parsed/<citekey>.txt: "pdftotext" (default -- fast, needs
+# poppler-utils on PATH, no Python dependency), "markitdown" (medium
+# fidelity, needs the "heavy" Poetry group), or "docling" (best
+# structural fidelity, needs the "heavy" Poetry group -- see
+# PDF-PARSER.md for the full tradeoff comparison). Two consequences
+# worth knowing before switching off the default:
+#   - docling is 5-20x slower than pdftotext per PDF (measured: 373s for
+#     5 PDFs, i.e. ~75s each) -- a first-time sync over a large,
+#     unparsed corpus will take hours, not minutes, and that loop still
+#     runs serially (see src/sync.py's own comment on why).
+#   - only pdftotext's output has page boundaries (form-feed characters
+#     between pages). markitdown/docling both produce one continuous
+#     document with no page markers, so scripts/verbatim_check.py's
+#     "pdf p.N" locating degrades to reporting everything as page 1 for
+#     citekeys parsed with either of those backends.
+backend = "pdftotext"
+
 [heavy]
 # Only used by src/heavy/* (pyproject.toml's "heavy" Poetry group), not
 # by the core sync/citation_gate pipeline.
