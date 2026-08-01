@@ -9,6 +9,7 @@ Architecture docs and [DOCKER.md](DOCKER.md) for the container build.
 
 - [Running tests](#running-tests)
 - [Repository layout](#repository-layout)
+- [Figures and copyright](#figures-and-copyright)
 - [Open questions and unbuilt features](#open-questions-and-unbuilt-features)
 
 ## Running tests
@@ -91,6 +92,49 @@ content/                  generated, gitignored (regenerate with sync)
 .claude/settings.json     wires the hook above into the PostToolUse event
 docker/                   Dockerfile (TeX Live/Pandoc/Poetry) -- unverified end-to-end, see DOCKER.md
 ```
+
+## Figures and copyright
+
+With `[heavy].docling_images` on (the default), the Docling stage writes
+each paper's figure bitmaps to `content/docling/<doc>_artifacts/` and an
+index of them to `content/docling/<doc>.figures.json`.
+
+**Those images are a reading aid, not draft content.** Nothing in this
+repo inserts them into `content/drafts/`, and nothing should start doing
+so. A figure's copyright belongs to the publisher or the authors, and
+citing a paper grants no right to reproduce its figures -- `citation_gate`
+gates *citekeys*, and there is deliberately no equivalent gate for
+images. The ledger also has no license column, so the pipeline genuinely
+cannot tell a CC BY paper from an all-rights-reserved one; that judgment
+stays with you, per figure.
+
+The supported way to reference a figure is therefore **textually**, and
+each record in `<doc>.figures.json` carries a ready-to-paste `cite`
+string:
+
+```json
+{
+  "page": 8,
+  "caption": "Figure 3. Subdivision of the entry process of a Digital Twin",
+  "cite": "Figure 3 of [@richstein_characterizing_2024], p.8",
+  "image": "richstein_characterizing_2024_artifacts/image_000005_....png"
+}
+```
+
+Two details worth knowing about that `cite` string:
+
+- The number comes from the **caption's own text**, never from the
+  picture's position. Publisher logos and licence badges are pictures
+  too -- on a real 17-page MDPI paper, 6 of the 13 extracted pictures
+  were furniture rather than figures -- so the Nth picture is routinely
+  not the paper's Figure N.
+- A picture whose caption carries no number is cited by page instead
+  (`"the figure on p.1 of [@key]"`), rather than being given a number
+  this repo would have to invent.
+
+For a `[source_pdfs]` document the `cite` string is deliberately *not* a
+`[@citekey]`, since those documents are outside the bib file and can
+never be cited (AGENTS.md's citekey invariant).
 
 ## Open questions and unbuilt features
 

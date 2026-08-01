@@ -32,6 +32,12 @@ def isolated_config(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "SOURCE_PDFS_MANIFEST", source_pdfs_dir / "manifest.json")
     monkeypatch.setattr(config, "DOCLING_DIR", content_dir / "docling")
     monkeypatch.setattr(config, "DOCLING_CACHE_PATH", content_dir / "docling_cache.json")
+    # Pinned rather than inherited from config.toml: DOCLING_IMAGES
+    # participates in the Docling cache key, so a test asserting a
+    # cache hit would otherwise pass or fail based on the repo's
+    # current setting. Tests that care set it explicitly.
+    monkeypatch.setattr(config, "DOCLING_IMAGES", False)
+    monkeypatch.setattr(config, "DOCLING_IMAGE_SCALE", 2.0)
     monkeypatch.setattr(config, "CHROMA_DIR", content_dir / "chroma")
     monkeypatch.setattr(config, "TOPICS_PATH", content_dir / "topics.json")
     monkeypatch.setattr(config, "TOPIC_EMBED_CACHE_PATH", content_dir / "topic_embed_cache.json")

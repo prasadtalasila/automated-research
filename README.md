@@ -202,6 +202,8 @@ file, e.g. `BIB_FILE=/path/to/other.bib python -m src.sync`.
 | `[source_pdfs]` | `dir` | `SOURCE_PDFS_DIR` | `papers/pdfs` | Raw PDFs gathered outside the bib file, no citekey -- see `src/heavy/corpus.py` |
 | `[parser]` | `backend` | `PARSER` | `pdftotext` | Which backend `sync` uses to extract PDF text -- `pdftotext`, `markitdown`, or `docling` -- see below |
 | `[heavy]` | `embedding_model` | `EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Which sentence-transformers model `src/heavy/embed_index.py` loads for semantic search -- see below |
+| `[heavy]` | `docling_images` | `DOCLING_IMAGES` | `true` | Whether the Docling stage also extracts figure bitmaps + a `<doc>.figures.json` index -- see [DEVELOPER.md](DEVELOPER.md#figures-and-copyright). Changing it re-parses the whole corpus |
+| `[heavy]` | `docling_image_scale` | `DOCLING_IMAGE_SCALE` | `2.0` | Render scale for those bitmaps (~144 DPI) |
 
 ### Choosing a parser backend
 

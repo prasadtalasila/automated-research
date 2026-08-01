@@ -63,6 +63,35 @@ class TestGetHelpers:
         monkeypatch.delenv("MY_TIMEOUT", raising=False)
         assert config._get_float("MY_TIMEOUT", "heavy", "timeout", default=1.5) == 1.5
 
+    @pytest.mark.parametrize("raw,expected", [
+        ("1", True), ("true", True), ("TRUE", True), ("yes", True), ("on", True),
+        (" true ", True),
+        # The whole point of _get_bool: bool("false") is True, so a plain
+        # cast would make every documented way of switching a setting off
+        # via the environment switch it on instead.
+        ("0", False), ("false", False), ("FALSE", False), ("no", False),
+        ("off", False), ("", False),
+    ])
+    def test_bool_env_var_parses_words_not_truthiness(self, monkeypatch, raw, expected):
+        monkeypatch.setattr(config, "_toml", {"heavy": {"flag": not expected}})
+        monkeypatch.setenv("MY_FLAG", raw)
+        assert config._get_bool("MY_FLAG", "heavy", "flag", default=not expected) is expected
+
+    def test_bool_falls_back_to_toml(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"heavy": {"flag": False}})
+        monkeypatch.delenv("MY_FLAG", raising=False)
+        assert config._get_bool("MY_FLAG", "heavy", "flag", default=True) is False
+
+    def test_bool_default_when_missing_or_wrong_type(self, monkeypatch):
+        monkeypatch.delenv("MY_FLAG", raising=False)
+        monkeypatch.setattr(config, "_toml", {"heavy": {}})
+        assert config._get_bool("MY_FLAG", "heavy", "flag", default=True) is True
+        # A non-bool in the toml is ignored rather than coerced.
+        monkeypatch.setattr(config, "_toml", {"heavy": {"flag": "yes"}})
+        assert config._get_bool("MY_FLAG", "heavy", "flag", default=False) is False
+        monkeypatch.setattr(config, "_toml", {"heavy": "nope"})
+        assert config._get_bool("MY_FLAG", "heavy", "flag", default=True) is True
+
 
 class TestRealConfigToml:
     """Sanity-checks the constants computed from this repo's actual

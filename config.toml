@@ -50,3 +50,17 @@ backend = "pdftotext"
 # Only used by src/heavy/* (pyproject.toml's "heavy" Poetry group), not
 # by the core sync/citation_gate pipeline.
 embedding_model = "sentence-transformers/all-mpnet-base-v2"
+# Whether the docling stage also extracts figure bitmaps, into
+# content/docling/<doc>_artifacts/, plus a <doc>.figures.json giving each
+# figure's page, caption, and the exact string to cite it by. The images
+# are a *reading aid* for checking a draft against its sources -- they
+# are never inserted into content/drafts/, since a figure's copyright is
+# not the paper's citekey to grant (see DEVELOPER.md's "Figures and
+# copyright"). Two costs worth knowing before leaving this on:
+#   - it invalidates the whole Docling cache when changed, so the next
+#     run re-parses every PDF from scratch (~42x pdftotext, per above)
+#   - the PNGs are real disk: a 17-page paper produced 13 of them
+docling_images = true
+# Render scale for those bitmaps -- 2.0 is roughly 144 DPI, enough to
+# read a figure back without storing print-resolution files.
+docling_image_scale = 2.0
