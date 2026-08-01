@@ -399,7 +399,7 @@ class TestRun:
 
         assert rc == 1  # items needed parsing but couldn't -- not a silent success
         assert "WARNING: 'pdftotext' not found on PATH" in out
-        assert "2 skipped (pdftotext not installed)" in out
+        assert "2 skipped (pdftotext unavailable)" in out
         con = ledger.connect()
         try:
             rows = {r["citekey"]: r for r in ledger.all_items(con)}
@@ -422,8 +422,8 @@ class TestRun:
 
         assert rc == 0  # nothing actually needed pdftotext this run
         assert "WARNING: 'pdftotext' not found on PATH" in out
-        assert "0 skipped (pdftotext not installed)" not in out
-        assert "skipped (pdftotext not installed)" not in out
+        assert "0 skipped (pdftotext unavailable)" not in out
+        assert "skipped (pdftotext unavailable)" not in out
 
     def test_missing_binary_raised_mid_run_is_reported_not_crashed(
         self, basic_corpus, monkeypatch, capsys
@@ -442,7 +442,7 @@ class TestRun:
         out = capsys.readouterr().out
 
         assert rc == 1
-        assert "2 skipped (pdftotext not installed)" in out
+        assert "2 skipped (pdftotext unavailable)" in out
         con = ledger.connect()
         try:
             rows = {r["citekey"]: r for r in ledger.all_items(con)}

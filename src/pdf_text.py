@@ -48,14 +48,14 @@ _INSTALL_HINT = {
         "(scripts/install_full_pipeline.sh os-deps) to extract PDF text with it."
     ),
     "markitdown": (
-        "the 'markitdown' package is not installed. Run "
-        "'poetry install --with heavy' (scripts/install_full_pipeline.sh "
-        "python-deps) to extract PDF text with it."
+        "the 'markitdown' package isn't usable (not installed, or a "
+        "transitive dependency is broken). Run 'poetry install --with heavy' "
+        "(scripts/install_full_pipeline.sh python-deps) to extract PDF text with it."
     ),
     "docling": (
-        "the 'docling' package is not installed. Run "
-        "'poetry install --with heavy' (scripts/install_full_pipeline.sh "
-        "python-deps) to extract PDF text with it."
+        "the 'docling' package isn't usable (not installed, or a "
+        "transitive dependency is broken). Run 'poetry install --with heavy' "
+        "(scripts/install_full_pipeline.sh python-deps) to extract PDF text with it."
     ),
 }
 
@@ -77,8 +77,10 @@ def _check_parser(parser: str) -> None:
 
 def unavailable_reason() -> str:
     """Human-readable explanation of why config.PARSER's backend isn't
-    usable right now, and how to fix it. Only meaningful when
-    is_available() is False."""
+    usable right now, and how to fix it. Meaningful when is_available()
+    is False, and also reused as MissingDependency's message when a
+    backend's import fails despite that probe passing (a broken
+    transitive dependency -- see _extract_markitdown/_extract_docling)."""
     _check_parser(config.PARSER)
     return _INSTALL_HINT[config.PARSER]
 

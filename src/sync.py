@@ -176,7 +176,7 @@ def run(remove_stale: bool = False) -> int:
         f"{no_pdf} without a PDF attachment, {failed} failed, {stale_count} {stale_label}."
     )
     if backend_unavailable:
-        summary += f" {backend_unavailable} skipped ({config.PARSER} not installed)."
+        summary += f" {backend_unavailable} skipped ({config.PARSER} unavailable)."
     print(summary)
     if no_pdf_reasons:
         # Least-churn fix for the masking this bucket used to cause: the
