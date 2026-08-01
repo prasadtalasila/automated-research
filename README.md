@@ -262,9 +262,11 @@ reproducible measurement, run on this repo's documented A40 host (see
 ["Hardware requirements"](#hardware-requirements) above), Python 3.12.3,
 each backend run serially with no caching (`pdf_text.py` doesn't cache --
 these are cold-extraction times, not `sync`'s steady-state, which skips
-PDFs whose content hasn't changed). GPU utilization by markitdown/docling's
-underlying torch/onnxruntime wasn't independently confirmed for this run,
-so treat these as this host's numbers, not a GPU-optimized floor.
+PDFs whose content hasn't changed). markitdown's PDF support here is
+`pdfminer.six`/`pdfplumber`-based, CPU-only, no GPU involved. Docling's
+layout/OCR models do use torch/onnxruntime, but GPU utilization wasn't
+independently confirmed for this run -- treat docling's numbers as this
+host's numbers, not a GPU-optimized floor.
 
 | Citekey (pages) | `pdftotext` | `markitdown` | `docling` |
 |---|---|---|---|
@@ -285,10 +287,10 @@ noisy denominator set an endpoint.
 best, so budget for the total-time ratio, not the fastest case.
 
 **Fidelity.** docling's word counts track `pdftotext`'s closely across
-all five documents -- 69,565 vs 68,888 in total, each document within
-about 3.5% (`afrin_resource_2021` is the largest single deviation, at
-+3.5%). markitdown's counts are inconsistent rather than uniformly
-lossy: it undercounts by roughly **45%-63%** on three of the five
+all five documents -- 69,565 vs 68,888 in total, every document within
+about 3.5% of `pdftotext`'s count. markitdown's counts are inconsistent
+rather than uniformly lossy: it undercounts by roughly **45%-63%** on
+three of the five
 (`abbiati_modelling_2024`: 6,705 vs 15,000, a 55% shortfall), but
 *over*counts on the other two (`afrin_resource_2021`: 30,296 vs 27,095).
 That inconsistency, not an average, is the reason to spot-check
