@@ -11,8 +11,10 @@ a paper the bibliography actually holds.
 - [Venv requirement](#venv-requirement)
 - [Hardware requirements](#hardware-requirements)
 - [Configuration](#configuration)
+  - [Choosing a parser backend](#choosing-a-parser-backend)
   - [Choosing an embedding model](#choosing-an-embedding-model)
 - [Architecture](#architecture)
+  - [What works on this host](#what-works-on-this-host)
 - [The heavy pipeline](#the-heavy-pipeline)
   - [Calling the heavy pipeline from a skill or agent](#calling-the-heavy-pipeline-from-a-skill-or-agent)
 - [Developer material](#developer-material)
@@ -67,7 +69,7 @@ for row in ledger.all_items(con): print(dict(row))
 #    "write a tutorial chapter introducing digital twin asset reuse"
 # The matching skill in .claude/skills/ picks this up automatically,
 # including its own citation_gate -> references -> render_output chain
-# (see "Architecture" above).
+# (see "Architecture" below).
 
 # 6. Manually re-run any step of that chain yourself (no venv needed for any of these)
 python3 -m src.citation_gate path/to/draft.md
@@ -134,7 +136,7 @@ full settings reference.
 ## Venv requirement
 
 Every `python -m src.*` / `python scripts/*.py` command below needs the
-venv from Quickstart step 1 -- **except** three stdlib-only tools, which
+venv from Quickstart step 2 -- **except** three stdlib-only tools, which
 run fine with the bare system `python3`:
 
 - `python -m src.citation_gate <file>` -- only reads `content/ledger.sqlite`
@@ -207,13 +209,41 @@ file, e.g. `BIB_FILE=/path/to/other.bib python -m src.sync`.
 
 ### Choosing a parser backend
 
-`src/pdf_text.py` (used by `sync`, not the heavy pipeline -- `src/heavy/docling_parse.py` is separate, corpus-wide, and always uses Docling) dispatches to one of three backends based on `config.PARSER`:
+`src/pdf_text.py` (used by `sync`, i.e. job 1) dispatches to one of three
+backends based on `config.PARSER`:
+
+- `pdftotext` (default)
+- `markitdown`
+- `docling`
+
+Setting `config.PARSER = "docling"` here does **not** fold Docling into
+job 1, and doesn't make `src/heavy/docling_parse.py` (job 2's own,
+always-Docling, corpus-wide stage) redundant, even though both end up
+calling the same library. They're two independent, purpose-built
+consumers of Docling, not one feature split across two files:
+
+- **Job 1's `pdf_text.py`** extracts plain text per citekey, on `sync`,
+  into `content/parsed/<citekey>.txt` -- one file in, one text file out,
+  used by the lightweight BM25 retrieval below. Docling here is just a
+  higher-fidelity substitute for `pdftotext`'s job.
+- **Job 2's `docling_parse.py`** (`scripts/full_pipeline.py`, opt-in)
+  produces structured Markdown for the whole corpus at once into
+  `content/docling/<citekey>.md`, feeding the embeddings/Chroma and
+  BERTopic stages that need real reading order and section boundaries,
+  not raw text. It always uses Docling regardless of `config.PARSER`,
+  because those downstream stages specifically need what only Docling
+  produces.
+
+Switching `config.PARSER` to `"docling"` changes what `sync` writes and
+BM25 searches over; it has no effect on whether the heavy pipeline's own
+Docling stage runs, since that stage doesn't consult `config.PARSER` at
+all.
 
 | Backend | Speed | Dependency | Page boundaries in output? |
 |---|---|---|---|
 | `pdftotext` (default) | Fastest | `poppler-utils` on PATH, no Python package | Yes -- form-feed characters between pages |
-| `markitdown` | Medium (~17x `pdftotext` in total, measured on 5 real bib PDFs) | `markitdown[pdf]`, pyproject.toml's "heavy" group | No -- one continuous document |
-| `docling` | Slowest (~42x `pdftotext` in total, individual PDFs ranging ~18x-102x, measured on the same 5 real bib PDFs) | `docling`, "heavy" group | No -- one continuous document |
+| `markitdown` | Medium (~17x `pdftotext` in total, measured on 5 real bib PDFs -- see Performance below) | `markitdown[pdf]`, pyproject.toml's "heavy" group | No -- one continuous document |
+| `docling` | Slowest (~42x `pdftotext` in total, measured on the same 5 real bib PDFs -- see Performance below) | `docling`, "heavy" group | No -- one continuous document |
 
 Losing page boundaries isn't cosmetic: `scripts/verbatim_check.py`'s
 `cmd_overlap`/`cmd_locate` report which PDF page a verbatim run came
@@ -224,6 +254,48 @@ full fidelity/speed comparison across all four tools this repo evaluates
 (the fourth, GROBID, is kept out of this rotation on purpose -- it's a
 references/metadata extractor, not a general text backend, per that
 document).
+
+#### Performance: measured on 5 real bibliography PDFs
+
+The table above states total-time ratios; here's the underlying,
+reproducible measurement, run on this repo's documented A40 host (see
+["Hardware requirements"](#hardware-requirements) above), Python 3.12.3,
+each backend run serially with no caching (`pdf_text.py` doesn't cache --
+these are cold-extraction times, not `sync`'s steady-state, which skips
+PDFs whose content hasn't changed). markitdown's PDF support here is
+`pdfminer.six`/`pdfplumber`-based, CPU-only, no GPU involved. Docling's
+layout/OCR models do use torch/onnxruntime, but GPU utilization wasn't
+independently confirmed for this run -- treat docling's numbers as this
+host's numbers, not a GPU-optimized floor.
+
+| Citekey (pages) | `pdftotext` | `markitdown` | `docling` |
+|---|---|---|---|
+| `abbiati_modelling_2024` (39p) | 0.62s, 15,000 words | 3.90s, 6,705 words | 16.60s, 14,689 words |
+| `abduvakhobov_scalable_2024` (10p) | 0.20s, 10,409 words | 2.62s, 3,894 words | 7.45s, 10,408 words |
+| `afrin_resource_2021` (29p) | 0.26s, 27,095 words | 14.69s, 30,296 words | 26.58s, 28,032 words |
+| `aghaabbasi_digital_2024` (21p) | 0.31s, 8,378 words | 1.76s, 4,584 words | 5.50s, 8,514 words |
+| `agrawal_coupled_2024` (8p) | 0.04s¹, 8,006 words | 1.63s, 9,018 words | 4.64s, 7,922 words |
+| **Total** | **1.43s, 68,888 words** | **24.60s, 54,497 words** | **60.77s, 69,565 words** |
+
+¹ Sub-100ms, near the practical resolution of this measurement -- the
+per-document ratio ranges below exclude this row rather than let one
+noisy denominator set an endpoint.
+
+**Speed.** Total-time ratio vs `pdftotext`: markitdown ~17x, docling
+~42x. Per-document, excluding `agrawal_coupled_2024`: markitdown ranges
+~6x-57x, docling ~18x-102x -- both track document length loosely at
+best, so budget for the total-time ratio, not the fastest case.
+
+**Fidelity.** docling's word counts track `pdftotext`'s closely across
+all five documents -- 69,565 vs 68,888 in total, every document within
+about 3.5% of `pdftotext`'s count. markitdown's counts are inconsistent
+rather than uniformly lossy: it undercounts by roughly **45%-63%** on
+three of the five
+(`abbiati_modelling_2024`: 6,705 vs 15,000, a 55% shortfall), but
+*over*counts on the other two (`afrin_resource_2021`: 30,296 vs 27,095).
+That inconsistency, not an average, is the reason to spot-check
+`markitdown`'s output on a new corpus before trusting it as a drop-in --
+a consistent undercount would at least be predictable.
 
 ### Choosing an embedding model
 
@@ -344,13 +416,13 @@ extension of job 2:
           v
 +---------------------------------------+
 | src/pdf_text.py                       |
-|   -> content/parsed/<citekey>.txt     |   pdftotext extraction
+|   -> content/parsed/<citekey>.txt     |   pdftotext/markitdown/docling
 +---------------------------------------+
           |
           v
 +---------------------------------------+
 | src/retrieval.py                      |
-|   search(query, k) -> SearchResult    |   keyword-overlap ranking
+|   search(query, k) -> SearchResult    |   BM25-ranked keyword search
 +---------------------------------------+
 ```
 
@@ -389,7 +461,7 @@ JOB 1 -- deterministic, unattended-safe     JOB 2 -- generative, on demand, revi
 `papers/bibliography.bib` is the **source of truth** for citekeys and
 metadata -- this pipeline parses it, it does not generate its own citekeys
 or its own copy of the bibliography. It's a per-host, gitignored file (see
-"Configuration" below), not shipped in the repo, since the PDFs it points
+"Configuration" above), not shipped in the repo, since the PDFs it points
 to aren't either. See [AGENTS.md](AGENTS.md) for why, and what changed if
 you're looking at content written before 2026-07-28.
 
@@ -406,11 +478,12 @@ is a separate, ad-hoc review aid (not part of this automatic chain) for
 spot-checking a draft against its sources for verbatim overlap or
 page-locating a quoted phrase.
 
+### What works on this host
 
 | Capability | What it needs |
 |---|---|
 | Parse bib file, track citekeys + PDF paths | `bibtexparser` (venv, main Poetry group) |
-| Extract PDF text | `pdftotext` (poppler-utils, `os-deps` stage) |
+| Extract PDF text | `pdftotext` (poppler-utils, `os-deps` stage) by default -- `markitdown`/`docling` are opt-in alternatives, see ["Choosing a parser backend"](#choosing-a-parser-backend) |
 | Track parse status incrementally | stdlib `sqlite3` |
 | BM25-ranked retrieval | stdlib only |
 | Citation verification gate, auto References section, standalone tex/pdf render | stdlib only, no venv needed (see "Venv requirement" above) |
@@ -422,14 +495,14 @@ See [GROBID.md](GROBID.md) for the full GROBID build/run/troubleshooting
 walkthrough (previously an inline subsection here).
 
 Retrieval by default is a BM25 ranker over a disk-cached term-frequency
-index (`src/retrieval.py`, stdlib only) -- deliberately: the corpus is
-still small enough that embeddings are overhead without payoff for the
-genre skills' day-to-day use. The cache is keyed by a cheap per-document
-fingerprint (parsed-file stat, not content), so a `search()` call only
-re-tokenizes documents whose text actually changed since the last call.
-`src/heavy/embed_index.py` (sentence-transformers + Chroma) is a
-verified, working upgrade with a matching `search(query, k)` signature,
-for when that stops being true.
+index (`src/retrieval.py`, stdlib only) -- deliberately: swapping in
+`src/heavy/embed_index.py`'s embedding-based search (sentence-transformers
++ Chroma, same `search(query, k)` shape, ready to drop in without
+changing callers) is a call to make when BM25 stops being enough for this
+corpus, not a threshold this project asserts a number for ahead of time.
+The cache is keyed by a cheap per-document fingerprint (parsed-file stat,
+not content), so a `search()` call only re-tokenizes documents whose text
+actually changed since the last call.
 
 ## The heavy pipeline
 
