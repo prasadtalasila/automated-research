@@ -8,12 +8,32 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# A push to the same branch/PR while a previous run is still going
+# (routine during iterative fix-and-repush work, e.g. addressing a
+# Copilot review comment) cancels that stale, now-superseded run
+# instead of letting both consume CI minutes -- github.ref is stable
+# per branch/PR, so this only ever cancels an earlier run of the same
+# ref, never a different branch's.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    # windows-latest is exploratory (DESIGN.md's cross-platform-CI
+    # recommendation) -- this repo's install path and every doc
+    # (AGENTS.md, DEVELOPER.md) assume Linux, so don't let it block the
+    # Linux leg (this repo's actual gate) while real gaps get found and
+    # fixed one at a time instead of guessed at up front.
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -22,15 +42,50 @@ jobs:
       # steps here -- this is also, itself, a real end-to-end test that
       # the install script still works on a clean host.
       - name: Install OS + Python dependencies (os-deps + python-deps)
+        if: runner.os == 'Linux'
         run: bash scripts/install_full_pipeline.sh all
 
+      # os-deps' apt-get also installs Poetry itself (python3-poetry) on
+      # Linux -- python-deps' check_poetry() has no other way to find it
+      # on a host that skipped os-deps, confirmed by this leg's first
+      # real run (poetry not found, exit 1). install_full_pipeline.sh's
+      # own check_poetry() already documents "or install Poetry
+      # manually" as the accepted non-apt path; this is that, scoped to
+      # CI rather than added to the shared script (a real end user's
+      # Windows host isn't necessarily bootstrapping Poetry via CI's
+      # exact mechanism).
+      - name: Install Poetry (non-Linux only -- os-deps' apt-get is Linux-specific)
+        if: runner.os != 'Linux'
+        shell: bash
+        run: pip install poetry
+
+      # os-deps (apt-get: poppler-utils, TeX Live, Pandoc, JDK) is
+      # Linux-only -- Windows gets the pure-Python python-deps stage
+      # only, so pdftotext/pandoc/pdflatex/GROBID-dependent tests
+      # self-skip there (DEVELOPER.md's "Running tests") rather than
+      # this step failing outright.
+      - name: Install Python dependencies (python-deps only -- os-deps is Linux/apt-only)
+        if: runner.os != 'Linux'
+        shell: bash
+        run: bash scripts/install_full_pipeline.sh python-deps
+
       - name: Install dev dependencies (pytest/pytest-cov)
+        shell: bash
         run: bash scripts/install_full_pipeline.sh dev-deps
 
+      # poetry run (not a hardcoded .venv-full/bin/python) resolves
+      # correctly on both venv layouts (POSIX bin/ vs a native Windows
+      # Python's Scripts/) via poetry.toml's virtualenvs.create = false
+      # + VIRTUAL_ENV, instead of this workflow needing to know which
+      # one .venv-full actually has.
       - name: Run test suite with coverage
-        run: .venv-full/bin/python -m pytest --cov=src --cov=scripts --cov-report=term-missing
+        shell: bash
+        run: |
+          export VIRTUAL_ENV="$PWD/.venv-full"
+          poetry run python -m pytest --cov=src --cov=scripts --cov-report=term-missing
 
       - name: poetry check
+        shell: bash
         run: |
           export VIRTUAL_ENV="$PWD/.venv-full"
           poetry check

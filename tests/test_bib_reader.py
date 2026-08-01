@@ -1,6 +1,8 @@
 """src/bib_reader.py: the only module that reads bibliography.bib, and
 the only place a citekey should ever originate from (AGENTS.md)."""
 
+from pathlib import Path
+
 import pytest
 
 from src import bib_reader
@@ -114,17 +116,19 @@ class TestResolvePdfPath:
         field = "page.html:page.html:text/html;paper.pdf:missing.pdf:application/pdf"
         assert bib_reader._resolve_pdf_path(field, tmp_path) == (None, bib_reader.PDF_PATH_GONE)
 
-    def test_path_containing_colons_is_reassembled(self, tmp_path):
+    def test_path_containing_colons_is_reassembled(self, tmp_path, monkeypatch):
         # Windows-style or otherwise colon-bearing paths: the middle
         # segment must be rejoined with ":", not just taken as parts[1].
-        sub = tmp_path / "C:fakepath"
-        # Can't literally create a "C:fakepath" dir with a colon safely
-        # on all filesystems; instead just prove the split/rejoin math
-        # directly against a path with an extra ':' in a fields context
-        # that still resolves against a real file.
+        # Can't literally create a file named "a:b.pdf" to prove this
+        # against -- a bare colon in a filename is illegal on Windows
+        # (reserved for the drive-letter/ADS syntax), not just in the
+        # "C:fakepath" drive-letter-shaped case this comment used to call
+        # out (confirmed by this repo's own Windows CI leg). Monkeypatch
+        # Path.is_file instead of relying on a real file on disk, which
+        # exercises the exact same split/rejoin logic portably.
+        monkeypatch.setattr(Path, "is_file", lambda self: True)
         pdf = tmp_path / "a:b.pdf"
-        pdf.write_bytes(b"%PDF-1.4")
-        field = f"desc:a:b.pdf:application/pdf"
+        field = "desc:a:b.pdf:application/pdf"
         assert bib_reader._resolve_pdf_path(field, tmp_path) == (str(pdf), bib_reader.PDF_RESOLVED)
 
 

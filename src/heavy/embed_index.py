@@ -21,6 +21,7 @@ closes that gap too.
 """
 
 import hashlib
+import os
 import re
 import subprocess
 import tempfile
@@ -62,12 +63,25 @@ def get_text(doc: CorpusDoc) -> str | None:
     if doc.text_path and Path(doc.text_path).exists():
         return Path(doc.text_path).read_text()
     if doc.pdf_path:
-        with tempfile.NamedTemporaryFile(suffix=".txt") as tmp:
+        # delete=False + a manual unlink in finally, not the plain `with
+        # ... as tmp:` shortcut: on Windows, NamedTemporaryFile keeps its
+        # own handle open (and the file exclusively locked) for the
+        # block's duration, and pdftotext writing to that same path
+        # while Python still holds it open fails with PermissionError --
+        # POSIX allows a second open of the same path, which is why this
+        # only surfaced on this repo's Windows CI leg. Closing tmp
+        # immediately releases that lock before pdftotext ever touches
+        # the path.
+        tmp = tempfile.NamedTemporaryFile(suffix=".txt", delete=False)
+        tmp.close()
+        try:
             subprocess.run(
                 ["pdftotext", "-layout", doc.pdf_path, tmp.name],
                 check=True, capture_output=True,
             )
             return Path(tmp.name).read_text(errors="ignore")
+        finally:
+            os.unlink(tmp.name)
     return None
 
 

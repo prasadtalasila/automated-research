@@ -106,6 +106,19 @@ check_poetry() {
     fi
 }
 
+# POSIX venvs (python3 -m venv on Linux/macOS) put the interpreter/pip
+# under bin/; a native Windows Python's venv module uses Scripts/
+# instead -- this script's own callers (below) and CI
+# (.github/workflows/ci.yml's windows-latest leg) both need to work with
+# either layout, so every bin/-hardcoded path goes through this instead.
+venv_bin_dir() {
+    if [ -x "$1/bin/python" ] || [ -x "$1/bin/python3" ]; then
+        echo "$1/bin"
+    else
+        echo "$1/Scripts"
+    fi
+}
+
 # Resolves (and creates, unless SKIP_VENV=1) the venv this script's
 # `poetry install` calls target, and exports VIRTUAL_ENV so Poetry uses
 # it -- poetry.toml's `virtualenvs.create = false` means Poetry will
@@ -133,12 +146,14 @@ install_python_deps() {
     resolve_venv_dir
 
     (cd "$REPO_ROOT" && poetry install --with heavy)
-    ensure_gpu_torch "$VENV_DIR/bin/pip" "$VENV_DIR/bin/python"
+    local bin_dir
+    bin_dir="$(venv_bin_dir "$VENV_DIR")"
+    ensure_gpu_torch "$bin_dir/pip" "$bin_dir/python"
 
     echo
     echo "Installed. Run pipeline scripts via:"
-    echo "  $VENV_DIR/bin/python -m src.sync"
-    echo "  $VENV_DIR/bin/python scripts/full_pipeline.py"
+    echo "  $bin_dir/python -m src.sync"
+    echo "  $bin_dir/python scripts/full_pipeline.py"
 }
 
 # pip's default torch wheel is built against whatever CUDA major version
@@ -317,7 +332,9 @@ install_grobid() {
 install_dev_deps() {
     check_poetry
     local venv_dir="${VENV_DIR:-$REPO_ROOT/.venv-full}"
-    if [ ! -x "$venv_dir/bin/pip" ]; then
+    local bin_dir
+    bin_dir="$(venv_bin_dir "$venv_dir")"
+    if [ ! -x "$bin_dir/pip" ]; then
         echo "No venv at ${venv_dir} -- run '$0 python-deps' first." >&2
         exit 1
     fi
@@ -330,11 +347,11 @@ install_dev_deps() {
     # not remove the heavy group), but it can still touch transitive
     # packages shared with the heavy group, torch included. Re-run the
     # same GPU check as python-deps rather than assume it's still fine.
-    ensure_gpu_torch "$venv_dir/bin/pip" "$venv_dir/bin/python"
+    ensure_gpu_torch "$bin_dir/pip" "$bin_dir/python"
 
     echo
     echo "Installed. Run the test suite via:"
-    echo "  ${venv_dir}/bin/python -m pytest --cov=src --cov=scripts --cov-report=term-missing"
+    echo "  ${bin_dir}/python -m pytest --cov=src --cov=scripts --cov-report=term-missing"
 }
 
 STAGES=("$@")
