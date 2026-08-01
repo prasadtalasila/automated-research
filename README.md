@@ -213,7 +213,7 @@ file, e.g. `BIB_FILE=/path/to/other.bib python -m src.sync`.
 |---|---|---|---|
 | `pdftotext` (default) | Fastest | `poppler-utils` on PATH, no Python package | Yes -- form-feed characters between pages |
 | `markitdown` | Medium | `markitdown[pdf]`, pyproject.toml's "heavy" group | No -- one continuous document |
-| `docling` | Slowest (5-20x `pdftotext`, ~75s/PDF measured) | `docling`, "heavy" group | No -- one continuous document |
+| `docling` | Slowest (~18-116x `pdftotext`, ~42x on average, measured on 5 real bib PDFs) | `docling`, "heavy" group | No -- one continuous document |
 
 Losing page boundaries isn't cosmetic: `scripts/verbatim_check.py`'s
 `cmd_overlap`/`cmd_locate` report which PDF page a verbatim run came

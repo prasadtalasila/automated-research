@@ -34,10 +34,12 @@ dir = "papers/pdfs"
 # structural fidelity, needs the "heavy" Poetry group -- see
 # PDF-PARSER.md for the full tradeoff comparison). Two consequences
 # worth knowing before switching off the default:
-#   - docling is 5-20x slower than pdftotext per PDF (measured: 373s for
-#     5 PDFs, i.e. ~75s each) -- a first-time sync over a large,
-#     unparsed corpus will take hours, not minutes, and that loop still
-#     runs serially (see src/sync.py's own comment on why).
+#   - docling is far slower than pdftotext -- ~18-116x per PDF, ~42x on
+#     average, measured on 5 real bib PDFs (README.md's Performance
+#     section has the full breakdown and host details) -- a first-time
+#     sync over a large, unparsed corpus will take hours, not minutes,
+#     and that loop still runs serially (see src/sync.py's own comment
+#     on why).
 #   - only pdftotext's output has page boundaries (form-feed characters
 #     between pages). markitdown/docling both produce one continuous
 #     document with no page markers, so scripts/verbatim_check.py's
