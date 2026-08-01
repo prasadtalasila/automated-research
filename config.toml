@@ -34,8 +34,9 @@ dir = "papers/pdfs"
 # structural fidelity, needs the "heavy" Poetry group -- see
 # PDF-PARSER.md for the full tradeoff comparison). Two consequences
 # worth knowing before switching off the default:
-#   - docling is 5-20x slower than pdftotext per PDF (measured: 373s for
-#     5 PDFs, i.e. ~75s each) -- a first-time sync over a large,
+#   - docling is far slower than pdftotext -- ~42x on the same 5 real
+#     bib PDFs measured in total (60.8s vs 1.4s), individual PDFs
+#     ranging roughly 18x-102x -- a first-time sync over a large,
 #     unparsed corpus will take hours, not minutes, and that loop still
 #     runs serially (see src/sync.py's own comment on why).
 #   - only pdftotext's output has page boundaries (form-feed characters
