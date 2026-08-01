@@ -60,6 +60,11 @@ SOURCE_PDFS_MANIFEST = SOURCE_PDFS_DIR / "manifest.json"
 
 # Heavier optional pipeline (pyproject.toml's "heavy" Poetry group), per src/heavy/.
 DOCLING_DIR = CONTENT_DIR / "docling"
+# Per-doc (size, mtime_ns) PDF fingerprint, so docling_parse.parse_doc()
+# only re-runs Docling's layout/OCR models -- the slowest stage in this
+# pipeline -- for a PDF that's new or has actually changed since the last
+# call, mirroring src/ledger.py's own stat-before-hash skip logic.
+DOCLING_CACHE_PATH = CONTENT_DIR / "docling_cache.json"
 GROBID_DIR = CONTENT_DIR / "grobid"
 CHROMA_DIR = CONTENT_DIR / "chroma"
 TOPICS_PATH = CONTENT_DIR / "topics.json"
