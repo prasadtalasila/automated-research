@@ -35,6 +35,20 @@ jobs:
         if: runner.os == 'Linux'
         run: bash scripts/install_full_pipeline.sh all
 
+      # os-deps' apt-get also installs Poetry itself (python3-poetry) on
+      # Linux -- python-deps' check_poetry() has no other way to find it
+      # on a host that skipped os-deps, confirmed by this leg's first
+      # real run (poetry not found, exit 1). install_full_pipeline.sh's
+      # own check_poetry() already documents "or install Poetry
+      # manually" as the accepted non-apt path; this is that, scoped to
+      # CI rather than added to the shared script (a real end user's
+      # Windows host isn't necessarily bootstrapping Poetry via CI's
+      # exact mechanism).
+      - name: Install Poetry (non-Linux only -- os-deps' apt-get is Linux-specific)
+        if: runner.os != 'Linux'
+        shell: bash
+        run: pip install poetry
+
       # os-deps (apt-get: poppler-utils, TeX Live, Pandoc, JDK) is
       # Linux-only -- Windows gets the pure-Python python-deps stage
       # only, so pdftotext/pandoc/pdflatex/GROBID-dependent tests
