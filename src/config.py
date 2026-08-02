@@ -13,8 +13,27 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = Path(os.environ.get("CONFIG_PATH", str(REPO_ROOT / "config.toml")))
 
-with open(CONFIG_PATH, "rb") as _f:
-    _toml = tomllib.load(_f)
+# config.toml is gitignored per-host data (every user edits the parser
+# backend, the paths, the worker count), so a fresh clone genuinely does
+# not have one -- this is the first thing a new user hits, not an edge
+# case. Deliberately a hard failure rather than a silent fallback to
+# config.toml.example: a host quietly running settings its owner never
+# chose is a worse failure than one that refuses to start, and it is the
+# kind that surfaces days later as "why did it parse with the wrong
+# backend". The message carries the literal command because nothing about
+# a bare FileNotFoundError traceback suggests the fix.
+try:
+    with open(CONFIG_PATH, "rb") as _f:
+        _toml = tomllib.load(_f)
+except FileNotFoundError as _exc:
+    raise FileNotFoundError(
+        f"No config file at {CONFIG_PATH}. This repo tracks "
+        "config.toml.example and gitignores config.toml, so a fresh clone "
+        "has to make its own:\n"
+        "    cp config.toml.example config.toml\n"
+        "then edit it (parser backend, paths, worker count) to suit this "
+        "host. Set the CONFIG_PATH env var to use a file somewhere else."
+    ) from _exc
 
 
 def _get(env_var: str, *toml_path: str, default: str = "") -> str:
@@ -87,6 +106,60 @@ PARSER = _get("PARSER", "parser", "backend", default="pdftotext")
 # "OCR: off by default" section, before changing it either way. (The full
 # write-up is bench/RESULTS.md, which is developer-only and not shipped.)
 PARSER_OCR = _get_bool("PARSER_OCR", "parser", "ocr", default=False)
+
+
+def _get_workers(env_var: str, *toml_path: str, default: int) -> "int | str":
+    """A positive int, or the literal "auto" -- the only setting here
+    that isn't a plain str/float/bool.
+
+    Validated at load rather than where the pool is built, because the
+    symptom of a bad value there ("0 workers", "-1 workers") surfaces far
+    from its cause. `bool` is rejected explicitly: TOML's `workers = true`
+    parses as a bool, and bool is an int subclass in Python, so without
+    this it would quietly mean "1 worker" instead of being called out.
+    """
+    if env_var in os.environ:
+        raw = os.environ[env_var]
+    else:
+        node = _toml
+        for key in toml_path:
+            if not isinstance(node, dict):
+                node = None
+                break
+            node = node.get(key)
+        raw = node
+    if raw is None:
+        return default
+    if isinstance(raw, str):
+        if raw.strip().lower() == "auto":
+            return "auto"
+        raw = raw.strip()
+    if isinstance(raw, bool) or not isinstance(raw, (int, str)):
+        raise ValueError(
+            f"{'/'.join(toml_path)} (or {env_var}) must be a positive integer "
+            f'or "auto", not {raw!r}.'
+        )
+    try:
+        workers = int(raw)
+    except ValueError:
+        raise ValueError(
+            f"{'/'.join(toml_path)} (or {env_var}) must be a positive integer "
+            f'or "auto", not {raw!r}.'
+        ) from None
+    if workers < 1:
+        raise ValueError(
+            f"{'/'.join(toml_path)} (or {env_var}) must be a positive integer "
+            f'or "auto", not {raw!r}.'
+        )
+    return workers
+
+
+# How many documents sync parses at once. 1 keeps the historical, strictly
+# serial behaviour -- no pool, no subprocesses -- so raising this is an
+# opt-in. See config.toml.example's [parser].workers comment for how the
+# requested value is clamped against what the host can actually sustain,
+# and src/pdf_text.resolve_workers for the arithmetic.
+PARSER_WORKERS = _get_workers("PARSER_WORKERS", "parser", "workers", default=1)
 
 # Parse-quality guard (src/pdf_text.quality_warning): a PDF extractor
 # that sets its glyph-spacing tolerance too coarse fuses adjacent words

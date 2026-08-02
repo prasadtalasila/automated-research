@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import types
+from pathlib import Path
 
 import pytest
 
@@ -134,7 +135,13 @@ def fake_docling(monkeypatch):
     base_models = types.ModuleType("docling.datamodel.base_models")
     base_models.InputFormat = types.SimpleNamespace(PDF="pdf")
     pipeline_options = types.ModuleType("docling.datamodel.pipeline_options")
-    pipeline_options.PdfPipelineOptions = lambda: types.SimpleNamespace(do_ocr=True)
+    pipeline_options.PdfPipelineOptions = lambda: types.SimpleNamespace(
+        do_ocr=True, accelerator_options=None
+    )
+    accelerator = types.ModuleType("docling.datamodel.accelerator_options")
+    accelerator.AcceleratorOptions = lambda num_threads=None: types.SimpleNamespace(
+        num_threads=num_threads
+    )
 
     for name, mod in [
         ("docling", fake_package),
@@ -142,6 +149,7 @@ def fake_docling(monkeypatch):
         ("docling.datamodel", types.ModuleType("docling.datamodel")),
         ("docling.datamodel.base_models", base_models),
         ("docling.datamodel.pipeline_options", pipeline_options),
+        ("docling.datamodel.accelerator_options", accelerator),
     ]:
         monkeypatch.setitem(sys.modules, name, mod)
     monkeypatch.setattr(config, "PARSER", "docling")
@@ -399,3 +407,157 @@ class TestParseQualityGuard:
         assert pdf_text.quality_warning(fused) is None
         monkeypatch.setattr(isolated_config, "PARSE_LONG_WORD_RATIO", 0.001)
         assert pdf_text.quality_warning(fused) is not None
+
+
+class TestAllowedCpus:
+    def test_uses_affinity_when_available(self, monkeypatch):
+        """os.cpu_count() reports the machine's CPUs; sched_getaffinity
+        reports the ones this process may actually run on. On a shared or
+        containerised host those differ a lot -- 96 vs 48 on the machine
+        this was developed on -- and sizing a pool off the larger number
+        spawns workers that only descheduling each other."""
+        monkeypatch.setattr(pdf_text.os, "cpu_count", lambda: 96)
+        monkeypatch.setattr(pdf_text.os, "sched_getaffinity", lambda pid: set(range(48)),
+                            raising=False)
+        assert pdf_text.allowed_cpus() == 48
+
+    def test_falls_back_to_cpu_count_without_affinity(self, monkeypatch):
+        """sched_getaffinity is Linux-only -- it does not exist on Windows
+        or macOS, and this project's CI has a windows-latest leg."""
+        monkeypatch.delattr(pdf_text.os, "sched_getaffinity", raising=False)
+        monkeypatch.setattr(pdf_text.os, "cpu_count", lambda: 8)
+        assert pdf_text.allowed_cpus() == 8
+
+    def test_falls_back_to_one_when_cpu_count_is_unknown(self, monkeypatch):
+        monkeypatch.delattr(pdf_text.os, "sched_getaffinity", raising=False)
+        monkeypatch.setattr(pdf_text.os, "cpu_count", lambda: None)
+        assert pdf_text.allowed_cpus() == 1
+
+
+class TestResolveWorkers:
+    @pytest.fixture(autouse=True)
+    def _host(self, monkeypatch):
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 48)
+        monkeypatch.setattr(config, "PARSER", "docling")
+
+    def test_default_of_one_stays_one(self, monkeypatch):
+        """The default must reproduce the historical behaviour exactly --
+        no pool, no subprocesses -- however many CPUs are lying around."""
+        monkeypatch.setattr(config, "PARSER_WORKERS", 1)
+        assert pdf_text.resolve_workers(500) == (1, None)
+
+    def test_auto_divides_cpus_by_the_cost_of_a_docling_worker(self, monkeypatch):
+        monkeypatch.setattr(config, "PARSER_WORKERS", "auto")
+        assert pdf_text.resolve_workers(500) == (12, None)
+
+    @pytest.mark.parametrize("cpus,expected", [(4, 1), (8, 2), (16, 4), (48, 12)])
+    def test_auto_on_small_hosts(self, monkeypatch, cpus, expected):
+        """A four-core/eight-thread desktop must not be handed 12 workers
+        just because a 48-CPU host would be."""
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: cpus)
+        monkeypatch.setattr(config, "PARSER_WORKERS", "auto")
+        assert pdf_text.resolve_workers(500)[0] == expected
+
+    def test_oversized_request_is_clamped_and_explained(self, monkeypatch):
+        """Silently obeying thrashes the host; silently ignoring hides the
+        clamp. Say it."""
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 8)
+        monkeypatch.setattr(config, "PARSER_WORKERS", 15)
+        workers, note = pdf_text.resolve_workers(500)
+        assert workers == 2
+        assert "15" in note and "2" in note and "8" in note
+
+    def test_request_within_the_ceiling_is_not_explained(self, monkeypatch):
+        monkeypatch.setattr(config, "PARSER_WORKERS", 4)
+        assert pdf_text.resolve_workers(500) == (4, None)
+
+    def test_never_more_workers_than_documents(self, monkeypatch):
+        """Standing up 12 docling workers to parse 3 documents costs 12
+        model loads to save two documents' worth of work."""
+        monkeypatch.setattr(config, "PARSER_WORKERS", "auto")
+        assert pdf_text.resolve_workers(3)[0] == 3
+
+    def test_no_documents_still_resolves_to_one(self, monkeypatch):
+        monkeypatch.setattr(config, "PARSER_WORKERS", "auto")
+        assert pdf_text.resolve_workers(0)[0] == 1
+
+    def test_pdftotext_worker_is_not_charged_four_cpus(self, monkeypatch):
+        """Each pdftotext is a short single-threaded subprocess, so the
+        docling divisor would under-use the host by 4x here."""
+        monkeypatch.setattr(config, "PARSER", "pdftotext")
+        monkeypatch.setattr(config, "PARSER_WORKERS", "auto")
+        assert pdf_text.resolve_workers(500)[0] == 48
+
+
+class TestDoclingThreads:
+    def test_one_worker_keeps_doclings_own_default(self, monkeypatch):
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 48)
+        assert pdf_text.docling_threads(1) == 4
+
+    def test_threads_divide_down_so_the_product_fits_the_host(self, monkeypatch):
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 8)
+        assert pdf_text.docling_threads(4) == 2
+
+    def test_never_below_one(self, monkeypatch):
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 4)
+        assert pdf_text.docling_threads(12) == 1
+
+
+class TestDoclingThreadBudget:
+    def test_no_thread_budget_leaves_doclings_own_accelerator_settings(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        """The single-worker default must reach Docling untouched, so a
+        default run is exactly what Docling would have done alone."""
+        pdf_text.extract_text(str(tmp_path / "a.pdf"), "a")
+        assert fake_docling.pipeline_options().accelerator_options is None
+
+    def test_thread_budget_is_applied_to_the_pipeline(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        pdf_text.extract_text(str(tmp_path / "a.pdf"), "a", threads=2)
+        assert fake_docling.pipeline_options().accelerator_options.num_threads == 2
+
+    def test_a_different_budget_rebuilds_the_converter(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        """The thread count is baked into the converter, so it belongs in
+        the cache key alongside the OCR setting."""
+        pdf_text.extract_text(str(tmp_path / "a.pdf"), "a", threads=2)
+        pdf_text.extract_text(str(tmp_path / "b.pdf"), "b", threads=4)
+        assert fake_docling.build_count == 2
+
+
+class TestExtractOne:
+    """The pool's entry point. Returns its error instead of raising so
+    that both the value and the exception survive pickling back to the
+    parent -- and returns the exception *object*, since src/sync.py
+    reports ExtractionError and BackendUnavailable differently."""
+
+    def test_success_returns_the_output_path(self, isolated_config, fake_docling, tmp_path):
+        citekey, out_path, exc = pdf_text.extract_one((str(tmp_path / "a.pdf"), "a", None))
+        assert citekey == "a"
+        assert exc is None
+        assert Path(out_path).read_text().startswith("# Parsed content")
+
+    def test_failure_returns_the_exception_with_its_type_intact(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        citekey, out_path, exc = pdf_text.extract_one((str(tmp_path / "explode.pdf"), "bad", None))
+        assert citekey == "bad"
+        assert out_path is None
+        assert isinstance(exc, pdf_text.ExtractionError)
+
+    def test_backend_unavailable_keeps_its_own_type(self, isolated_config, monkeypatch, tmp_path):
+        monkeypatch.setattr(pdf_text, "is_available", lambda: False)
+        monkeypatch.setattr(config, "PARSER", "pdftotext")
+        _, _, exc = pdf_text.extract_one((str(tmp_path / "a.pdf"), "a", None))
+        assert isinstance(exc, pdf_text.BackendUnavailable)
+
+    def test_the_returned_exception_survives_pickling(self, isolated_config, fake_docling, tmp_path):
+        """The whole reason for returning rather than raising: this triple
+        has to cross a process boundary."""
+        import pickle
+
+        _, _, exc = pdf_text.extract_one((str(tmp_path / "explode.pdf"), "bad", None))
+        assert isinstance(pickle.loads(pickle.dumps(exc)), pdf_text.ExtractionError)

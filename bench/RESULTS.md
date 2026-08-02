@@ -85,13 +85,50 @@ A fourth fact, host-specific but a live trap for worker sizing:
    would oversubscribe 2x. This already bit the benchmark run: a
    `taskset -c 24-39` invocation failed outright with `Invalid argument`.
 
-## Not measured
+## Phase 1, measured: parallel `sync`, and the ceiling it hits
 
-Parallel scaling. `run_parallel.py` exists and is ready, but no
-multi-worker run was performed, so every multi-worker figure in the plan
-is a projection from the serial measurement plus the
-~3-cores-per-worker observation -- not a measurement. The plan says so
-where it matters.
+Measured 2026-08-02 with the real `python -m src.sync`, not the bench
+harness: 60 bib PDFs (1,166 pages), `parser.backend = "docling"`, OCR off,
+via `[parser].workers`.
+
+| workers | wall clock | speedup | efficiency |
+|---|---|---|---|
+| 1 | 444.4s | 1.00x | -- |
+| 4 | 123.4s | **3.60x** | 90% |
+| 12 | 120.3s | 3.69x | 31% |
+
+Four workers scale almost linearly. Twelve buy essentially nothing over
+four, and `nvidia-smi dmon` during that run says exactly why:
+
+```
+# gpu    sm%          <- GPU 0 pinned at 100%, GPUs 1-3 idle throughout
+    0    100
+    1      0
+    2      0
+    3      0
+```
+
+**The bottleneck has moved.** Before this work the parse was CPU-bound
+and one A40 idled at ~7%. Enough CPU parallelism to saturate that GPU
+turns the same workload into a *single-GPU-bound* one -- while the other
+three A40s are never addressed at all, because Docling's
+`AcceleratorDevice.AUTO` resolves to `cuda:0` in every worker process
+(fact 3 above).
+
+That is what Phase 2 of PARALLELISM-PLAN.md is for, and this measurement
+is the argument for it: the four GPUs stopped being redundant the moment
+Phase 1 landed. A 60-document sample already saturates one card at 12
+workers, so the full 501-document corpus will too.
+
+On smaller batches the per-worker model load dominates instead: over 8
+documents, 4 workers gave 1.90x and 8 workers gave none (34.6s / 18.3s /
+19.3s). Each worker pays its own cold start, so parallelism is worth
+having in proportion to how much work there is -- which is why the
+resolved worker count is capped by the number of documents needing a
+parse.
+
+Correctness was checked, not assumed: `content/parsed/` after a 4-worker
+run is byte-identical to the serial run's, and the ledger rows match.
 
 ## Phase 0, measured: OCR costs more than the GPU saves
 

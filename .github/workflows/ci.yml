@@ -28,7 +28,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    # windows-latest is exploratory (DESIGN.md's cross-platform-CI
+    # windows-latest is exploratory (docs/DESIGN.md's cross-platform-CI
     # recommendation) -- this repo's install path and every doc
     # (AGENTS.md, DEVELOPER.md) assume Linux, so don't let it block the
     # Linux leg (this repo's actual gate) while real gaps get found and
@@ -36,6 +36,16 @@ jobs:
     continue-on-error: ${{ matrix.os == 'windows-latest' }}
     steps:
       - uses: actions/checkout@v4
+
+      # config.toml is gitignored per-host data, so a checkout never has
+      # one -- and src/config.py reads it at *import* time and fails hard
+      # when it's absent (deliberately: see its own comment). Without this
+      # step every test in the suite dies on collection, not just the
+      # config ones. CI is the plain example file, unedited, which is also
+      # a free check that the shipped example still parses.
+      - name: Create config.toml from the tracked example
+        shell: bash
+        run: cp config.toml.example config.toml
 
       # Dogfoods the project's own single install path (AGENTS.md: "don't
       # add a second install path") rather than hand-rolling equivalent

@@ -42,6 +42,15 @@ docker run -it --rm \
     research-pipeline
 ```
 
+The image deliberately doesn't bake the repo in -- it mounts it -- so the
+`config.toml` the container reads is the one in *your* working copy. That
+file is gitignored, so create it before the first run or `src.config`
+will refuse to import:
+
+```bash
+cp config.toml.example config.toml
+```
+
 ## Verify the toolchain
 
 Inside the running container, check that the render and heavy-pipeline

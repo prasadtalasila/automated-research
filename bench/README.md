@@ -1,6 +1,6 @@
 # bench/ -- wall-clock measurement for the Docling parse path
 
-`PDF-PARSER.md` puts Docling at "~42x slower than pdftotext", measured on
+`docs/PDF-PARSER.md` puts Docling at "~42x slower than pdftotext", measured on
 5 PDFs. That is enough to choose a backend and not nearly enough to
 answer "how long does a full sync of the bib corpus actually take, on
 this host, and what is the bottleneck". This directory answers that, and

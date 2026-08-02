@@ -110,6 +110,57 @@ class TestRealConfigToml:
         assert config.EMBEDDING_MODEL == "sentence-transformers/all-mpnet-base-v2"
 
 
+class TestGetWorkers:
+    """[parser].workers is the one setting that isn't a plain str/float/
+    bool: it's a positive int OR the literal "auto", and a wrong value
+    has to be rejected at load rather than turning into a nonsense pool
+    size much later."""
+
+    @pytest.fixture(autouse=True)
+    def _toml(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"parser": {}})
+
+    def test_missing_key_uses_default(self):
+        assert config._get_workers("W", "parser", "workers", default=1) == 1
+
+    def test_int_from_toml(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"parser": {"workers": 8}})
+        assert config._get_workers("W", "parser", "workers", default=1) == 8
+
+    def test_auto_from_toml(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"parser": {"workers": "auto"}})
+        assert config._get_workers("W", "parser", "workers", default=1) == "auto"
+
+    @pytest.mark.parametrize("raw", ["auto", "AUTO", " Auto "])
+    def test_auto_is_case_and_space_insensitive(self, monkeypatch, raw):
+        monkeypatch.setenv("W", raw)
+        assert config._get_workers("W", "parser", "workers", default=1) == "auto"
+
+    def test_env_override_wins(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"parser": {"workers": 8}})
+        monkeypatch.setenv("W", "3")
+        assert config._get_workers("W", "parser", "workers", default=1) == 3
+
+    @pytest.mark.parametrize("raw", ["0", "-1"])
+    def test_below_one_is_rejected(self, monkeypatch, raw):
+        monkeypatch.setenv("W", raw)
+        with pytest.raises(ValueError, match="positive integer"):
+            config._get_workers("W", "parser", "workers", default=1)
+
+    def test_nonsense_string_is_rejected(self, monkeypatch):
+        monkeypatch.setenv("W", "lots")
+        with pytest.raises(ValueError, match="positive integer"):
+            config._get_workers("W", "parser", "workers", default=1)
+
+    def test_bool_is_rejected(self, monkeypatch):
+        """TOML `workers = true` parses as a bool, and bool is an int
+        subclass in Python -- so without an explicit check this would
+        silently mean "1 worker" instead of being called out."""
+        monkeypatch.setattr(config, "_toml", {"parser": {"workers": True}})
+        with pytest.raises(ValueError, match="positive integer"):
+            config._get_workers("W", "parser", "workers", default=1)
+
+
 class TestModuleReloadWithEnvOverrides:
     """Full module-level reload, to cover the constant-computation lines
     themselves (BIB_FILE_PATH = REPO_ROOT / _get(...), etc.) under a real
@@ -141,6 +192,21 @@ class TestModuleReloadWithEnvOverrides:
         monkeypatch.setenv("EMBEDDING_MODEL", "sentence-transformers/other-model")
         importlib.reload(config)
         assert config.EMBEDDING_MODEL == "sentence-transformers/other-model"
+
+    def test_missing_config_file_names_the_fix(self, monkeypatch, tmp_path):
+        """config.toml is gitignored per-host data, so "it isn't there"
+        is the *normal* state of a fresh clone -- the first thing anyone
+        hits. Deliberately a hard failure rather than a silent fallback
+        to config.toml.example: a host quietly running settings its owner
+        never chose is worse than one that won't start. The message has
+        to carry the actual command, since the file it names is not
+        obviously related to the traceback that brought you here."""
+        monkeypatch.setenv("CONFIG_PATH", str(tmp_path / "config.toml"))
+        with pytest.raises(FileNotFoundError) as excinfo:
+            importlib.reload(config)
+        message = str(excinfo.value)
+        assert "cp config.toml.example config.toml" in message
+        assert str(tmp_path / "config.toml") in message
 
     def test_custom_config_path(self, monkeypatch, tmp_path):
         custom_toml = tmp_path / "custom.toml"

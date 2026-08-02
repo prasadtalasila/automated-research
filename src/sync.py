@@ -21,10 +21,111 @@ runs with the bare system interpreter.
 """
 
 import argparse
+import os
 import sys
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
+from pathlib import Path
 
 from src import bib_reader, config, dedup, ledger, pdf_text
+
+
+def _executor_for(workers: int):
+    """Processes for docling, threads for pdftotext.
+
+    The two backends want opposite things, so this is deliberately
+    backend-conditional rather than one pool type for both. `pdftotext`
+    is an external subprocess that releases the GIL while it runs, so a
+    ThreadPoolExecutor already gets full OS-level concurrency and a
+    process pool would only add pickling and spawn cost on top. `docling`
+    runs in-process and holds the GIL, so threads would serialise exactly
+    the work we are trying to overlap.
+
+    Also the seam the tests substitute: a real ProcessPoolExecutor runs
+    its work in a child interpreter, where the test process's
+    monkeypatches don't exist.
+    """
+    if config.PARSER == "docling":
+        return ProcessPoolExecutor(max_workers=workers)
+    return ThreadPoolExecutor(max_workers=workers)
+
+
+def _pdf_size(path: str) -> int:
+    """Bytes, or 0 if the file can't be stat'd.
+
+    Only ever used to sort work biggest-first, so a file that vanished
+    between bib resolution and here just sorts last -- the parse will
+    report the real error a moment later, which is the better place for
+    it.
+    """
+    try:
+        return os.path.getsize(path)
+    except OSError:
+        return 0
+
+
+def _parse_serial(refs):
+    """The historical path, taken whenever [parser].workers resolves to 1.
+
+    Deliberately not "a pool with one worker": no executor, no pickling,
+    no subprocess, and pdf_text.extract_text is called with exactly the
+    arguments it always was.
+    """
+    for ref in refs:
+        try:
+            yield ref.citekey, str(pdf_text.extract_text(ref.pdf_path, ref.citekey)), None
+        except (pdf_text.ExtractionError, pdf_text.BackendUnavailable) as exc:
+            yield ref.citekey, None, exc
+
+
+def _parse_parallel(refs, workers: int, threads: int | None):
+    """Same triples as _parse_serial, produced by `workers` at once.
+
+    Submitted biggest-file-first (the LPT heuristic). One 675-page
+    document in this project's own corpus is 5% of all its pages; picked
+    up last it would define the wall clock single-handedly. File size
+    rather than page count on purpose -- counting pages needs a PDF
+    library, and the core pipeline deliberately has no such dependency.
+    """
+    jobs = [(r.pdf_path, r.citekey, threads)
+            for r in sorted(refs, key=lambda r: -_pdf_size(r.pdf_path))]
+    results = {}
+    broken = None
+    # submit()/as_completed() rather than map(): map yields in *input*
+    # order, so a pool that breaks while the first (largest) job is still
+    # running would raise before yielding the smaller jobs that had
+    # already finished, throwing away real work and reporting parsed
+    # documents as failures. as_completed records each result at the
+    # moment it lands, so a broken pool costs only what was actually in
+    # flight.
+    try:
+        with _executor_for(workers) as executor:
+            futures = [executor.submit(pdf_text.extract_one, job) for job in jobs]
+            for future in as_completed(futures):
+                try:
+                    citekey, out_path, exc = future.result()
+                except BrokenProcessPool as pool_exc:
+                    broken = pool_exc
+                    continue
+                results[citekey] = (out_path, exc)
+    except BrokenProcessPool as pool_exc:
+        # submit() itself raises once the pool is already known-broken.
+        broken = pool_exc
+    if broken is not None:
+        # A worker killed outright (the OOM killer is the realistic
+        # cause) takes the whole pool with it, and every future still in
+        # flight. Reported against the documents that didn't get parsed
+        # rather than raised, so the run still writes its ledger updates,
+        # its summary, and a nonzero exit code.
+        print(f"  WARNING a parse worker died ({broken}) -- the documents it "
+              "had not finished are reported as failures below. A lower "
+              "[parser].workers is the usual fix.", file=sys.stderr)
+    for ref in refs:
+        if ref.citekey not in results:
+            results[ref.citekey] = (None, pdf_text.ExtractionError(
+                "parse worker died before this document was parsed"))
+    return ((ref.citekey, *results[ref.citekey]) for ref in refs)
 
 
 def run(remove_stale: bool = False) -> int:
@@ -67,29 +168,19 @@ def run(remove_stale: bool = False) -> int:
     stale: list[tuple[str, str | None]] = []
     suspicious = False
     try:
-        # This loop -- including pdf_text.extract_text's backend call
-        # (pdftotext/docling, per config.PARSER) -- runs
-        # serially, one reference at a time, even though a large corpus
-        # (454 PDFs/1.37GB at one audit) means a first-time or bulk sync
-        # can have a lot of documents to parse in a single run.
-        # Deliberately not parallelized (ProcessPoolExecutor was the
-        # candidate) for two reasons: (1) src/ledger.py's (size,
-        # mtime)-before-hash skip means a routine, non-bulk sync already
-        # parses zero-to-few documents per run -- the case parallelism
-        # would help doesn't come up often; (2) with the default
-        # pdftotext backend specifically, pdftotext is already an
-        # external subprocess (releases the GIL while it runs), so a
-        # ProcessPoolExecutor would add pickling/IPC overhead to buy the
-        # same OS-level concurrency a plain ThreadPoolExecutor gets for
-        # free. Reason (2) doesn't hold for docling (it runs
-        # in-process, holding the GIL) -- but reason (1) does, for both
-        # backends equally, which is why this is still deferred
-        # rather than backend-conditional. If a bulk/first-run sync's
-        # wall-clock time becomes a real problem, revisit with a
-        # ThreadPoolExecutor around this loop's pdf_text.extract_text
-        # call specifically -- keeping every ledger.mark_parsed/
-        # mark_parse_failed call on the main thread as futures complete,
-        # since a sqlite3 connection isn't safe to share across threads.
+        # Split into "decide" and "parse" rather than one loop doing both.
+        # Every ledger call stays here, on the main thread, because a
+        # sqlite3 connection is not safe to share across threads and
+        # sqlite has a single writer regardless -- only the backend call
+        # (pdftotext/docling, per config.PARSER) is ever handed to a pool.
+        #
+        # Whether there is a pool at all is [parser].workers, which
+        # defaults to 1: a routine sync parses zero-to-few documents
+        # (src/ledger.py's (size, mtime)-before-hash skip), so paying pool
+        # setup by default would cost more than it saves. It is a bulk or
+        # first-time sync that needs this -- 501 PDFs at one audit, ~39
+        # minutes serial with docling -- and that case is opt-in.
+        to_parse = []
         for ref in references:
             needs_parse = ledger.upsert_reference(con, ref)
             if not ref.pdf_path:
@@ -104,11 +195,27 @@ def run(remove_stale: bool = False) -> int:
             if not parser_available:
                 backend_unavailable += 1
                 continue
-            try:
-                out_path = pdf_text.extract_text(ref.pdf_path, ref.citekey)
-                ledger.mark_parsed(con, ref.citekey, out_path)
+            to_parse.append(ref)
+
+        workers, complaint = pdf_text.resolve_workers(len(to_parse))
+        if complaint:
+            print(complaint, file=sys.stderr)
+        if workers > 1:
+            print(f"  parsing {len(to_parse)} document(s) with {workers} workers")
+            results = _parse_parallel(to_parse, workers, pdf_text.docling_threads(workers))
+        else:
+            results = _parse_serial(to_parse)
+
+        # Applied in bib order, not completion order: futures finish in
+        # whatever order they finish, and letting that reach stdout would
+        # make two identical runs print differently and stop anyone
+        # diffing them.
+        for ref, (citekey, out_path, exc) in zip(to_parse, results):
+            if exc is None:
+                out_path = Path(out_path)
+                ledger.mark_parsed(con, citekey, out_path)
                 parsed += 1
-                print(f"  parsed  {ref.citekey}")
+                print(f"  parsed  {citekey}")
                 # Reported per document rather than only in the summary:
                 # the fix is usually per document (a scan, an unusual
                 # font) or global (the wrong backend), and seeing which
@@ -117,13 +224,9 @@ def run(remove_stale: bool = False) -> int:
                     out_path.read_text(encoding="utf-8", errors="replace")
                 )
                 if warning:
-                    low_quality.append(ref.citekey)
-                    print(f"  WARNING {ref.citekey}: {warning}", file=sys.stderr)
-            except pdf_text.ExtractionError as exc:
-                ledger.mark_parse_failed(con, ref.citekey, str(exc))
-                failed += 1
-                print(f"  FAILED  {ref.citekey}: {exc}", file=sys.stderr)
-            except pdf_text.BackendUnavailable as exc:
+                    low_quality.append(citekey)
+                    print(f"  WARNING {citekey}: {warning}", file=sys.stderr)
+            elif isinstance(exc, pdf_text.BackendUnavailable):
                 # The up-front probe passed, but the backend vanished
                 # (pdftotext dropped from PATH, or the docling
                 # package became uninstallable) between then and this
@@ -134,7 +237,11 @@ def run(remove_stale: bool = False) -> int:
                 # install hint as the up-front WARNING (both come from
                 # pdf_text.unavailable_reason()), not just "unavailable".
                 backend_unavailable += 1
-                print(f"  no-{config.PARSER}  {ref.citekey}: {exc}", file=sys.stderr)
+                print(f"  no-{config.PARSER}  {citekey}: {exc}", file=sys.stderr)
+            else:
+                ledger.mark_parse_failed(con, citekey, str(exc))
+                failed += 1
+                print(f"  FAILED  {citekey}: {exc}", file=sys.stderr)
         # Only the ledger row is removed -- see prune_missing's own
         # docstring for why the corresponding content/parsed/<citekey>.txt
         # is deliberately left in place. Deletion only happens with
@@ -196,7 +303,7 @@ def run(remove_stale: bool = False) -> int:
         print(
             f"  WARNING: {len(low_quality)} document(s) look like the parser lost "
             f"word boundaries: {', '.join(low_quality)}. See config.toml's "
-            f"[parser] quality-guard settings and PDF-PARSER.md."
+            f"[parser] quality-guard settings and docs/PDF-PARSER.md."
         )
     if no_pdf_reasons:
         # Least-churn fix for the masking this bucket used to cause: the
