@@ -8,6 +8,7 @@ Architecture docs and [DOCKER.md](DOCKER.md) for the container build.
 ## Table of contents
 
 - [Running tests](#running-tests)
+- [Benchmarking the parser](#benchmarking-the-parser)
 - [Repository layout](#repository-layout)
 - [Figures and copyright](#figures-and-copyright)
 - [Citation provenance](#citation-provenance)
@@ -36,10 +37,33 @@ classes elsewhere) run the real `pdftotext`/`pandoc`/`pdflatex` binaries
 end to end rather than mocking them, and skip automatically if those
 aren't on `PATH`.
 
+## Benchmarking the parser
+
+`bench/` measures what a full `docling` parse of the bib corpus costs on
+this host, and is deliberately kept out of `tests/`: it takes a couple of
+hours, needs real PDFs and a GPU, and answers a "how long / what's the
+bottleneck" question rather than a pass/fail one. It is excluded from the
+release zip for the same reason `tests/` is.
+
+- [bench/README.md](bench/README.md) -- how to run it, and what each
+  switch measures
+- [bench/RESULTS.md](bench/RESULTS.md) -- the 2026-08-02 baseline, with
+  raw per-PDF timings in `bench/results/`
+- [bench/PARALLELISM-PLAN.md](bench/PARALLELISM-PLAN.md) -- the phased
+  plan that measurement produced
+
+The headline, because it is counter-intuitive: parsing all 501 bib PDFs
+with `docling` takes ~1.6 hours, and during it the A40 sits at ~7%
+utilization while three CPU cores of 48 do the work. The GPU is worth
+1.79x over CPU-only. Optimise the CPU path before reaching for more GPUs.
+
 ## Repository layout
 
 ```
 README.md                 you are here
+bench/                    parser wall-clock measurement (dev-only, not shipped) -- see "Benchmarking
+                          the parser" above; corpus.json/sample*.json are generated and gitignored,
+                          results/*.jsonl are committed evidence
 AGENTS.md                 instructions for coding agents working in this repo -- hard invariants, install
                           notes, dev process, commit/PR/release conventions
 DEVELOPER.md              this file -- test running, repo layout, open questions

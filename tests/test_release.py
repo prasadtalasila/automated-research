@@ -32,6 +32,8 @@ def make_repo(tmp_path):
     (repo / ".github" / "workflows" / "ci.yml").write_text("name: ci")
     (repo / ".gitignore").write_text("content/parsed/\n")
     (repo / "AGENTS.md").write_text("agent guidance")
+    (repo / "bench").mkdir()
+    (repo / "bench" / "bench_docling.py").write_text("x = 1")
     (repo / "content" / "drafts").mkdir(parents=True)
     (repo / "content" / "drafts" / "example-tutorial.md").write_text("# Example")
     (repo / "papers" / "pdfs").mkdir(parents=True)
@@ -68,6 +70,13 @@ class TestTrackedFiles:
         assert not any(p.startswith(".github/") for p in paths)
         assert ".gitignore" not in paths
         assert "AGENTS.md" not in paths
+
+    def test_excludes_bench(self, repo):
+        # bench/ measures *this* repo's parser on *this* host's corpus --
+        # developer-only material in the same category as tests/, and it
+        # needs a bib file a release consumer doesn't have.
+        paths = release.tracked_files()
+        assert not any(p.startswith("bench/") for p in paths)
 
     def test_excludes_tracked_files_under_content_and_papers(self, repo):
         paths = release.tracked_files()

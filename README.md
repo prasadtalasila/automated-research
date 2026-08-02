@@ -280,10 +280,10 @@ these are cold-extraction times, not `sync`'s steady-state, which skips
 PDFs whose content hasn't changed). The `markitdown` column is retained
 as the record behind its removal -- it is no longer a selectable
 backend. Its PDF support was `pdfminer.six`/`pdfplumber`-based,
-CPU-only, no GPU involved. Docling's
-layout/OCR models do use torch/onnxruntime, but GPU utilization wasn't
-independently confirmed for this run -- treat docling's numbers as this
-host's numbers, not a GPU-optimized floor.
+CPU-only, no GPU involved. Docling's layout/OCR models do use
+torch/onnxruntime; GPU utilization was not confirmed for *this* run, but
+has since been measured separately and is lower than it looks -- see
+["Performance: the whole corpus"](#performance-the-whole-corpus) below.
 
 | Citekey (pages) | `pdftotext` | `markitdown` | `docling` |
 |---|---|---|---|
@@ -316,6 +316,36 @@ a consistent undercount would at least be predictable. Later measurement
 found the underlying cause and it was not recoverable through
 markitdown's API, which is why it was removed; see
 [PDF-PARSER.md](PDF-PARSER.md#why-markitdown-was-removed).
+
+#### Performance: the whole corpus
+
+The five-PDF table above is enough to choose a backend. It is not enough
+to answer "how long does a first-time `docling` sync of the whole bib
+file take, and what is actually the bottleneck". `bench/` answers that,
+reproducibly; the measurement is written up in
+[bench/RESULTS.md](bench/RESULTS.md).
+
+Measured 2026-08-02 on the documented A40 host, over all 501 PDFs
+(13,400 pages) that `papers/bibliography.bib` resolves:
+
+| | |
+|---|---|
+| One process, one A40 | **~1.6 hours** (0.43 s/page) |
+| One process, CPU only | ~5.1 hours (1.37 s/page) |
+| GPU vs CPU, same 6 PDFs | **1.79x** |
+
+The surprise is the last row. During that run the A40 averaged **~7% SM
+utilization** and 1.7 GB of its 46 GB, while the process held ~300% CPU
+-- three of the 48 available cores. Docling is CPU-bound here (PDF
+backend, layout post-processing, and OCR, which runs on the CPU via
+onnxruntime), so the GPU buys far less than its presence suggests, and
+three of this host's four GPUs are never addressed at all: docling's
+`AcceleratorDevice.AUTO` resolves to `cuda:0` for every process.
+
+[bench/PARALLELISM-PLAN.md](bench/PARALLELISM-PLAN.md) is the plan that
+follows from this -- CPU-level document parallelism first, GPU
+assignment second, in that order because that is where the measurement
+says the wall clock is.
 
 ### Choosing an embedding model
 
