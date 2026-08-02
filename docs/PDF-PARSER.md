@@ -42,6 +42,16 @@ honest number; treat 42x as the OCR-on ceiling and see
 figures that replaced it (a full 501-PDF parse: ~39 minutes with OCR off, ~1.6 hours
 with it on).
 
+**Its output is not bit-reproducible under concurrency.** At high worker
+counts a small number of documents (6 of 501, measured) come back with
+dense reference blocks grouped into elements slightly differently -- the
+same words, different boundaries, under 0.06% of a file. This is Docling's
+own behaviour under load, not something this repo's parallelism
+introduced, and it cannot be switched off: Docling exposes no determinism
+setting. It does not affect retrieval, which tokenises on whitespace. See
+README's ["Using more than one GPU"](../README.md#using-more-than-one-gpu)
+and `bench/RESULTS.md` (developer-only, in the repository).
+
 Turning OCR off is a trade-off, not a free win: it drops text that the
 PDF stores as a bitmap rather than as characters, which on this sample
 was mostly publisher furniture and figure sub-captions but on one
