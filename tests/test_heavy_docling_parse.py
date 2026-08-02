@@ -94,11 +94,16 @@ class FakeDocumentConverter:
     last_convert_path = None
     last_format_options = None
     call_count = 0
+    # Constructions, as distinct from call_count's conversions: every
+    # construction re-initialises Docling's real layout/table/OCR models,
+    # which is the cost parse_corpus's hoisted converter exists to pay once.
+    build_count = 0
     pictures = []
     texts = []
 
     def __init__(self, format_options=None):
         FakeDocumentConverter.last_format_options = format_options
+        FakeDocumentConverter.build_count += 1
 
     def convert(self, pdf_path):
         FakeDocumentConverter.last_convert_path = pdf_path
@@ -116,6 +121,7 @@ def fake_docling(monkeypatch):
     FakeDocumentConverter.last_convert_path = None
     FakeDocumentConverter.last_format_options = None
     FakeDocumentConverter.call_count = 0
+    FakeDocumentConverter.build_count = 0
     FakeDocumentConverter.pictures = []
     FakeDocumentConverter.texts = []
     FakeDocument.last_image_mode = None
@@ -129,7 +135,7 @@ def fake_docling(monkeypatch):
     base_models.InputFormat = types.SimpleNamespace(PDF="pdf")
     pipeline_options = types.ModuleType("docling.datamodel.pipeline_options")
     pipeline_options.PdfPipelineOptions = lambda: types.SimpleNamespace(
-        generate_picture_images=False, images_scale=1.0
+        generate_picture_images=False, images_scale=1.0, do_ocr=True
     )
     core_doc = types.ModuleType("docling_core.types.doc")
     core_doc.ImageRefMode = types.SimpleNamespace(REFERENCED="referenced")
@@ -191,8 +197,20 @@ class TestImageExtraction:
         docling_parse.parse_doc(self._doc(tmp_path))
 
         assert FakeDocument.last_image_mode is None  # save_as_markdown never called
-        assert FakeDocumentConverter.last_format_options is None  # bare converter
+        # Pipeline options are always passed now (they carry do_ocr), so
+        # "images off" is asserted on the option itself rather than on the
+        # converter having been built bare.
+        assert FakeDocumentConverter.last_format_options["pdf"].pipeline_options.generate_picture_images is False
         assert not (isolated_config.DOCLING_DIR / "richstein_characterizing_2024.figures.json").exists()
+
+    def test_ocr_is_off_by_default(self, isolated_config, fake_docling, tmp_path):
+        docling_parse.parse_doc(self._doc(tmp_path))
+        assert FakeDocumentConverter.last_format_options["pdf"].pipeline_options.do_ocr is False
+
+    def test_ocr_can_be_turned_back_on(self, isolated_config, fake_docling, monkeypatch, tmp_path):
+        monkeypatch.setattr(isolated_config, "PARSER_OCR", True)
+        docling_parse.parse_doc(self._doc(tmp_path))
+        assert FakeDocumentConverter.last_format_options["pdf"].pipeline_options.do_ocr is True
 
     def test_images_on_requests_bitmaps_and_referenced_mode(self, images_on, fake_docling, tmp_path):
         FakeDocumentConverter.pictures = [FakePicture("Figure 1. A plot", page=3)]
@@ -512,12 +530,23 @@ class TestIncrementalSkip:
 
         docling_parse.parse_corpus(docs)
         assert FakeDocumentConverter.call_count == 2
+        # One converter for the whole corpus, not one per document: each
+        # construction re-initialises the layout/table/OCR models, 16.5s
+        # of measured cold start that a 501-PDF corpus would otherwise
+        # pay 501 times.
+        assert FakeDocumentConverter.build_count == 1
         assert isolated_config.DOCLING_CACHE_PATH.exists()
 
         # A fresh parse_corpus call (simulating the next `full_pipeline.py`
         # run) must read that persisted cache and skip both docs.
+        FakeDocumentConverter.build_count = 0
         docling_parse.parse_corpus(docs)
         assert FakeDocumentConverter.call_count == 2
+        # ...and must not stand the models up at all to discover that.
+        # The converter is built on first *use*, not on entry, so the
+        # common case -- re-running a corpus that hasn't changed -- costs
+        # no model load whatsoever.
+        assert FakeDocumentConverter.build_count == 0
 
 
 class TestCacheLoading:
@@ -538,6 +567,7 @@ class TestCacheLoading:
         payload = {
             "version": docling_parse._CACHE_VERSION,
             "images": isolated_config.DOCLING_IMAGES,
+            "ocr": isolated_config.PARSER_OCR,
             "items": items,
         }
         payload.update(overrides)
@@ -579,6 +609,17 @@ class TestCacheLoading:
         assert docling_parse._load_cache() == {"good2024": [123, 456]}
 
         monkeypatch.setattr(isolated_config, "DOCLING_IMAGES", not isolated_config.DOCLING_IMAGES)
+        assert docling_parse._load_cache() == {}
+
+    def test_toggling_ocr_invalidates_whole_cache(self, isolated_config, monkeypatch):
+        """Same trap as DOCLING_IMAGES above, on a second axis: OCR
+        changes what every .md should contain (it is the difference
+        between reading a scan and not), while the (size, mtime_ns)
+        fingerprint still only sees the PDF."""
+        self._write_cache(isolated_config, {"good2024": [123, 456]})
+        assert docling_parse._load_cache() == {"good2024": [123, 456]}
+
+        monkeypatch.setattr(isolated_config, "PARSER_OCR", not isolated_config.PARSER_OCR)
         assert docling_parse._load_cache() == {}
 
     def test_save_then_load_round_trips(self, isolated_config):

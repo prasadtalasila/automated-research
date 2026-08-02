@@ -103,17 +103,63 @@ def _extract_pdftotext(pdf_path: str, out_path: Path) -> None:
         raise ExtractionError(exc.stderr or str(exc)) from exc
 
 
-def _extract_docling(pdf_path: str, out_path: Path) -> None:
+# One converter, reused for the whole process. Docling's
+# DocumentConverter keeps its `initialized_pipelines` cache on the
+# *instance*, so building one per PDF re-initialises the layout, table
+# and OCR models for every single document -- measured at 16.5s of cold
+# start on the documented A40 host, against a corpus of 501 PDFs.
+#
+# Keyed by the settings that change what a converter *is*, not merely
+# memoised on "was one built already": otherwise flipping config.PARSER_OCR
+# (which tests do, and a user editing config.toml mid-session would) keeps
+# silently serving the converter built under the old setting.
+_DOCLING_CONVERTER = None
+_DOCLING_CONVERTER_KEY = None
+
+
+def _reset_docling_converter() -> None:
+    """Drop the cached converter. Exists for tests -- module-level state
+    otherwise leaks one test's fake converter into the next."""
+    global _DOCLING_CONVERTER, _DOCLING_CONVERTER_KEY
+    _DOCLING_CONVERTER = None
+    _DOCLING_CONVERTER_KEY = None
+
+
+def _docling_converter():
+    global _DOCLING_CONVERTER, _DOCLING_CONVERTER_KEY
+
+    key = (config.PARSER_OCR,)
+    if _DOCLING_CONVERTER is not None and _DOCLING_CONVERTER_KEY == key:
+        return _DOCLING_CONVERTER
+
     try:
-        from docling.document_converter import DocumentConverter
+        from docling.datamodel.base_models import InputFormat
+        from docling.datamodel.pipeline_options import PdfPipelineOptions
+        from docling.document_converter import DocumentConverter, PdfFormatOption
     except ImportError as exc:
         raise MissingDependency(unavailable_reason()) from exc
 
+    opts = PdfPipelineOptions()
+    opts.do_ocr = config.PARSER_OCR
+    _DOCLING_CONVERTER = DocumentConverter(
+        format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)}
+    )
+    _DOCLING_CONVERTER_KEY = key
+    return _DOCLING_CONVERTER
+
+
+def _extract_docling(pdf_path: str, out_path: Path) -> None:
+    converter = _docling_converter()
     try:
-        result = DocumentConverter().convert(pdf_path)
+        result = converter.convert(pdf_path)
     except Exception as exc:  # noqa: BLE001 -- docling has no narrower
         # common exception type to catch (same reporting shape as
         # src/heavy/docling_parse.py's own parse_corpus loop).
+        #
+        # The converter is deliberately NOT discarded here: the failure
+        # is in this one PDF, not in the models, and throwing it away
+        # would charge the next document a full reload for its neighbour's
+        # bad luck.
         raise ExtractionError(str(exc)) from exc
     out_path.write_text(result.document.export_to_markdown(), encoding="utf-8")
 

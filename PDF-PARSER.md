@@ -17,7 +17,7 @@ The main candidates are:
 |---|---|---|---|---|---|
 | `pdftotext` | Plain text extraction | Very fast, simple, stable, low dependency footprint | Weak on layout, tables, headings, and reading order | 1x | Best lightweight baseline |
 | `markitdown` | General file-to-Markdown conversion | Flexible normalization, multi-format support | Fuses adjacent words on this corpus (4.19% of tokens), which breaks whitespace-tokenized retrieval | ~17x slower (measured, 5 real bib PDFs) | **Removed 2026-08-01** -- see below |
-| `docling` | Layout-aware PDF parsing | Better reading order, sections, tables, and structured Markdown | Heavy, slower, model/runtime complexity | ~42x slower (measured, 5 real bib PDFs) | Best quality parser for the heavy path |
+| `docling` | Layout-aware PDF parsing | Better reading order, sections, tables, and structured Markdown | Heavy, slower, model/runtime complexity | ~42x slower (measured, 5 real bib PDFs, OCR on -- see note below) | Best quality parser for the heavy path |
 | `grobid` | Scholarly structure and references | Excellent for title, abstract, sections, and references | Not a general-purpose plain-text extractor; needs a JDK 21 build and a long-running service | Separate from the main speed scale | **Removed 2026-08-01** -- see below |
 
 ## Likely behavior in practice
@@ -30,6 +30,23 @@ A general conversion tool rather than a scholarly parser, and meaningfully slowe
 
 ### `docling`
 This is the best fit when the PDF's structure matters: headings, tables, reading order, and section boundaries. It is much slower and heavier (~42x measured), but the output is more useful for later chunking, retrieval, and topic modeling.
+
+**The ~42x figure predates the OCR default.** It was measured with
+Docling's OCR stage on, which is Docling's default but has not been this
+project's since 0.12.0 (`config.toml`'s `[parser].ocr = false`). Over a
+separate, larger sample -- 16 bib PDFs, 943 pages -- turning OCR off was
+**2.46x** faster, so the current default sits well below 42x. The two
+measurements used different samples, so they don't compose into a single
+honest number; treat 42x as the OCR-on ceiling and see
+`bench/RESULTS.md` in the repository (developer-only -- it is not part of the release zip) for the corpus-wide
+figures that replaced it (a full 501-PDF parse: ~39 minutes with OCR off, ~1.6 hours
+with it on).
+
+Turning OCR off is a trade-off, not a free win: it drops text that the
+PDF stores as a bitmap rather than as characters, which on this sample
+was mostly publisher furniture and figure sub-captions but on one
+document included two whole tables. See README's ["OCR: off by default,
+and why that is a trade-off"](README.md#ocr-off-by-default-and-why-that-is-a-trade-off).
 
 ### `grobid`
 GROBID is most valuable for reference extraction and scholarly structure. It was never a drop-in replacement for the other tools, and is no longer part of this repo -- see below.

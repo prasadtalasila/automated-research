@@ -88,6 +88,15 @@ class FakeDoclingResult:
 
 class FakeDoclingConverter:
     last_convert_path = None
+    # How many times DocumentConverter(...) was *constructed*, which is
+    # the thing the converter cache exists to keep at 1: every
+    # construction re-initialises Docling's real layout/table/OCR models.
+    build_count = 0
+    last_format_options = None
+
+    def __init__(self, format_options=None):
+        FakeDoclingConverter.build_count += 1
+        FakeDoclingConverter.last_format_options = format_options
 
     def convert(self, pdf_path):
         FakeDoclingConverter.last_convert_path = pdf_path
@@ -95,12 +104,26 @@ class FakeDoclingConverter:
             raise RuntimeError("simulated docling failure")
         return FakeDoclingResult(f"# Parsed content of {pdf_path}")
 
+    @staticmethod
+    def pipeline_options():
+        """The PdfPipelineOptions the last-built converter was handed."""
+        return FakeDoclingConverter.last_format_options["pdf"].pipeline_options
+
 
 @pytest.fixture
 def fake_docling(monkeypatch):
     FakeDoclingConverter.last_convert_path = None
+    FakeDoclingConverter.build_count = 0
+    FakeDoclingConverter.last_format_options = None
+    # The cache is module state, so it survives between tests and would
+    # otherwise serve one test's converter to the next.
+    pdf_text._reset_docling_converter()
+
     fake_submodule = types.ModuleType("docling.document_converter")
     fake_submodule.DocumentConverter = FakeDoclingConverter
+    fake_submodule.PdfFormatOption = lambda pipeline_options=None: types.SimpleNamespace(
+        pipeline_options=pipeline_options
+    )
     fake_submodule.__spec__ = importlib.machinery.ModuleSpec("docling.document_converter", loader=None)
     fake_package = types.ModuleType("docling")
     # importlib.util.find_spec("docling") (is_available()'s probe) raises
@@ -108,10 +131,70 @@ def fake_docling(monkeypatch):
     # set -- a bare types.ModuleType() has none, unlike a normally-
     # imported package.
     fake_package.__spec__ = importlib.machinery.ModuleSpec("docling", loader=None)
-    monkeypatch.setitem(sys.modules, "docling.document_converter", fake_submodule)
-    monkeypatch.setitem(sys.modules, "docling", fake_package)
+    base_models = types.ModuleType("docling.datamodel.base_models")
+    base_models.InputFormat = types.SimpleNamespace(PDF="pdf")
+    pipeline_options = types.ModuleType("docling.datamodel.pipeline_options")
+    pipeline_options.PdfPipelineOptions = lambda: types.SimpleNamespace(do_ocr=True)
+
+    for name, mod in [
+        ("docling", fake_package),
+        ("docling.document_converter", fake_submodule),
+        ("docling.datamodel", types.ModuleType("docling.datamodel")),
+        ("docling.datamodel.base_models", base_models),
+        ("docling.datamodel.pipeline_options", pipeline_options),
+    ]:
+        monkeypatch.setitem(sys.modules, name, mod)
     monkeypatch.setattr(config, "PARSER", "docling")
-    return FakeDoclingConverter
+    yield FakeDoclingConverter
+    pdf_text._reset_docling_converter()
+
+
+class TestDoclingOcrSetting:
+    def test_ocr_is_off_by_default(self, isolated_config, fake_docling, tmp_path):
+        """Docling's own default is do_ocr=True. This corpus is
+        born-digital papers with real text layers, and its OCR runs on
+        the CPU -- measured at 2.33x the total parse time for output that
+        was byte-identical on 6 of 7 sampled documents."""
+        pdf_text.extract_text(str(tmp_path / "paper.pdf"), "smith_2024")
+        assert fake_docling.pipeline_options().do_ocr is False
+
+    def test_ocr_can_be_turned_back_on(self, isolated_config, fake_docling, monkeypatch, tmp_path):
+        monkeypatch.setattr(config, "PARSER_OCR", True)
+        pdf_text.extract_text(str(tmp_path / "paper.pdf"), "smith_2024")
+        assert fake_docling.pipeline_options().do_ocr is True
+
+
+class TestDoclingConverterReuse:
+    def test_converter_is_built_once_across_calls(self, isolated_config, fake_docling, tmp_path):
+        """DocumentConverter.initialized_pipelines is an *instance*
+        attribute, so a converter per PDF reloads every model per PDF --
+        16.5s of cold start, measured, against a corpus of 501 files."""
+        for i in range(3):
+            pdf_text.extract_text(str(tmp_path / f"paper{i}.pdf"), f"key_{i}")
+        assert fake_docling.build_count == 1
+
+    def test_changing_the_ocr_setting_rebuilds_the_converter(
+        self, isolated_config, fake_docling, monkeypatch, tmp_path
+    ):
+        """Caching on nothing but "was one built already" would silently
+        serve an OCR-enabled converter after the setting was turned off."""
+        pdf_text.extract_text(str(tmp_path / "a.pdf"), "a")
+        assert fake_docling.build_count == 1
+
+        monkeypatch.setattr(config, "PARSER_OCR", True)
+        pdf_text.extract_text(str(tmp_path / "b.pdf"), "b")
+        assert fake_docling.build_count == 2
+        assert fake_docling.pipeline_options().do_ocr is True
+
+    def test_a_failed_convert_does_not_discard_the_converter(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        """One unparseable PDF must not cost the next document a full
+        model reload -- the failure is in the file, not the converter."""
+        with pytest.raises(pdf_text.ExtractionError):
+            pdf_text.extract_text(str(tmp_path / "explode.pdf"), "bad")
+        pdf_text.extract_text(str(tmp_path / "fine.pdf"), "good")
+        assert fake_docling.build_count == 1
 
 
 class TestExtractTextDocling:

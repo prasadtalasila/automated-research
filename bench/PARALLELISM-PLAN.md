@@ -14,7 +14,15 @@ plan does first.
 Phases are ordered by (measured benefit) / (risk), and each is
 independently shippable.
 
-## Phase 0 -- make OCR optional, and stop rebuilding the converter
+## Phase 0 -- make OCR optional, and stop rebuilding the converter -- **DONE (v0.12.0)**
+
+Measured outcome: **2.46x** from turning OCR off, taking the full-corpus
+parse from ~1.6 hours to ~39 minutes -- more than the GPU itself is worth.
+It is a trade-off rather than a free win: it changed the extracted text of
+8 of 16 sampled documents, because OCR is what reads text embedded as
+bitmaps (mostly publisher furniture, but on one document two whole
+tables). See RESULTS.md's Phase 0 sections. The original plan for this
+phase follows, for the record.
 
 No parallelism at all, and likely the largest single win. Also a
 prerequisite: a process pool that rebuilds models per document would pay

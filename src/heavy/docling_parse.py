@@ -35,9 +35,10 @@ silently missing forever.
 
 That fingerprint only sees the *input* PDF, though, so it cannot notice
 a change to what this module writes. `_CACHE_VERSION` and the recorded
-`config.DOCLING_IMAGES` setting cover that second axis: either one
-differing from the cache file invalidates the whole cache rather than
-any single entry, since both change what every .md should contain.
+`config.DOCLING_IMAGES` and `config.PARSER_OCR` settings cover that
+second axis: any one of them differing from the cache file invalidates
+the whole cache rather than any single entry, since all three change
+what every .md should contain.
 """
 
 import json
@@ -77,7 +78,9 @@ def _load_cache() -> dict:
         return {}
     if not isinstance(data, dict):
         return {}
-    if data.get("version") != _CACHE_VERSION or data.get("images") != config.DOCLING_IMAGES:
+    if (data.get("version") != _CACHE_VERSION
+            or data.get("images") != config.DOCLING_IMAGES
+            or data.get("ocr") != config.PARSER_OCR):
         return {}
     items = data.get("items")
     if not isinstance(items, dict):
@@ -103,7 +106,12 @@ def _save_cache(cache: dict) -> None:
     try:
         config.DOCLING_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = config.DOCLING_CACHE_PATH.with_suffix(".json.tmp")
-        payload = {"version": _CACHE_VERSION, "images": config.DOCLING_IMAGES, "items": cache}
+        payload = {
+            "version": _CACHE_VERSION,
+            "images": config.DOCLING_IMAGES,
+            "ocr": config.PARSER_OCR,
+            "items": cache,
+        }
         tmp_path.write_text(json.dumps(payload))
         os.replace(tmp_path, config.DOCLING_CACHE_PATH)
     except OSError as exc:
@@ -132,21 +140,27 @@ _CAPTION_LABEL_RE = re.compile(
 
 
 def _build_converter():
-    """A bare DocumentConverter() unless images are on -- picture bitmaps
-    are off by default in Docling's own pipeline, and turning them on is
-    what costs the extra decode time and the artifacts directory."""
-    from docling.document_converter import DocumentConverter
+    """Always configured, never bare: `do_ocr` has to be set explicitly
+    because Docling's own default is True and this project's is False
+    (see config.toml's [parser].ocr for the measurement behind that).
+    Picture bitmaps stay off unless config.DOCLING_IMAGES asks for them --
+    they're what costs the extra decode time and the artifacts directory.
 
-    if not config.DOCLING_IMAGES:
-        return DocumentConverter()
-
+    Callers should build one of these per *corpus*, not per document:
+    DocumentConverter keeps its `initialized_pipelines` cache on the
+    instance, so a converter per document re-initialises the layout,
+    table and OCR models every time -- 16.5s of measured cold start, on a
+    corpus of 501 PDFs.
+    """
     from docling.datamodel.base_models import InputFormat
     from docling.datamodel.pipeline_options import PdfPipelineOptions
-    from docling.document_converter import PdfFormatOption
+    from docling.document_converter import DocumentConverter, PdfFormatOption
 
     opts = PdfPipelineOptions()
-    opts.generate_picture_images = True
-    opts.images_scale = config.DOCLING_IMAGE_SCALE
+    opts.do_ocr = config.PARSER_OCR
+    if config.DOCLING_IMAGES:
+        opts.generate_picture_images = True
+        opts.images_scale = config.DOCLING_IMAGE_SCALE
     return DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)})
 
 
@@ -292,11 +306,18 @@ def _outputs_present(stem: str) -> bool:
     return all(path.exists() for path in expected)
 
 
-def parse_doc(doc: CorpusDoc, cache: dict | None = None) -> Path:
+def parse_doc(doc: CorpusDoc, cache: dict | None = None, converter=None) -> Path:
     """cache, when passed explicitly (parse_corpus does this), is
     mutated in place but NOT persisted by this call -- the caller owns
     save timing. Call with cache=None (the default) for a one-off parse
-    that should persist its own result immediately."""
+    that should persist its own result immediately.
+
+    converter follows the same injected-or-owned shape, for the same
+    reason cache does: parse_corpus builds one and hands it to every
+    document, because building one per document reloads every model per
+    document. A standalone call builds its own -- but note that a loop
+    of standalone parse_doc() calls pays that cost per document, which is
+    what parse_corpus exists to avoid."""
     if not doc.pdf_path:
         raise ValueError(f"{doc.doc_id}: no PDF to parse")
 
@@ -313,7 +334,10 @@ def parse_doc(doc: CorpusDoc, cache: dict | None = None) -> Path:
     if cache.get(doc.doc_id) == fingerprint and _outputs_present(stem):
         return out_path
 
-    converter = _build_converter()
+    # Built here rather than above the cache check, so a fully-cached run
+    # never loads Docling's models at all.
+    if converter is None:
+        converter = _build_converter()
     dl_doc = converter.convert(doc.pdf_path).document
     if config.DOCLING_IMAGES:
         from docling_core.types.doc import ImageRefMode
@@ -342,13 +366,34 @@ def parse_doc(doc: CorpusDoc, cache: dict | None = None) -> Path:
     return out_path
 
 
+class _LazyConverter:
+    """One converter for the whole corpus, built on first actual use.
+
+    Two things at once, both of which matter on a 501-PDF corpus:
+    building it once means Docling's layout/table/OCR models load once
+    rather than per document (16.5s of measured cold start each time),
+    and deferring the build means a fully-cached run -- the common case
+    for a re-run of `full_pipeline.py --stages docling` -- never loads
+    them at all.
+    """
+
+    def __init__(self):
+        self._converter = None
+
+    def convert(self, pdf_path):
+        if self._converter is None:
+            self._converter = _build_converter()
+        return self._converter.convert(pdf_path)
+
+
 def parse_corpus(docs: list[CorpusDoc]) -> dict[str, str]:
     """Returns {doc_id: 'ok' | 'error: ...'} -- never raises for a single doc failure."""
     cache = _load_cache()
     status = {}
+    converter = _LazyConverter()
     for doc in docs:
         try:
-            out_path = parse_doc(doc, cache=cache)
+            out_path = parse_doc(doc, cache=cache, converter=converter)
             status[doc.doc_id] = f"ok: {out_path}"
         except Exception as exc:  # noqa: BLE001 -- report per-doc, don't abort the batch
             status[doc.doc_id] = f"error: {exc}"

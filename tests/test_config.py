@@ -127,6 +127,16 @@ class TestModuleReloadWithEnvOverrides:
         importlib.reload(config)
         assert config.BIB_FILE_PATH == config.REPO_ROOT / "/tmp/other.bib"
 
+    def test_parser_ocr_defaults_off(self, monkeypatch):
+        monkeypatch.delenv("PARSER_OCR", raising=False)
+        importlib.reload(config)
+        assert config.PARSER_OCR is False
+
+    def test_parser_ocr_env_override(self, monkeypatch):
+        monkeypatch.setenv("PARSER_OCR", "true")
+        importlib.reload(config)
+        assert config.PARSER_OCR is True
+
     def test_embedding_model_env_override(self, monkeypatch):
         monkeypatch.setenv("EMBEDDING_MODEL", "sentence-transformers/other-model")
         importlib.reload(config)

@@ -249,7 +249,7 @@ all.
 | Backend | Speed | Dependency | Page boundaries in output? |
 |---|---|---|---|
 | `pdftotext` (default) | Fastest | `poppler-utils` on PATH, no Python package | Yes -- form-feed characters between pages |
-| `docling` | Slowest (~42x `pdftotext` in total, measured on the same 5 real bib PDFs -- see Performance below) | `docling`, "heavy" group | No -- one continuous document |
+| `docling` | Slowest (~42x `pdftotext` in total, measured on the same 5 real bib PDFs -- but with OCR on, i.e. before 0.12.0 made `[parser].ocr = false` the default, which is 2.46x faster; see Performance below) | `docling`, "heavy" group | No -- one continuous document |
 
 Losing page boundaries isn't cosmetic: `scripts/verbatim_check.py`'s
 `cmd_overlap`/`cmd_locate` report which PDF page a verbatim run came
@@ -258,6 +258,35 @@ to `docling` makes every hit for it report `pdf p.1`
 regardless of where the text actually sits. See PDF-PARSER.md for the
 full fidelity/speed comparison, including two candidates that were
 evaluated and not adopted.
+
+#### OCR: off by default, and why that is a trade-off
+
+Docling ships with OCR on. This project turns it off
+(`config.toml`'s `[parser].ocr`, or the `PARSER_OCR` env var), because
+OCR runs on the CPU (RapidOCR on onnxruntime) and is a large part of why
+the docling path is CPU-bound. Measured over 16 real bib PDFs:
+
+| | s/page | Full corpus |
+|---|---|---|
+| `ocr = true` (Docling's default) | 0.431 | ~1h 36m |
+| `ocr = false` (this project's) | 0.176 | **~39m** |
+
+**2.46x** -- more than the GPU itself is worth on this workload.
+
+It is not free, though, and the cost is easy to miss. OCR only runs on
+*bitmap* regions, so what it recovers is text stored in the PDF as an
+image rather than as characters. Turning it off changed the extracted
+text of 8 of those 16 documents. Mostly that text is publisher furniture
+(`IEEEAccess`, `DTU Library`) and figure sub-captions -- but one document
+lost 10.1% of its characters, including two complete tables embedded as
+images, and another lost a paragraph of body prose set in a graphical
+text box.
+
+Set `ocr = true` if your PDFs are scans (with OCR off, docling extracts
+almost nothing from a scan), or if tables-as-images matter to you more
+than parse time. The parse-quality guard below will **not** catch a wrong
+choice here: it looks for run-together words, not for content that never
+arrived. Full breakdown in `bench/RESULTS.md` in the repository (developer-only -- it is not part of the release zip).
 
 #### Parse-quality guard
 
@@ -322,16 +351,18 @@ markitdown's API, which is why it was removed; see
 The five-PDF table above is enough to choose a backend. It is not enough
 to answer "how long does a first-time `docling` sync of the whole bib
 file take, and what is actually the bottleneck". `bench/` answers that,
-reproducibly; the measurement is written up in
-[bench/RESULTS.md](bench/RESULTS.md).
+reproducibly; the measurement is written up in `bench/RESULTS.md` in the repository (developer-only -- it is not part of the release zip).
+The figures below are the summary, so this section stands on its own
+without it.
 
 Measured 2026-08-02 on the documented A40 host, over all 501 PDFs
 (13,400 pages) that `papers/bibliography.bib` resolves:
 
 | | |
 |---|---|
-| One process, one A40 | **~1.6 hours** (0.43 s/page) |
-| One process, CPU only | ~5.1 hours (1.37 s/page) |
+| One process, one A40, OCR on | ~1.6 hours (0.43 s/page) |
+| One process, one A40, OCR off (the default since 0.12.0) | **~39 min** (0.18 s/page) |
+| One process, CPU only, OCR on | ~5.1 hours (1.37 s/page) |
 | GPU vs CPU, same 6 PDFs | **1.79x** |
 
 The surprise is the last row. During that run the A40 averaged **~7% SM
@@ -342,7 +373,7 @@ onnxruntime), so the GPU buys far less than its presence suggests, and
 three of this host's four GPUs are never addressed at all: docling's
 `AcceleratorDevice.AUTO` resolves to `cuda:0` for every process.
 
-[bench/PARALLELISM-PLAN.md](bench/PARALLELISM-PLAN.md) is the plan that
+`bench/PARALLELISM-PLAN.md`, also developer-only, is the plan that
 follows from this -- CPU-level document parallelism first, GPU
 assignment second, in that order because that is where the measurement
 says the wall clock is.
