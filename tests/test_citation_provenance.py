@@ -7,7 +7,6 @@ with no reading order, and a citekey with nothing readable behind it.
 """
 
 import json
-import sqlite3
 
 import pytest
 
@@ -307,6 +306,23 @@ class TestSidecarRobustness:
         _add_item("a_2024", parsed_text="page one\fpage two")
         config.DOCLING_DIR.mkdir(parents=True, exist_ok=True)
         (config.DOCLING_DIR / "a_2024.passages.json").write_text(payload)
+        con = ledger.connect()
+        try:
+            passages, reason = cp.source_passages(con, "a_2024")
+        finally:
+            con.close()
+        assert reason is None
+        assert [p.page for p in passages] == [1, 2]
+
+    def test_truncated_utf8_sidecar_falls_through_instead_of_raising(self, isolated_config):
+        """A process killed mid-write can split a multi-byte character,
+        which fails to decode before json ever sees it."""
+        _add_item("a_2024", parsed_text="page one\fpage two")
+        config.DOCLING_DIR.mkdir(parents=True, exist_ok=True)
+        # Valid JSON prefix, then a lone UTF-8 continuation byte.
+        (config.DOCLING_DIR / "a_2024.passages.json").write_bytes(
+            b'[{"text": "Real paragraph ' + b"\xe2\x82" 
+        )
         con = ledger.connect()
         try:
             passages, reason = cp.source_passages(con, "a_2024")

@@ -112,7 +112,12 @@ def _passages_from_sidecar(citekey: str) -> list[Passage] | None:
     path = config.DOCLING_DIR / f"{citekey}.passages.json"
     try:
         records = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        # UnicodeDecodeError alongside the other two: a sidecar truncated
+        # mid-write by a killed process can split a multi-byte character,
+        # which fails to decode before json ever sees it. Falling back to
+        # page-level costs a re-parse at worst; raising would take down a
+        # whole report over one damaged file.
         return None
     if not isinstance(records, list) or not records:
         return None

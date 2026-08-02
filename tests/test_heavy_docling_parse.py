@@ -435,6 +435,56 @@ class TestIncrementalSkip:
         assert FakeDocumentConverter.call_count == 2
         assert out_path.exists()
 
+    def test_deleted_passages_sidecar_forces_reparse(self, isolated_config, fake_docling, tmp_path):
+        """The .md alone isn't proof the run's outputs are intact -- a
+        deleted sidecar would otherwise stay missing forever, since the
+        fingerprint only says the input PDF is unchanged."""
+        FakeDocumentConverter.texts = [FakeTextItem("Prose.", label="text", page=1)]
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        doc = CorpusDoc(doc_id="a2024", citekey="a2024", source="bib", title="t", pdf_path=str(pdf))
+
+        docling_parse.parse_doc(doc)
+        assert FakeDocumentConverter.call_count == 1
+        sidecar = isolated_config.DOCLING_DIR / "a2024.passages.json"
+        sidecar.unlink()
+
+        docling_parse.parse_doc(doc)
+
+        assert FakeDocumentConverter.call_count == 2
+        assert sidecar.exists()
+
+    def test_deleted_figures_sidecar_forces_reparse_when_images_on(
+        self, isolated_config, fake_docling, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(isolated_config, "DOCLING_IMAGES", True)
+        FakeDocumentConverter.pictures = [FakePicture("Figure 1", page=1)]
+        FakeDocumentConverter.texts = [FakeTextItem("Prose.", label="text", page=1)]
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        doc = CorpusDoc(doc_id="a2024", citekey="a2024", source="bib", title="t", pdf_path=str(pdf))
+
+        docling_parse.parse_doc(doc)
+        assert FakeDocumentConverter.call_count == 1
+        (isolated_config.DOCLING_DIR / "a2024.figures.json").unlink()
+
+        docling_parse.parse_doc(doc)
+
+        assert FakeDocumentConverter.call_count == 2
+
+    def test_figures_sidecar_not_required_when_images_off(self, isolated_config, fake_docling, tmp_path):
+        """Images off never writes figures.json, so requiring it would
+        re-parse the whole corpus on every run."""
+        FakeDocumentConverter.texts = [FakeTextItem("Prose.", label="text", page=1)]
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        doc = CorpusDoc(doc_id="a2024", citekey="a2024", source="bib", title="t", pdf_path=str(pdf))
+
+        docling_parse.parse_doc(doc)
+        docling_parse.parse_doc(doc)
+
+        assert FakeDocumentConverter.call_count == 1
+
     def test_failed_parse_does_not_poison_the_cache(self, isolated_config, fake_docling, tmp_path):
         pdf = tmp_path / "explode.pdf"
         pdf.write_bytes(b"%PDF-1.4 broken")

@@ -274,6 +274,24 @@ def _figure_records(doc: CorpusDoc, dl_doc, image_names: list[str] | None = None
     return records
 
 
+def _outputs_present(stem: str) -> bool:
+    """Every file this stage writes for `stem`, not just the .md.
+
+    The fingerprint only says the *input* PDF is unchanged. Checking one
+    output was enough when the .md was the only one; now a deleted or
+    corrupted `<stem>.passages.json` (or `<stem>.figures.json`, with
+    images on) would be skipped over on every subsequent run and stay
+    missing forever, because the .md it is paired with is still there.
+    """
+    expected = [
+        config.DOCLING_DIR / f"{stem}.md",
+        config.DOCLING_DIR / f"{stem}.passages.json",
+    ]
+    if config.DOCLING_IMAGES:
+        expected.append(config.DOCLING_DIR / f"{stem}.figures.json")
+    return all(path.exists() for path in expected)
+
+
 def parse_doc(doc: CorpusDoc, cache: dict | None = None) -> Path:
     """cache, when passed explicitly (parse_corpus does this), is
     mutated in place but NOT persisted by this call -- the caller owns
@@ -292,7 +310,7 @@ def parse_doc(doc: CorpusDoc, cache: dict | None = None) -> Path:
 
     st = os.stat(doc.pdf_path)
     fingerprint = [st.st_size, st.st_mtime_ns]
-    if cache.get(doc.doc_id) == fingerprint and out_path.exists():
+    if cache.get(doc.doc_id) == fingerprint and _outputs_present(stem):
         return out_path
 
     converter = _build_converter()
