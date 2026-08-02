@@ -23,7 +23,25 @@ The repository is designed around a few hard constraints that strongly shape the
    - `ledger.py` uses stat-before-hash skipping.
    - `retrieval.py` caches term-frequency stats.
    - `embed_index.py` and `topic_model.py` cache embeddings.
+   - `docling_parse.py` fingerprints each PDF by (size, mtime).
    - The intent is to avoid reprocessing unchanged material.
+
+5. **Parallelism is opt-in, and bounded by the host rather than by the
+   request**
+   - `[parser].workers` defaults to `1`, so the default run is strictly
+     serial -- no pool, no subprocesses. Incremental skipping means a
+     routine run has almost nothing to do, and pool setup would cost more
+     than it saves.
+   - The resolved count is `min(requested, host ceiling, work available)`.
+     The host ceiling counts CPUs *this process* may run on, not the
+     machine's, and divides by the CPUs one worker actually occupies.
+   - Only the parse call is dispatched. Every ledger and cache write
+     stays on the parent process, because sqlite has a single writer and
+     because the parent is the only place that can order results
+     deterministically.
+   - Backends get the concurrency they can use: threads for `pdftotext`
+     (external subprocess, releases the GIL), processes for `docling`
+     (in-process, holds it), with one CUDA device claimed per worker.
 
 ## Design pattern review
 
@@ -105,14 +123,7 @@ Suggested improvement:
 
 ## Design improvement recommendations
 
-### 1. Add a parser abstraction layer
-Create a unified text extraction interface, with implementations such as:
-- `pdftotext`
-- `docling`
-
-That would make backend selection explicit and cleaner.
-
-### 2. Use hierarchical document representations
+### 1. Use hierarchical document representations
 Instead of only parsing to flat text, preserve:
 - document-level text
 - section-level text
@@ -121,14 +132,14 @@ Instead of only parsing to flat text, preserve:
 
 This would improve retrieval, reranking, and downstream citation support.
 
-### 3. Split retrieval responsibilities
+### 2. Split retrieval responsibilities
 `retrieval.py` currently does tokenization, caching, scoring, and snippet building. Consider splitting this into:
 - indexing/cache maintenance
 - ranking
 - snippet generation
 - backend selection
 
-### 4. Improve platform portability
+### 3. Improve platform portability
 The repository is cross-platform-friendly in code, but toolchain-dependent at runtime.
 
 Likely rough spots:
@@ -139,19 +150,16 @@ Likely rough spots:
 Suggested mitigations:
 - clearer OS-specific setup docs
 - optional fallback backends
-- CI smoke tests on macOS and Windows for the core pipeline
+- extend the CI matrix beyond the current Linux + Windows legs to macOS
 
-### 5. Make heavy parsing incremental
-Docling parsing is currently not incremental according to the repo docs. That is likely the biggest performance gap in the heavy path.
-
-### 6. Add reranking
+### 4. Add reranking
 For search quality, a good pattern would be:
 - BM25 or vector retrieval first
 - lightweight reranker second
 
 That would improve precision without making every query expensive.
 
-### 7. Preserve more structured metadata
+### 5. Preserve more structured metadata
 When parsing PDFs, keep:
 - page numbers
 - section titles
@@ -161,20 +169,11 @@ When parsing PDFs, keep:
 
 This would improve evidence quality substantially.
 
-## Quality tradeoff summary for this repository
+## Parser backends
 
-- **`pdftotext`**: fastest, simplest, lowest fidelity
-- **`docling`**: best structural fidelity for PDFs, but slowest and heaviest
-
-For this repository’s goals, the ideal shape is a layered system:
-- `pdftotext` for speed
-- `docling` for structured scholarly parsing
-
-(Two further backends were evaluated and removed on 2026-08-01:
-`grobid`, which was a metadata/reference extractor rather than a text
-backend, and `markitdown`, which lost word boundaries on this corpus.
-See PDF-PARSER.md's "Why GROBID was removed" and "Why markitdown was
-removed".)
+[PDF-PARSER.md](PDF-PARSER.md) owns the backend comparison -- the
+tradeoffs, the two backends evaluated and removed, and the measured
+speed figures. It is not restated here.
 
 ## Overall assessment
 

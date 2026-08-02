@@ -6,6 +6,26 @@ import pytest
 from src import config, ledger
 
 
+@pytest.fixture(autouse=True)
+def _pin_parser_settings(monkeypatch):
+    """Pin the parser settings the suite assumes, instead of inheriting
+    whatever this developer happens to have in config.toml.
+
+    Since v1.0.0 config.toml is gitignored per-host data, so every
+    developer's differs -- and `src.config` reads it at import time.
+    Without this, a checkout with `backend = "docling"` fails nine tests
+    that assert on pdftotext's messages, for no reason connected to the
+    code under test. That is a confusing failure to hand someone, and it
+    is CI-invisible: CI copies the unedited example, so it never sees it.
+
+    Tests that care about a different backend monkeypatch these
+    afterwards -- monkeypatch is last-write-wins within a test.
+    """
+    monkeypatch.setattr(config, "PARSER", "pdftotext")
+    monkeypatch.setattr(config, "PARSER_OCR", False)
+    monkeypatch.setattr(config, "PARSER_WORKERS", 1)
+
+
 @pytest.fixture
 def isolated_config(tmp_path, monkeypatch):
     """Point every src.config path constant at a throwaway tmp_path tree.

@@ -21,6 +21,7 @@ runs with the bare system interpreter.
 """
 
 import argparse
+import multiprocessing
 import os
 import sys
 from collections import Counter
@@ -42,12 +43,31 @@ def _executor_for(workers: int):
     runs in-process and holds the GIL, so threads would serialise exactly
     the work we are trying to overlap.
 
+    The docling pool also claims one GPU per worker. Docling's
+    `AcceleratorDevice.AUTO` resolves to `cuda:0` in *every* process, so
+    without this every worker contends for one card while the rest of the
+    machine's GPUs idle -- measured at 12 workers: GPU 0 pinned at 100%,
+    GPUs 1-3 at 0%, and no faster than 4 workers. The index is handed out
+    by a shared counter under a lock, because a pool creates its workers
+    lazily and numbers none of them.
+
+    "spawn", not the Linux default "fork": counting GPUs initialises CUDA
+    in this parent process, and a forked child inherits a broken CUDA
+    context from a parent that has. Each worker reloads Docling's models
+    anyway, so spawn's extra startup is noise against that.
+
     Also the seam the tests substitute: a real ProcessPoolExecutor runs
     its work in a child interpreter, where the test process's
     monkeypatches don't exist.
     """
     if config.PARSER == "docling":
-        return ProcessPoolExecutor(max_workers=workers)
+        ctx = multiprocessing.get_context("spawn")
+        return ProcessPoolExecutor(
+            max_workers=workers,
+            mp_context=ctx,
+            initializer=pdf_text.init_worker,
+            initargs=(ctx.Value("i", 0), ctx.Lock(), pdf_text.gpu_count()),
+        )
     return ThreadPoolExecutor(max_workers=workers)
 
 

@@ -139,8 +139,8 @@ def fake_docling(monkeypatch):
         do_ocr=True, accelerator_options=None
     )
     accelerator = types.ModuleType("docling.datamodel.accelerator_options")
-    accelerator.AcceleratorOptions = lambda num_threads=None: types.SimpleNamespace(
-        num_threads=num_threads
+    accelerator.AcceleratorOptions = lambda num_threads=None, device=None: types.SimpleNamespace(
+        num_threads=num_threads, device=device
     )
 
     for name, mod in [
@@ -561,3 +561,101 @@ class TestExtractOne:
 
         _, _, exc = pdf_text.extract_one((str(tmp_path / "explode.pdf"), "bad", None))
         assert isinstance(pickle.loads(pickle.dumps(exc)), pdf_text.ExtractionError)
+
+
+class TestGpuCount:
+    def test_zero_when_backend_is_not_docling(self, monkeypatch):
+        """pdftotext has no GPU path at all, so there is nothing to
+        spread across devices."""
+        monkeypatch.setattr(config, "PARSER", "pdftotext")
+        assert pdf_text.gpu_count() == 0
+
+    def test_counts_visible_cuda_devices(self, monkeypatch):
+        monkeypatch.setattr(config, "PARSER", "docling")
+        fake_torch = types.SimpleNamespace(cuda=types.SimpleNamespace(device_count=lambda: 4))
+        monkeypatch.setitem(sys.modules, "torch", fake_torch)
+        assert pdf_text.gpu_count() == 4
+
+    def test_zero_when_torch_is_absent(self, monkeypatch):
+        """The heavy group may be installed without a working torch, and
+        a missing GPU is not an error -- it just means one device."""
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setitem(sys.modules, "torch", None)
+        assert pdf_text.gpu_count() == 0
+
+    def test_a_broken_cuda_runtime_counts_as_no_gpus(self, monkeypatch):
+        """torch imports fine but the driver is missing or mismatched --
+        reported as CPU-only rather than taking down the whole sync."""
+        def explode():
+            raise RuntimeError("CUDA driver version is insufficient")
+
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setitem(
+            sys.modules, "torch",
+            types.SimpleNamespace(cuda=types.SimpleNamespace(device_count=explode)),
+        )
+        assert pdf_text.gpu_count() == 0
+
+
+class TestWorkerDevice:
+    """Docling's AcceleratorDevice.AUTO resolves to cuda:0 in *every*
+    process, so without this every worker piles onto one card. Measured
+    before this existed: at 12 workers GPU 0 ran pinned at 100% while
+    GPUs 1-3 sat at 0%."""
+
+    @pytest.fixture(autouse=True)
+    def _reset(self):
+        pdf_text._reset_worker_device()
+        yield
+        pdf_text._reset_worker_device()
+
+    def test_workers_are_assigned_round_robin(self):
+        counter, lock = _FakeCounter(), _FakeLock()
+        seen = []
+        for _ in range(6):
+            pdf_text.init_worker(counter, lock, 4)
+            seen.append(pdf_text._WORKER_DEVICE)
+        assert seen == ["cuda:0", "cuda:1", "cuda:2", "cuda:3", "cuda:0", "cuda:1"]
+
+    def test_no_gpus_means_no_device_override(self):
+        """Leave docling to its own AUTO resolution rather than forcing
+        a device that doesn't exist."""
+        pdf_text.init_worker(_FakeCounter(), _FakeLock(), 0)
+        assert pdf_text._WORKER_DEVICE is None
+
+    def test_the_assigned_device_reaches_the_pipeline(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        pdf_text.init_worker(_FakeCounter(), _FakeLock(), 4)
+        pdf_text.extract_text(str(tmp_path / "a.pdf"), "a", threads=2)
+        opts = fake_docling.pipeline_options().accelerator_options
+        assert opts.device == "cuda:0"
+        assert opts.num_threads == 2
+
+    def test_device_is_part_of_the_converter_cache_key(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        """Two workers in one process (the thread-pool path, and tests)
+        must not share a converter pinned to someone else's GPU."""
+        counter, lock = _FakeCounter(), _FakeLock()
+        pdf_text.init_worker(counter, lock, 4)
+        pdf_text.extract_text(str(tmp_path / "a.pdf"), "a")
+        pdf_text.init_worker(counter, lock, 4)
+        pdf_text.extract_text(str(tmp_path / "b.pdf"), "b")
+        assert fake_docling.build_count == 2
+        assert fake_docling.pipeline_options().accelerator_options.device == "cuda:1"
+
+
+class _FakeCounter:
+    """Stands in for a multiprocessing.Value."""
+
+    def __init__(self):
+        self.value = 0
+
+
+class _FakeLock:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False

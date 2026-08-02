@@ -2,6 +2,7 @@
 pure helpers (_get/_get_float) that implement the override precedence."""
 
 import importlib
+import os
 
 import pytest
 
@@ -171,6 +172,14 @@ class TestModuleReloadWithEnvOverrides:
         yield
         # Reload once more with a clean environment so later test modules
         # see the real repo config.toml, not whatever this test overrode.
+        #
+        # CONFIG_PATH is cleared here rather than left to monkeypatch's own
+        # teardown: fixture finalisation order depends on which fixtures
+        # requested monkeypatch, so this reload can run while a test's
+        # deliberately-bogus CONFIG_PATH is still set -- and since v1.0.0
+        # that is a hard FileNotFoundError, turning an unrelated passing
+        # test into a teardown error.
+        os.environ.pop("CONFIG_PATH", None)
         importlib.reload(config)
 
     def test_bib_file_env_override(self, monkeypatch):
