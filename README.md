@@ -205,6 +205,8 @@ file, e.g. `BIB_FILE=/path/to/other.bib python -m src.sync`.
 | `[parser]` | `long_word_ratio` | `PARSE_LONG_WORD_RATIO` | `0.01` | Share of such words above which `sync` warns that the parser is losing word boundaries |
 | `[parser]` | `min_tokens` | `PARSE_MIN_TOKENS` | `200` | Documents shorter than this are too noisy to judge, and are skipped by the guard |
 | `[heavy]` | `embedding_model` | `EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Which sentence-transformers model `src/heavy/embed_index.py` loads for semantic search -- see below |
+| `[provenance]` | `weak_score` | `PROVENANCE_WEAK_SCORE` | `0.20` | Below this share of matched words, `citation_provenance` reports "no support found" -- i.e. check this one first |
+| `[provenance]` | `good_score` | `PROVENANCE_GOOD_SCORE` | `0.50` | At or above this, a citation is banded "supported" |
 | `[heavy]` | `docling_images` | `DOCLING_IMAGES` | `false` | Whether the Docling stage also extracts figure bitmaps + a `<doc>.figures.json` index -- see [DEVELOPER.md](DEVELOPER.md#figures-and-copyright). Changing it re-parses the whole corpus |
 | `[heavy]` | `docling_image_scale` | `DOCLING_IMAGE_SCALE` | `2.0` | Render scale for those bitmaps (~144 DPI) |
 

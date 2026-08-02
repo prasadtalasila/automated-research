@@ -90,6 +90,15 @@ PARSE_LONG_WORD_RATIO = _get_float("PARSE_LONG_WORD_RATIO", "parser", "long_word
 # cover page, or a scan that yielded almost no text).
 PARSE_MIN_TOKENS = int(_get_float("PARSE_MIN_TOKENS", "parser", "min_tokens", default=200))
 
+# src/citation_provenance.py band thresholds: the fraction of a citing
+# sentence's distinctive words that must appear in the best-matching
+# source passage. Round numbers on purpose -- they set reading order for
+# a human, not a pass/fail line, so precision here would be false
+# precision. Below WEAK a finding is reported as "no support found",
+# which means "go look", never "this citation is wrong".
+PROVENANCE_WEAK_SCORE = _get_float("PROVENANCE_WEAK_SCORE", "provenance", "weak_score", default=0.20)
+PROVENANCE_GOOD_SCORE = _get_float("PROVENANCE_GOOD_SCORE", "provenance", "good_score", default=0.50)
+
 # Heavier optional pipeline (pyproject.toml's "heavy" Poetry group), per src/heavy/.
 DOCLING_DIR = CONTENT_DIR / "docling"
 # Per-doc (size, mtime_ns) PDF fingerprint, so docling_parse.parse_doc()

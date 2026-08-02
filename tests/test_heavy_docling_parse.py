@@ -44,12 +44,26 @@ class FakePicture:
         return self._caption
 
 
+class FakeTextItem:
+    """A docling TextItem: label, text, and prov[0] with page + bbox."""
+
+    def __init__(self, text, label="text", page=1):
+        self.text = text
+        self.label = f"DocItemLabel.{label.upper()}"
+        if page is None:
+            self.prov = []
+        else:
+            bbox = types.SimpleNamespace(l=1.0, t=2.0, r=3.0, b=4.0)
+            self.prov = [types.SimpleNamespace(page_no=page, bbox=bbox)]
+
+
 class FakeDocument:
     last_image_mode = None
 
-    def __init__(self, markdown, pictures=None):
+    def __init__(self, markdown, pictures=None, texts=None):
         self._markdown = markdown
         self.pictures = pictures if pictures is not None else []
+        self.texts = texts if texts is not None else []
 
     def export_to_markdown(self):
         return self._markdown
@@ -72,8 +86,8 @@ class FakeDocument:
 
 
 class FakeConversionResult:
-    def __init__(self, markdown, pictures=None):
-        self.document = FakeDocument(markdown, pictures)
+    def __init__(self, markdown, pictures=None, texts=None):
+        self.document = FakeDocument(markdown, pictures, texts)
 
 
 class FakeDocumentConverter:
@@ -81,6 +95,7 @@ class FakeDocumentConverter:
     last_format_options = None
     call_count = 0
     pictures = []
+    texts = []
 
     def __init__(self, format_options=None):
         FakeDocumentConverter.last_format_options = format_options
@@ -91,7 +106,8 @@ class FakeDocumentConverter:
         if "explode" in str(pdf_path):
             raise RuntimeError("simulated docling failure")
         return FakeConversionResult(
-            f"# Parsed content of {pdf_path}", FakeDocumentConverter.pictures
+            f"# Parsed content of {pdf_path}", FakeDocumentConverter.pictures,
+            FakeDocumentConverter.texts,
         )
 
 
@@ -101,6 +117,7 @@ def fake_docling(monkeypatch):
     FakeDocumentConverter.last_format_options = None
     FakeDocumentConverter.call_count = 0
     FakeDocumentConverter.pictures = []
+    FakeDocumentConverter.texts = []
     FakeDocument.last_image_mode = None
 
     converter_mod = types.ModuleType("docling.document_converter")
@@ -333,6 +350,52 @@ class TestImageExtraction:
         assert "not citable" in records[0]["cite"]
 
 
+class TestPassageSidecar:
+    def _doc(self, tmp_path):
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        return CorpusDoc(doc_id="a2024", citekey="a2024", source="bib", title="t", pdf_path=str(pdf))
+
+    def test_written_for_every_doc_with_page_and_bbox(self, isolated_config, fake_docling, tmp_path):
+        FakeDocumentConverter.texts = [
+            FakeTextItem("Body paragraph one.", label="text", page=2),
+            FakeTextItem("2 Related Work", label="section_header", page=3),
+        ]
+        docling_parse.parse_doc(self._doc(tmp_path))
+
+        records = json.loads((isolated_config.DOCLING_DIR / "a2024.passages.json").read_text())
+        assert [r["text"] for r in records] == ["Body paragraph one.", "2 Related Work"]
+        assert records[0]["page"] == 2
+        assert records[0]["bbox"] == [1.0, 2.0, 3.0, 4.0]
+
+    def test_excludes_running_heads_and_captions(self, isolated_config, fake_docling, tmp_path):
+        """A journal name repeated on every page would otherwise let a
+        claim 'match' seventeen times over."""
+        FakeDocumentConverter.texts = [
+            FakeTextItem("Designs 2024, 8, 8", label="page_header", page=1),
+            FakeTextItem("Figure 1. A plot", label="caption", page=1),
+            FakeTextItem("17", label="page_footer", page=1),
+            FakeTextItem("Real prose.", label="text", page=1),
+        ]
+        docling_parse.parse_doc(self._doc(tmp_path))
+
+        records = json.loads((isolated_config.DOCLING_DIR / "a2024.passages.json").read_text())
+        assert [r["text"] for r in records] == ["Real prose."]
+
+    def test_written_even_with_images_off(self, isolated_config, fake_docling, tmp_path):
+        assert isolated_config.DOCLING_IMAGES is False
+        FakeDocumentConverter.texts = [FakeTextItem("Prose.", label="text", page=1)]
+        docling_parse.parse_doc(self._doc(tmp_path))
+        assert (isolated_config.DOCLING_DIR / "a2024.passages.json").exists()
+
+    def test_item_without_provenance_still_recorded(self, isolated_config, fake_docling, tmp_path):
+        FakeDocumentConverter.texts = [FakeTextItem("Prose.", label="text", page=None)]
+        docling_parse.parse_doc(self._doc(tmp_path))
+        records = json.loads((isolated_config.DOCLING_DIR / "a2024.passages.json").read_text())
+        assert records[0]["page"] is None
+        assert "bbox" not in records[0]
+
+
 class TestIncrementalSkip:
     def test_second_call_with_unchanged_pdf_skips_docling(self, isolated_config, fake_docling, tmp_path):
         pdf = tmp_path / "paper.pdf"
@@ -371,6 +434,56 @@ class TestIncrementalSkip:
         docling_parse.parse_doc(doc)
         assert FakeDocumentConverter.call_count == 2
         assert out_path.exists()
+
+    def test_deleted_passages_sidecar_forces_reparse(self, isolated_config, fake_docling, tmp_path):
+        """The .md alone isn't proof the run's outputs are intact -- a
+        deleted sidecar would otherwise stay missing forever, since the
+        fingerprint only says the input PDF is unchanged."""
+        FakeDocumentConverter.texts = [FakeTextItem("Prose.", label="text", page=1)]
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        doc = CorpusDoc(doc_id="a2024", citekey="a2024", source="bib", title="t", pdf_path=str(pdf))
+
+        docling_parse.parse_doc(doc)
+        assert FakeDocumentConverter.call_count == 1
+        sidecar = isolated_config.DOCLING_DIR / "a2024.passages.json"
+        sidecar.unlink()
+
+        docling_parse.parse_doc(doc)
+
+        assert FakeDocumentConverter.call_count == 2
+        assert sidecar.exists()
+
+    def test_deleted_figures_sidecar_forces_reparse_when_images_on(
+        self, isolated_config, fake_docling, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(isolated_config, "DOCLING_IMAGES", True)
+        FakeDocumentConverter.pictures = [FakePicture("Figure 1", page=1)]
+        FakeDocumentConverter.texts = [FakeTextItem("Prose.", label="text", page=1)]
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        doc = CorpusDoc(doc_id="a2024", citekey="a2024", source="bib", title="t", pdf_path=str(pdf))
+
+        docling_parse.parse_doc(doc)
+        assert FakeDocumentConverter.call_count == 1
+        (isolated_config.DOCLING_DIR / "a2024.figures.json").unlink()
+
+        docling_parse.parse_doc(doc)
+
+        assert FakeDocumentConverter.call_count == 2
+
+    def test_figures_sidecar_not_required_when_images_off(self, isolated_config, fake_docling, tmp_path):
+        """Images off never writes figures.json, so requiring it would
+        re-parse the whole corpus on every run."""
+        FakeDocumentConverter.texts = [FakeTextItem("Prose.", label="text", page=1)]
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        doc = CorpusDoc(doc_id="a2024", citekey="a2024", source="bib", title="t", pdf_path=str(pdf))
+
+        docling_parse.parse_doc(doc)
+        docling_parse.parse_doc(doc)
+
+        assert FakeDocumentConverter.call_count == 1
 
     def test_failed_parse_does_not_poison_the_cache(self, isolated_config, fake_docling, tmp_path):
         pdf = tmp_path / "explode.pdf"
