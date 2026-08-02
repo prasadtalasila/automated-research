@@ -655,6 +655,66 @@ class TestParallelParsing:
         sync.run()
         assert {threads for _, threads in record} == {pdf_text.docling_threads(4)}
 
+    def test_work_finished_before_the_pool_died_is_not_thrown_away(
+        self, many_corpus, monkeypatch, capsys
+    ):
+        """The trap in reporting results in input order: submission is
+        largest-first, so if the pool dies while the biggest document is
+        still running, every smaller one that already finished would be
+        discarded and reported as a failure -- real work thrown away, and
+        parsed documents mislabelled. Results are recorded as they land,
+        so only what was genuinely in flight is lost."""
+        from concurrent.futures.process import BrokenProcessPool
+
+        done = fake_extract_one_factory()
+
+        def die_on_the_biggest(job):
+            _, citekey, _ = job
+            # doc_5_2024 has the largest file, so it is submitted first.
+            if citekey == "doc_5_2024":
+                raise BrokenProcessPool("a worker died")
+            return done(job)
+
+        monkeypatch.setattr(pdf_text, "extract_one", die_on_the_biggest)
+        rc = sync.run()
+        out = capsys.readouterr().out
+
+        assert rc == 1
+        assert "5 parsed" in out and "1 failed" in out
+        con = ledger.connect()
+        try:
+            rows = {r["citekey"]: r for r in ledger.all_items(con)}
+        finally:
+            con.close()
+        assert rows["doc_5_2024"]["status"] == "parse_failed"
+        assert all(rows[f"doc_{i}_2024"]["status"] == "parsed" for i in range(5))
+
+    def test_a_pool_already_broken_at_submit_time_is_handled_too(
+        self, many_corpus, monkeypatch, capsys
+    ):
+        """Once a ProcessPoolExecutor knows it is broken, submit() itself
+        raises rather than returning a future -- a second path to the same
+        outcome, and one as_completed never gets to see."""
+        from concurrent.futures.process import BrokenProcessPool
+
+        class DeadExecutor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc_info):
+                return False
+
+            def submit(self, *args, **kwargs):
+                raise BrokenProcessPool("pool was already dead")
+
+        monkeypatch.setattr(sync, "_executor_for", lambda workers: DeadExecutor())
+        rc = sync.run()
+        captured = capsys.readouterr()
+
+        assert rc == 1
+        assert "6 failed" in captured.out
+        assert "worker" in captured.err.lower()
+
     def test_a_dead_pool_fails_the_documents_not_the_run(self, many_corpus, monkeypatch, capsys):
         """A worker killed by the OOM killer breaks the whole pool. That
         has to be reported against the documents that didn't get parsed,

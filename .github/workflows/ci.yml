@@ -28,7 +28,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    # windows-latest is exploratory (../docs/DESIGN.md's cross-platform-CI
+    # windows-latest is exploratory (docs/DESIGN.md's cross-platform-CI
     # recommendation) -- this repo's install path and every doc
     # (AGENTS.md, DEVELOPER.md) assume Linux, so don't let it block the
     # Linux leg (this repo's actual gate) while real gaps get found and

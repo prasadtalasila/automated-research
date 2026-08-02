@@ -14,7 +14,7 @@ page-boundary loss) before switching off the default.
 
 The dispatch is deliberately a table rather than an if/else: adding a
 backend is a `_extract_*` function plus one `_EXTRACTORS` entry, and
-markitdown was removed through the same seam (see ../docs/PDF-PARSER.md for why).
+markitdown was removed through the same seam (see docs/PDF-PARSER.md for why).
 """
 
 import importlib.util

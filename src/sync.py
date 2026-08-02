@@ -24,7 +24,7 @@ import argparse
 import os
 import sys
 from collections import Counter
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 
@@ -91,17 +91,34 @@ def _parse_parallel(refs, workers: int, threads: int | None):
     jobs = [(r.pdf_path, r.citekey, threads)
             for r in sorted(refs, key=lambda r: -_pdf_size(r.pdf_path))]
     results = {}
+    broken = None
+    # submit()/as_completed() rather than map(): map yields in *input*
+    # order, so a pool that breaks while the first (largest) job is still
+    # running would raise before yielding the smaller jobs that had
+    # already finished, throwing away real work and reporting parsed
+    # documents as failures. as_completed records each result at the
+    # moment it lands, so a broken pool costs only what was actually in
+    # flight.
     try:
         with _executor_for(workers) as executor:
-            for citekey, out_path, exc in executor.map(pdf_text.extract_one, jobs):
+            futures = [executor.submit(pdf_text.extract_one, job) for job in jobs]
+            for future in as_completed(futures):
+                try:
+                    citekey, out_path, exc = future.result()
+                except BrokenProcessPool as pool_exc:
+                    broken = pool_exc
+                    continue
                 results[citekey] = (out_path, exc)
-    except BrokenProcessPool as exc:
+    except BrokenProcessPool as pool_exc:
+        # submit() itself raises once the pool is already known-broken.
+        broken = pool_exc
+    if broken is not None:
         # A worker killed outright (the OOM killer is the realistic
         # cause) takes the whole pool with it, and every future still in
         # flight. Reported against the documents that didn't get parsed
         # rather than raised, so the run still writes its ledger updates,
         # its summary, and a nonzero exit code.
-        print(f"  WARNING a parse worker died ({exc}) -- the documents it "
+        print(f"  WARNING a parse worker died ({broken}) -- the documents it "
               "had not finished are reported as failures below. A lower "
               "[parser].workers is the usual fix.", file=sys.stderr)
     for ref in refs:
@@ -286,7 +303,7 @@ def run(remove_stale: bool = False) -> int:
         print(
             f"  WARNING: {len(low_quality)} document(s) look like the parser lost "
             f"word boundaries: {', '.join(low_quality)}. See config.toml's "
-            f"[parser] quality-guard settings and ../docs/PDF-PARSER.md."
+            f"[parser] quality-guard settings and docs/PDF-PARSER.md."
         )
     if no_pdf_reasons:
         # Least-churn fix for the masking this bucket used to cause: the
