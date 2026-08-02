@@ -77,6 +77,15 @@ SOURCE_PDFS_MANIFEST = SOURCE_PDFS_DIR / "manifest.json"
 # switching off the default.
 PARSER_BACKENDS = ("pdftotext", "docling")
 PARSER = _get("PARSER", "parser", "backend", default="pdftotext")
+# Whether the docling backend runs its OCR stage. Docling's own default
+# is on; this project's is off -- a speed/completeness trade-off, not a
+# free win. Measured over 16 real bib PDFs on the documented A40 host:
+# off is 2.46x faster, but changes the extracted text of 8 of the 16,
+# because OCR is what reads text embedded as *bitmaps*. Mostly that text
+# is publisher furniture and figure captions; on one document it was two
+# whole tables. See config.toml's [parser].ocr comment and
+# bench/RESULTS.md before changing it either way.
+PARSER_OCR = _get_bool("PARSER_OCR", "parser", "ocr", default=False)
 
 # Parse-quality guard (src/pdf_text.quality_warning): a PDF extractor
 # that sets its glyph-spacing tolerance too coarse fuses adjacent words

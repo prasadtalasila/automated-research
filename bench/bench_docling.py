@@ -29,7 +29,7 @@ from pathlib import Path
 import pypdfium2 as pdfium
 
 
-def build_converter(device: str, images: bool):
+def build_converter(device: str, images: bool, ocr: bool = True):
     from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
     from docling.datamodel.base_models import InputFormat
     from docling.datamodel.pipeline_options import PdfPipelineOptions
@@ -37,6 +37,10 @@ def build_converter(device: str, images: bool):
 
     opts = PdfPipelineOptions()
     opts.accelerator_options = AcceleratorOptions(device=AcceleratorDevice(device))
+    # Docling's own default is do_ocr=True. Its OCR runs on the CPU
+    # (RapidOCR on onnxruntime), so this switch is the one that tests
+    # whether OCR is what makes this pipeline CPU-bound.
+    opts.do_ocr = ocr
     if images:
         opts.generate_picture_images = True
         opts.images_scale = 2.0
@@ -52,6 +56,8 @@ def main() -> None:
     ap.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"])
     ap.add_argument("--mode", default="reused", choices=["fresh", "reused"])
     ap.add_argument("--images", action="store_true", help="match config.toml's docling_images=true")
+    ap.add_argument("--no-ocr", dest="ocr", action="store_false",
+                    help="disable Docling's OCR stage (its default is on)")
     ap.add_argument("--limit", type=int, default=0)
     args = ap.parse_args()
 
@@ -79,7 +85,7 @@ def main() -> None:
     # loading to the first convert() call.
     warm_pdf = sample[0]["path"]
     t0 = time.perf_counter()
-    conv = build_converter(args.device, args.images)
+    conv = build_converter(args.device, args.images, args.ocr)
     conv.convert(warm_pdf)
     init_s = time.perf_counter() - t0
     meta = {
@@ -87,6 +93,7 @@ def main() -> None:
         "device": args.device,
         "mode": args.mode,
         "images": args.images,
+        "ocr": args.ocr,
         "cold_start_s": round(init_s, 2),
         "cuda_visible": os.environ.get("CUDA_VISIBLE_DEVICES", ""),
         "n": len(sample),
@@ -98,7 +105,7 @@ def main() -> None:
     for item in sample:
         if args.mode == "fresh":
             t0 = time.perf_counter()
-            conv = build_converter(args.device, args.images)
+            conv = build_converter(args.device, args.images, args.ocr)
         else:
             t0 = time.perf_counter()
         try:

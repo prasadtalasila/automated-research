@@ -93,11 +93,53 @@ is a projection from the serial measurement plus the
 ~3-cores-per-worker observation -- not a measurement. The plan says so
 where it matters.
 
-## An open question worth more than the plan itself
+## Phase 0, measured: OCR costs more than the GPU saves
 
-`do_ocr` defaults to `True`, and Docling's OCR (RapidOCR on onnxruntime)
-runs on the CPU -- a prime suspect for the CPU-bound profile above. This
-corpus is born-digital papers with real text layers, and the run log was
-full of `RapidOCR returned empty result!`. Turning OCR off may be a
-larger and far cheaper win than any amount of parallelism, and it would
-shift what remains toward the GPU.
+Measured 2026-08-02 on the same 16-PDF sample and the same GPU, with
+`bench_docling.py --no-ocr`. Raw timings:
+`results/2026-08-02-phase0/gpu_reused_noocr.jsonl`.
+
+| | s/page | Full corpus |
+|---|---|---|
+| OCR on (Docling's default) | 0.431 | ~1h 36m |
+| OCR off | 0.176 | **~39m** |
+
+**2.46x**, from one setting -- more than the 1.79x the GPU is worth.
+Docling's OCR runs on the CPU (RapidOCR on onnxruntime), which is a large
+part of why this pipeline is CPU-bound.
+
+### It is not free, and the cost is easy to miss
+
+Turning OCR off changed the extracted text of **8 of the 16** documents.
+That is the number to design around, not the speedup.
+
+OCR only runs on *bitmap* regions, so what it recovers is text that
+exists in the PDF as an image rather than as characters. Diffing the two
+outputs, that breaks down as:
+
+- **Publisher furniture** -- `IEEEAccess`, `DTU Library`, logos. Noise;
+  losing it is an improvement.
+- **Figure sub-captions** -- e.g. "(a) The system context physical block
+  diagram models the boundary of the system...". Borderline.
+- **Real content, on a minority of documents.** `afrin_resource_2021`
+  lost **10.1%** of its characters: two complete tables, a
+  three-column comparison matrix and an abbreviations list, both embedded
+  as images. `perno_implementation_2022` lost a paragraph of body prose
+  set in a graphical text box.
+
+So the default is `ocr = false` (2.46x, and most documents are
+unaffected), but it is a trade-off rather than a free win, and the
+parse-quality guard will not catch a bad choice -- it looks for
+run-together words, not for content that never arrived. A corpus of scans
+needs `ocr = true`; so does one where tables-as-images matter more than
+parse time.
+
+## Phase 0, measured: the converter rebuild
+
+`DocumentConverter` cold start is **16.5s** on this host, and
+`initialized_pipelines` is an instance attribute -- so the pre-0.12.0
+`src/pdf_text.py`, which built one converter per PDF, paid a model reload
+for every document in the corpus. Both `pdf_text.py` and
+`heavy/docling_parse.py` now build one converter and reuse it, and
+`parse_corpus` defers the build until a document actually needs parsing,
+so a fully-cached re-run loads no models at all.

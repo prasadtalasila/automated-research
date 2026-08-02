@@ -45,6 +45,36 @@ dir = "papers/pdfs"
 #     citekeys parsed with that backend.
 backend = "pdftotext"
 
+# Whether the docling backend runs its OCR stage. Docling's own default
+# is on; this project's default is off. That is a speed/completeness
+# trade-off made deliberately, not a free win, so it is worth
+# understanding before trusting either setting.
+#
+# What it buys. OCR runs on the CPU (RapidOCR on onnxruntime) and is a
+# large part of why the docling path is CPU-bound rather than GPU-bound.
+# Measured over 16 real bib PDFs (943 pages) on the A40 host: turning it
+# off makes the parse 2.46x faster, taking a full-corpus parse from
+# ~1.6 hours to ~0.65 hours. See bench/RESULTS.md.
+#
+# What it costs, and this is the part to read twice. OCR only runs on
+# *bitmap* regions -- so what it recovers is text that exists in the PDF
+# as an image rather than as characters. Turning it off changed the
+# extracted text of 8 of those 16 documents. Most of what disappears is
+# publisher furniture ("IEEEAccess", "DTU Library") and figure
+# sub-captions, but not all of it: one document lost 10.1% of its
+# characters, including two complete tables (a comparison matrix and an
+# abbreviations list) that were embedded as images, and another lost a
+# paragraph of real body prose set in a graphical text box.
+#
+# So: `false` is right for a corpus of born-digital papers where you care
+# more about a fast re-parse than about text baked into figures. Set it
+# to `true` if your PDFs are scans (with OCR off, docling will extract
+# almost nothing from a scan), or if tables and figure text matter to you
+# more than parse time. The parse-quality guard below will NOT catch a
+# bad choice here -- it looks for run-together words, not for content
+# that never arrived.
+ocr = false
+
 # Parse-quality guard. `sync` warns when an extracted document has more
 # than `long_word_ratio` of its words longer than `long_word_chars`,
 # which is what a backend losing the spaces between words looks like --
