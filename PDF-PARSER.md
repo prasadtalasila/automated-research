@@ -38,8 +38,8 @@ separate, larger sample -- 16 bib PDFs, 943 pages -- turning OCR off was
 **2.46x** faster, so the current default sits well below 42x. The two
 measurements used different samples, so they don't compose into a single
 honest number; treat 42x as the OCR-on ceiling and see
-[bench/RESULTS.md](bench/RESULTS.md) for the corpus-wide figures that
-replaced it (a full 501-PDF parse: ~39 minutes with OCR off, ~1.6 hours
+`bench/RESULTS.md` in the repository (developer-only -- it is not part of the release zip) for the corpus-wide
+figures that replaced it (a full 501-PDF parse: ~39 minutes with OCR off, ~1.6 hours
 with it on).
 
 Turning OCR off is a trade-off, not a free win: it drops text that the

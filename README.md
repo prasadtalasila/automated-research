@@ -286,7 +286,7 @@ Set `ocr = true` if your PDFs are scans (with OCR off, docling extracts
 almost nothing from a scan), or if tables-as-images matter to you more
 than parse time. The parse-quality guard below will **not** catch a wrong
 choice here: it looks for run-together words, not for content that never
-arrived. Full breakdown in [bench/RESULTS.md](bench/RESULTS.md).
+arrived. Full breakdown in `bench/RESULTS.md` in the repository (developer-only -- it is not part of the release zip).
 
 #### Parse-quality guard
 
@@ -351,8 +351,9 @@ markitdown's API, which is why it was removed; see
 The five-PDF table above is enough to choose a backend. It is not enough
 to answer "how long does a first-time `docling` sync of the whole bib
 file take, and what is actually the bottleneck". `bench/` answers that,
-reproducibly; the measurement is written up in
-[bench/RESULTS.md](bench/RESULTS.md).
+reproducibly; the measurement is written up in `bench/RESULTS.md` in the repository (developer-only -- it is not part of the release zip).
+The figures below are the summary, so this section stands on its own
+without it.
 
 Measured 2026-08-02 on the documented A40 host, over all 501 PDFs
 (13,400 pages) that `papers/bibliography.bib` resolves:
@@ -372,7 +373,7 @@ onnxruntime), so the GPU buys far less than its presence suggests, and
 three of this host's four GPUs are never addressed at all: docling's
 `AcceleratorDevice.AUTO` resolves to `cuda:0` for every process.
 
-[bench/PARALLELISM-PLAN.md](bench/PARALLELISM-PLAN.md) is the plan that
+`bench/PARALLELISM-PLAN.md`, also developer-only, is the plan that
 follows from this -- CPU-level document parallelism first, GPU
 assignment second, in that order because that is where the measurement
 says the wall clock is.

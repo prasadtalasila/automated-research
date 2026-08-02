@@ -54,7 +54,9 @@ backend = "pdftotext"
 # large part of why the docling path is CPU-bound rather than GPU-bound.
 # Measured over 16 real bib PDFs (943 pages) on the A40 host: turning it
 # off makes the parse 2.46x faster, taking a full-corpus parse from
-# ~1.6 hours to ~0.65 hours. See bench/RESULTS.md.
+# ~1.6 hours to ~0.65 hours. The full write-up is in bench/RESULTS.md in
+# the repository -- developer-only, so it is not in the release zip;
+# README's "OCR: off by default" section carries the same figures and is.
 #
 # What it costs, and this is the part to read twice. OCR only runs on
 # *bitmap* regions -- so what it recovers is text that exists in the PDF

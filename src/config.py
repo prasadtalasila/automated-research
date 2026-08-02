@@ -83,8 +83,9 @@ PARSER = _get("PARSER", "parser", "backend", default="pdftotext")
 # off is 2.46x faster, but changes the extracted text of 8 of the 16,
 # because OCR is what reads text embedded as *bitmaps*. Mostly that text
 # is publisher furniture and figure captions; on one document it was two
-# whole tables. See config.toml's [parser].ocr comment and
-# bench/RESULTS.md before changing it either way.
+# whole tables. See config.toml's [parser].ocr comment, or README's
+# "OCR: off by default" section, before changing it either way. (The full
+# write-up is bench/RESULTS.md, which is developer-only and not shipped.)
 PARSER_OCR = _get_bool("PARSER_OCR", "parser", "ocr", default=False)
 
 # Parse-quality guard (src/pdf_text.quality_warning): a PDF extractor
