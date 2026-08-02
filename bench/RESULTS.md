@@ -239,7 +239,9 @@ here, for two reasons -- it costs throughput on exactly the models this
 pipeline spends its time in, and it raises rather than degrades when an
 op has no deterministic implementation, which would turn a cosmetic
 difference into a hard failure. Revisit if bit-reproducible parses ever
-become a requirement rather than a nicety. It does mean `content/parsed/` should not be
-expected to be byte-identical across runs at high worker counts -- v1.0.0's
+become a requirement rather than a nicety.
+
+It does mean `content/parsed/` should not be expected to be
+byte-identical across runs at high worker counts -- v1.0.0's
 "byte-identical to serial" observation was measured over 8 documents at 4
 workers, where it holds, and does not generalise to 501 documents at 12.
