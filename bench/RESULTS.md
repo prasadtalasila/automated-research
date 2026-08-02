@@ -227,7 +227,21 @@ reference blocks** under heavy concurrency: the same words, split across
 list elements or lines differently.
 
 Nothing is lost, and retrieval tokenises on whitespace, so this does not
-affect BM25 ranking. It does mean `content/parsed/` should not be
-expected to be byte-identical across runs at high worker counts -- v1.0.0's
+affect BM25 ranking.
+
+**Can it be turned off?** Not from Docling. Its `PdfPipelineOptions` has
+no determinism, seed or reproducibility setting of any kind (checked
+against 2.117.0's full field list), and `AcceleratorOptions` exposes only
+`device`, `num_threads` and `cuda_use_flash_attention2`. The only lever
+is below Docling, in torch: `torch.use_deterministic_algorithms(True)`
+plus `cudnn.deterministic`, set inside each worker. That is not taken
+here, for two reasons -- it costs throughput on exactly the models this
+pipeline spends its time in, and it raises rather than degrades when an
+op has no deterministic implementation, which would turn a cosmetic
+difference into a hard failure. Revisit if bit-reproducible parses ever
+become a requirement rather than a nicety.
+
+It does mean `content/parsed/` should not be expected to be
+byte-identical across runs at high worker counts -- v1.0.0's
 "byte-identical to serial" observation was measured over 8 documents at 4
 workers, where it holds, and does not generalise to 501 documents at 12.
