@@ -52,10 +52,17 @@ release zip for the same reason `tests/` is.
 - [bench/PARALLELISM-PLAN.md](bench/PARALLELISM-PLAN.md) -- the phased
   plan that measurement produced
 
-The headline, because it is counter-intuitive: parsing all 501 bib PDFs
-with `docling` takes ~1.6 hours, and during it the A40 sits at ~7%
-utilization while three CPU cores of 48 do the work. The GPU is worth
-1.79x over CPU-only. Optimise the CPU path before reaching for more GPUs.
+The headline, in the order it was found:
+
+1. Parsing all 501 bib PDFs with `docling` took ~1.6 hours, with the A40
+   at ~7% utilization and three CPU cores of 48 busy. The GPU was worth
+   only 1.79x over CPU-only -- the work was CPU-bound.
+2. Turning OCR off (v0.12.0) was worth 2.46x, more than the GPU.
+3. Parallelising `sync` (v1.0.0) was worth 3.60x at four workers.
+4. That moved the bottleneck: at twelve workers GPU 0 runs at 100% while
+   GPUs 1-3 idle, because docling's `AcceleratorDevice.AUTO` resolves to
+   `cuda:0` in every worker. Spreading workers across the four cards is
+   the next piece of work, and it is now the binding constraint.
 
 ## Repository layout
 
@@ -68,11 +75,19 @@ AGENTS.md                 instructions for coding agents working in this repo --
                           notes, dev process, commit/PR/release conventions
 DEVELOPER.md              this file -- test running, repo layout, open questions
 DOCKER.md                 running this repo in a container (docker/Dockerfile)
+docs/                     reference docs that ship in the release zip -- everything except the four
+                          root-level ones above, which stay put because they're what a reader looks
+                          for first
+  PDF-PARSER.md             parser backend tradeoffs, and why grobid/markitdown were removed
+  DESIGN.md                 architecture and design decisions
+  CITATION-PROVENANCE.md    what src/citation_provenance.py reports and how to read it
 LICENSE                   MIT
 .github/workflows/        ci.yml (test suite + coverage + poetry check, on push/PR) and release.yml
                           (on a v* tag: verifies tag matches pyproject.toml's version, builds
                           scripts/release.py's zip, publishes it to a GitHub Release)
-config.toml               central config -- paths, parser backend, embedding model (see README's "Configuration")
+config.toml.example       tracked template for the central config -- paths, parser backend, worker
+                          count, embedding model. Copy to config.toml (gitignored, per-host) before
+                          anything imports src.config; see README's "Configuration"
 papers/                   gitignored, per-host data -- not shipped in the repo
   bibliography.bib          BibTeX export -- source of truth for citekeys/metadata (config.toml's [bib].path default)
   pdfs/                     [source_pdfs].dir default -- raw PDFs gathered outside the bib file, never citable;
@@ -97,7 +112,7 @@ src/                      core pipeline (needs bibtexparser; citation_gate/refer
   citation_gate.py          hard citation-verification gate -- "job 2" must pass this
   citation_coverage.py      ad-hoc review aid: retrieval-candidates-vs-actually-cited report, not a gate
   citation_provenance.py    ad-hoc review aid: what in each cited source supports the claim citing it, not a gate
-                            (see CITATION-PROVENANCE.md)
+                            (see docs/CITATION-PROVENANCE.md)
   references.py             auto-generates a draft's "## References" section from its own cited citekeys
 src/heavy/                optional heavier pipeline (pyproject.toml's "heavy" Poetry group)
   corpus.py                 unifies ledger items + [source_pdfs].dir's raw PDFs (doc: prefixed, non-citable)
@@ -191,7 +206,7 @@ two-column paper that text splices two columns onto every line, so any
 excerpt would be a collage of two arguments.
 
 Full design rationale, including the measurements behind those choices:
-[CITATION-PROVENANCE.md](CITATION-PROVENANCE.md).
+[docs/CITATION-PROVENANCE.md](docs/CITATION-PROVENANCE.md).
 
 ## Open questions and unbuilt features
 

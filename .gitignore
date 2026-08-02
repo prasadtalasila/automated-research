@@ -46,3 +46,10 @@ papers/pdfs/*
 bench/corpus.json
 bench/sample*.json
 bench/par_*/
+
+# config.toml is per-host: every user edits it (parser backend, paths,
+# worker count) and those edits are nobody else's defaults. The tracked
+# file is config.toml.example; src/config.py fails with a copy-this
+# message when config.toml is absent, rather than silently falling back,
+# so a host is never running settings its owner didn't choose.
+config.toml

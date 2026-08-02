@@ -50,7 +50,20 @@ that cost N times over.
 Verifiable independently of any timing claim: with OCR left on, the
 emitted `.md` bytes should be unchanged.
 
-## Phase 1 -- CPU: a process pool over documents
+## Phase 1 -- CPU: a process pool over documents -- **DONE for `sync` (v1.0.0)**
+
+Shipped as `[parser].workers`, **defaulting to 1** so a default run is
+still the historical serial path -- no pool, no pickling, no
+subprocesses. The resolved count is clamped to
+`min(requested, allowed_cpus // 4, docs_needing_parse)`, so a four-core
+desktop resolves to 2 and an over-large request is clamped and reported
+rather than silently obeyed.
+
+**Still to do:** `src/heavy/docling_parse.py`'s `parse_corpus` is
+untouched and remains serial. It belongs with Phase 2, since per-worker
+GPU assignment lands in the same place.
+
+The original plan for this phase follows, for the record.
 
 **Processes, not threads.** `sync.py`'s existing comment is right that
 `pdftotext` (an external subprocess, GIL released) wants threads -- but
@@ -92,7 +105,16 @@ contradicting the code.
 Ceiling: at ~3 logical CPUs per worker against 48 allowed, the CPU
 saturates somewhere around 12-16 workers.
 
-## Phase 2 -- GPU: spread the workers across the four A40s
+## Phase 2 -- GPU: spread the workers across the four A40s -- **now the binding constraint**
+
+This phase was written as "modest benefit, the GPUs are close to
+redundant on this host". Phase 1's measurement overturned that. At 12
+workers, GPU 0 runs pinned at **100%** while GPUs 1-3 sit at **0%**, and
+the 4-to-12-worker speedup is 3.60x to 3.69x -- i.e. nothing. The parse
+is no longer CPU-bound; it is bound by one card out of four.
+
+Do this next, and expect it to matter. The plan below stands as written;
+only the expected payoff changed.
 
 Worth doing only after Phase 1, and only *because* of it: a single
 process cannot use more than one GPU here, so there is nothing to spread
@@ -119,7 +141,7 @@ workers would all land on `cuda:0`.
 
 ## Phase 3 -- keep it measurable
 
-- Keep `bench/`. It is what turns "docling is ~42x pdftotext" (PDF-PARSER.md,
+- Keep `bench/`. It is what turns "docling is ~42x pdftotext" (../docs/PDF-PARSER.md,
   measured on 5 PDFs) into a figure that covers the real corpus.
 - Record pages/s in `sync`'s summary line, so a regression shows up
   without anyone running a special benchmark.

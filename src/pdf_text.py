@@ -14,16 +14,99 @@ page-boundary loss) before switching off the default.
 
 The dispatch is deliberately a table rather than an if/else: adding a
 backend is a `_extract_*` function plus one `_EXTRACTORS` entry, and
-markitdown was removed through the same seam (see PDF-PARSER.md for why).
+markitdown was removed through the same seam (see ../docs/PDF-PARSER.md for why).
 """
 
 import importlib.util
+import os
 import re
 import shutil
 import subprocess
 from pathlib import Path
 
 from src import config
+
+# Logical CPUs one docling worker actually occupies. Docling's
+# AcceleratorOptions.num_threads defaults to 4, and a single docling
+# process was measured holding ~300% CPU on the documented A40 host --
+# so "one worker per CPU" would oversubscribe by about 4x. Used both as
+# the divisor for `workers = "auto"` and as the ceiling an explicit
+# request is clamped to.
+_CPUS_PER_DOCLING_WORKER = 4
+
+
+def allowed_cpus() -> int:
+    """How many CPUs this *process* may run on -- not how many the
+    machine has.
+
+    `os.cpu_count()` reports the machine. `os.sched_getaffinity(0)`
+    reports the affinity mask actually in force, which a container,
+    `taskset`, or a batch scheduler will have narrowed. On the host this
+    was developed on the two disagree badly: 96 CPUs exist, 48 are
+    permitted, so sizing a pool off `cpu_count()` would spawn twice as
+    many workers as there are CPUs to run them.
+
+    `sched_getaffinity` is Linux-only -- it does not exist on Windows or
+    macOS, and this project's CI has a windows-latest leg -- hence the
+    getattr rather than a bare call.
+
+    Not covered: a cgroup CPU *quota* (`docker --cpus=2`) throttles
+    without narrowing the affinity mask, so this still reports the full
+    set there. config.toml.example says so, and an explicit
+    [parser].workers is the answer on such a host.
+    """
+    getaffinity = getattr(os, "sched_getaffinity", None)
+    if getaffinity is not None:
+        return len(getaffinity(0))
+    return os.cpu_count() or 1
+
+
+def resolve_workers(n_docs: int) -> tuple[int, str | None]:
+    """(workers, complaint) for a run that has `n_docs` to parse.
+
+    The resolved count is the smallest of three independent ceilings,
+    floored at 1: what was asked for, what the host can sustain, and how
+    many documents there actually are. The third matters more than it
+    looks -- standing up 12 docling workers to parse 3 documents pays 12
+    model loads to save two documents' worth of work.
+
+    An explicit request above the host ceiling is clamped *and reported*.
+    Obeying it thrashes; ignoring it silently leaves someone believing
+    they configured something they didn't.
+    """
+    cpus = allowed_cpus()
+    if config.PARSER == "docling":
+        ceiling = max(1, cpus // _CPUS_PER_DOCLING_WORKER)
+    else:
+        # Each pdftotext is a short, single-threaded subprocess, so
+        # charging it a docling worker's 4 CPUs would under-use the host.
+        ceiling = cpus
+
+    requested = config.PARSER_WORKERS
+    wanted = ceiling if requested == "auto" else requested
+    workers = max(1, min(wanted, ceiling, n_docs or 1))
+
+    complaint = None
+    if requested != "auto" and requested > ceiling:
+        complaint = (
+            f"  WARNING [parser].workers={requested} exceeds what this host can "
+            f"sustain ({cpus} CPUs available to this process"
+            + (f", ~{_CPUS_PER_DOCLING_WORKER} per docling worker"
+               if config.PARSER == "docling" else "")
+            + f") -- using {workers}."
+        )
+    return workers, complaint
+
+
+def docling_threads(workers: int) -> int:
+    """Docling's per-worker thread count, divided down so that
+    workers x threads still fits the host.
+
+    Capped at Docling's own default of 4, so the single-worker default
+    resolves to exactly what Docling would have picked on its own and
+    this function changes nothing until someone raises [parser].workers.
+    """
+    return max(1, min(_CPUS_PER_DOCLING_WORKER, allowed_cpus() // max(workers, 1)))
 
 
 class BackendUnavailable(RuntimeError):
@@ -91,7 +174,10 @@ def is_available() -> bool:
     return importlib.util.find_spec(config.PARSER) is not None
 
 
-def _extract_pdftotext(pdf_path: str, out_path: Path) -> None:
+def _extract_pdftotext(pdf_path: str, out_path: Path, threads: int | None = None) -> None:
+    # threads is accepted and ignored: pdftotext is a single-threaded
+    # external binary. The parameter exists so _EXTRACTORS stays a plain
+    # uniform table rather than growing a per-backend call signature.
     try:
         subprocess.run(
             ["pdftotext", "-layout", pdf_path, str(out_path)],
@@ -125,10 +211,10 @@ def _reset_docling_converter() -> None:
     _DOCLING_CONVERTER_KEY = None
 
 
-def _docling_converter():
+def _docling_converter(threads: int | None = None):
     global _DOCLING_CONVERTER, _DOCLING_CONVERTER_KEY
 
-    key = (config.PARSER_OCR,)
+    key = (config.PARSER_OCR, threads)
     if _DOCLING_CONVERTER is not None and _DOCLING_CONVERTER_KEY == key:
         return _DOCLING_CONVERTER
 
@@ -141,6 +227,13 @@ def _docling_converter():
 
     opts = PdfPipelineOptions()
     opts.do_ocr = config.PARSER_OCR
+    if threads is not None:
+        # Only touched when a caller has worked out a budget (i.e. when
+        # [parser].workers > 1); left alone otherwise so a default run
+        # gets exactly Docling's own accelerator settings.
+        from docling.datamodel.accelerator_options import AcceleratorOptions
+
+        opts.accelerator_options = AcceleratorOptions(num_threads=threads)
     _DOCLING_CONVERTER = DocumentConverter(
         format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)}
     )
@@ -148,8 +241,8 @@ def _docling_converter():
     return _DOCLING_CONVERTER
 
 
-def _extract_docling(pdf_path: str, out_path: Path) -> None:
-    converter = _docling_converter()
+def _extract_docling(pdf_path: str, out_path: Path, threads: int | None = None) -> None:
+    converter = _docling_converter(threads)
     try:
         result = converter.convert(pdf_path)
     except Exception as exc:  # noqa: BLE001 -- docling has no narrower
@@ -226,7 +319,7 @@ def quality_warning(text: str) -> str | None:
     )
 
 
-def extract_text(pdf_path: str, citekey: str) -> Path:
+def extract_text(pdf_path: str, citekey: str, threads: int | None = None) -> Path:
     """Extract text from a PDF into content/parsed/<citekey>.txt using
     config.PARSER's backend.
 
@@ -242,5 +335,22 @@ def extract_text(pdf_path: str, citekey: str) -> Path:
 
     config.PARSED_DIR.mkdir(parents=True, exist_ok=True)
     out_path = config.PARSED_DIR / f"{citekey}.txt"
-    _EXTRACTORS[config.PARSER](pdf_path, out_path)
+    _EXTRACTORS[config.PARSER](pdf_path, out_path, threads)
     return out_path
+
+
+def extract_one(job: tuple[str, str, int | None]) -> tuple[str, str | None, Exception | None]:
+    """Entry point for one pool worker: (pdf_path, citekey, threads) in,
+    (citekey, out_path, exception) out.
+
+    Defined at module level, and returning the exception rather than
+    raising it, because both have to survive pickling across a process
+    boundary. Returning it keeps the *type* -- src/sync.py distinguishes
+    ExtractionError from BackendUnavailable and reports them differently,
+    which a stringified error would lose.
+    """
+    pdf_path, citekey, threads = job
+    try:
+        return citekey, str(extract_text(pdf_path, citekey, threads)), None
+    except (ExtractionError, BackendUnavailable) as exc:
+        return citekey, None, exc

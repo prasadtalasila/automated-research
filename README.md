@@ -33,6 +33,12 @@ questions) and [DOCKER.md](DOCKER.md) (running this repo in a container).
 #    with a clear FileNotFoundError telling you to do exactly this.
 mkdir -p papers && cp /path/to/your/exported-library.bib papers/bibliography.bib
 
+# 1b. Create your config from the tracked example. config.toml is
+#     gitignored per-host data, so a fresh clone has none, and
+#     src/config.py refuses to import without it (naming this exact
+#     command). Edit it afterwards -- parser backend, paths, worker count.
+cp config.toml.example config.toml
+
 # Optional: also add any raw, not-yet-cataloged PDFs (no reference-manager
 # entry, no citekey) for the heavy pipeline's topic modeling/embeddings to
 # consider -- see "papers/pdfs/" below. NEVER citable this way; add a PDF
@@ -188,12 +194,27 @@ Tips:
 
 ## Configuration
 
-`config.toml` (repo root) is the single place every path/URL/timeout/model
-setting lives. `src/config.py` loads it once at import time via stdlib
-`tomllib` into plain module-level constants (not functions, so they're
-fixed for the life of the process); every setting can also be overridden
-per-run with an environment variable of the same name, without editing the
-file, e.g. `BIB_FILE=/path/to/other.bib python -m src.sync`.
+**`config.toml` is not in the repo -- you create it.** The tracked file is
+`config.toml.example`; `config.toml` itself is gitignored, because every
+host edits it (parser backend, paths, worker count) and those edits are
+nobody else's defaults:
+
+```bash
+cp config.toml.example config.toml
+```
+
+`src/config.py` reads it at import time and **fails with that exact
+command** if it's missing, rather than silently falling back to the
+example -- a host quietly running settings its owner never chose is a
+worse failure than one that refuses to start. If you'd rather keep the
+file elsewhere, point `CONFIG_PATH` at it.
+
+That file is the single place every path/URL/timeout/model setting lives.
+`src/config.py` loads it once at import time via stdlib `tomllib` into
+plain module-level constants (not functions, so they're fixed for the life
+of the process); every setting can also be overridden per-run with an
+environment variable of the same name, without editing the file, e.g.
+`BIB_FILE=/path/to/other.bib python -m src.sync`.
 
 | Section | Key | Env var | Default | What it controls |
 |---|---|---|---|---|
@@ -201,6 +222,8 @@ file, e.g. `BIB_FILE=/path/to/other.bib python -m src.sync`.
 | `[content]` | `dir` | `CONTENT_DIR` | `content` | Where `sync`/heavy-pipeline outputs live: `ledger.sqlite`, `parsed/`, `docling/`, `chroma/`, `topics.json`, `rendered/` |
 | `[source_pdfs]` | `dir` | `SOURCE_PDFS_DIR` | `papers/pdfs` | Raw PDFs gathered outside the bib file, no citekey -- see `src/heavy/corpus.py` |
 | `[parser]` | `backend` | `PARSER` | `pdftotext` | Which backend `sync` uses to extract PDF text -- `pdftotext` or `docling` -- see below |
+| `[parser]` | `ocr` | `PARSER_OCR` | `false` | Whether the `docling` backend runs its OCR stage -- 2.46x slower on, but it is what reads text stored as bitmaps -- see below |
+| `[parser]` | `workers` | `PARSER_WORKERS` | `1` | How many documents `sync` parses at once; a positive integer or `"auto"`, clamped to what the host can sustain -- see below |
 | `[parser]` | `long_word_chars` | `PARSE_LONG_WORD_CHARS` | `20` | Word length above which a token counts as "run-together" for the parse-quality guard |
 | `[parser]` | `long_word_ratio` | `PARSE_LONG_WORD_RATIO` | `0.01` | Share of such words above which `sync` warns that the parser is losing word boundaries |
 | `[parser]` | `min_tokens` | `PARSE_MIN_TOKENS` | `200` | Documents shorter than this are too noisy to judge, and are skipped by the guard |
@@ -221,7 +244,7 @@ backends based on `config.PARSER`:
 The dispatch is a table (`_EXTRACTORS`), so adding a backend is one
 `_extract_*` function plus one entry -- a third, `markitdown`, was added
 and later removed through that same seam (see
-[PDF-PARSER.md](PDF-PARSER.md#why-markitdown-was-removed)).
+[docs/PDF-PARSER.md](docs/PDF-PARSER.md#why-markitdown-was-removed)).
 
 Setting `config.PARSER = "docling"` here does **not** fold Docling into
 job 1, and doesn't make `src/heavy/docling_parse.py` (job 2's own,
@@ -255,7 +278,7 @@ Losing page boundaries isn't cosmetic: `scripts/verbatim_check.py`'s
 `cmd_overlap`/`cmd_locate` report which PDF page a verbatim run came
 from by splitting on those form-feed characters, so switching a citekey
 to `docling` makes every hit for it report `pdf p.1`
-regardless of where the text actually sits. See PDF-PARSER.md for the
+regardless of where the text actually sits. See docs/PDF-PARSER.md for the
 full fidelity/speed comparison, including two candidates that were
 evaluated and not adopted.
 
@@ -287,6 +310,49 @@ almost nothing from a scan), or if tables-as-images matter to you more
 than parse time. The parse-quality guard below will **not** catch a wrong
 choice here: it looks for run-together words, not for content that never
 arrived. Full breakdown in `bench/RESULTS.md` in the repository (developer-only -- it is not part of the release zip).
+
+#### Parsing several documents at once
+
+`sync` parses one document at a time by default. `[parser].workers` (or
+`PARSER_WORKERS`) opts into more:
+
+```toml
+workers = 1        # default -- strictly serial, no pool, no subprocesses
+workers = 8        # eight documents in flight
+workers = "auto"   # as many as this host can sustain
+```
+
+The default is deliberate rather than timid. A routine `sync` re-parses
+zero-to-few documents (the ledger skips anything whose PDF hasn't
+changed), so pool setup would usually cost more than it saves. It is a
+first-time or bulk sync -- 501 PDFs here -- that this exists for.
+
+**The resolved count is clamped**, to the smallest of: what you asked
+for, what the host can sustain, and how many documents actually need
+parsing. "What the host can sustain" is the CPUs *this process* may run
+on -- not the machine's total, which on a shared or containerised host
+can be much larger -- divided by 4 for the `docling` backend, because one
+docling worker uses about 4 CPUs of its own:
+
+| CPUs available to the process | 4 | 8 | 16 | 48 |
+|---|---|---|---|---|
+| `workers = "auto"` resolves to | 1 | 2 | 4 | 12 |
+
+So a four-core/eight-thread desktop resolves to 2, and asking for 15
+there still gets you 2 -- clamped, and said out loud on stderr rather
+than silently obeyed. Docling's own internal thread count is divided down
+to match, so workers × threads still fits the host.
+
+Two things the clamp can't see: a cgroup CPU *quota* (`docker --cpus=2`)
+throttles without changing which CPUs are permitted, and RAM isn't
+considered at all. Set an explicit number on either.
+
+Threads are used for `pdftotext` (an external subprocess that releases
+the GIL) and processes for `docling` (in-process, holds the GIL), so each
+backend gets the kind of concurrency it can actually use. Ledger writes
+always stay on the main process -- sqlite has a single writer -- and
+output is reported in bibliography order regardless of which worker
+finished first, so two identical runs still print identically.
 
 #### Parse-quality guard
 
@@ -344,7 +410,7 @@ That inconsistency, not an average, is the reason to spot-check
 a consistent undercount would at least be predictable. Later measurement
 found the underlying cause and it was not recoverable through
 markitdown's API, which is why it was removed; see
-[PDF-PARSER.md](PDF-PARSER.md#why-markitdown-was-removed).
+[docs/PDF-PARSER.md](docs/PDF-PARSER.md#why-markitdown-was-removed).
 
 #### Performance: the whole corpus
 

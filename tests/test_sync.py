@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from src import config, ledger, pdf_text, sync
+from tests.conftest import make_reference
 
 
 def write_bib(path, body):
@@ -57,6 +58,12 @@ def basic_corpus(isolated_config):
     (bib_dir / "paper.pdf").write_bytes(b"%PDF-1.4 good content")
     (bib_dir / "broken.pdf").write_bytes(b"%PDF-1.4 broken content")
     return isolated_config
+
+
+def make_ref(citekey, tmp_path):
+    pdf = tmp_path / f"{citekey}.pdf"
+    pdf.write_bytes(b"%PDF")
+    return make_reference(citekey=citekey, pdf_path=str(pdf))
 
 
 def fake_extract_text_factory(fail_citekeys=()):
@@ -501,3 +508,219 @@ class TestCliEntrypoint:
         )
         assert result.returncode == 2
         assert "unrecognized arguments" in result.stderr
+
+
+MANY_BIB = "".join(f"""
+@article{{doc_{i}_2024,
+  title = {{Paper {i}}},
+  author = {{Author, A}},
+  year = {{2024}},
+  file = {{p{i}.pdf:p{i}.pdf:application/pdf}},
+}}
+""" for i in range(6))
+
+
+@pytest.fixture
+def many_corpus(isolated_config):
+    """Six PDFs of deliberately different sizes, so submission order is
+    observable (sync submits biggest-first)."""
+    write_bib(isolated_config.BIB_FILE_PATH, MANY_BIB)
+    bib_dir = isolated_config.BIB_FILE_PATH.parent
+    for i in range(6):
+        (bib_dir / f"p{i}.pdf").write_bytes(b"%PDF" + b"x" * (100 * i))
+    return isolated_config
+
+
+def _thread_executor(workers):
+    from concurrent.futures import ThreadPoolExecutor
+
+    return ThreadPoolExecutor(max_workers=workers)
+
+
+def fake_extract_one_factory(record=None, fail_citekeys=()):
+    """Stands in for pdf_text.extract_one, the picklable pool entry point.
+    Returns the (citekey, out_path, exception) triple it does."""
+    def fake_extract_one(job):
+        pdf_path, citekey, threads = job
+        if record is not None:
+            record.append((citekey, threads))
+        if citekey in fail_citekeys:
+            return citekey, None, pdf_text.ExtractionError(f"{citekey}: bad PDF")
+        config.PARSED_DIR.mkdir(parents=True, exist_ok=True)
+        out_path = config.PARSED_DIR / f"{citekey}.txt"
+        out_path.write_text(f"extracted text for {citekey}")
+        return citekey, str(out_path), None
+    return fake_extract_one
+
+
+class TestWorkerCount:
+    def test_default_of_one_never_builds_a_pool(self, many_corpus, monkeypatch):
+        """The whole point of defaulting to 1: a default run must be the
+        historical serial path, with no executor, no pickling and no
+        subprocesses -- not a pool that happens to have one worker."""
+        monkeypatch.setattr(config, "PARSER_WORKERS", 1)
+        monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
+
+        def refuse(workers):
+            raise AssertionError(f"built a pool of {workers} for a serial run")
+
+        monkeypatch.setattr(sync, "_executor_for", refuse)
+        assert sync.run() == 0
+
+    def test_oversized_request_is_clamped_and_warned(self, many_corpus, monkeypatch, capsys):
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(config, "PARSER_WORKERS", 64)
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 8)
+        monkeypatch.setattr(pdf_text, "extract_one", fake_extract_one_factory())
+        monkeypatch.setattr(sync, "_executor_for", _thread_executor)
+
+        sync.run()
+        err = capsys.readouterr().err
+        assert "[parser].workers=64" in err
+        assert "using 2" in err
+
+
+class TestParallelParsing:
+    @pytest.fixture(autouse=True)
+    def _four_workers(self, monkeypatch):
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(config, "PARSER_WORKERS", 4)
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 48)
+        # A real ProcessPoolExecutor would run pdf_text.extract_one in a
+        # *child interpreter*, where this process's monkeypatches don't
+        # exist -- the fake would silently not be used and these tests
+        # would drive the real docling. Swapping the executor (the seam
+        # TestExecutorChoice covers separately) keeps the concurrency
+        # real while leaving the patches visible.
+        monkeypatch.setattr(sync, "_executor_for", _thread_executor)
+
+    def test_every_document_is_parsed_and_recorded(self, many_corpus, monkeypatch, capsys):
+        monkeypatch.setattr(pdf_text, "extract_one", fake_extract_one_factory())
+        rc = sync.run()
+
+        assert rc == 0
+        assert "6 parsed" in capsys.readouterr().out
+        con = ledger.connect()
+        try:
+            rows = {r["citekey"]: r for r in ledger.all_items(con)}
+        finally:
+            con.close()
+        assert all(rows[f"doc_{i}_2024"]["status"] == "parsed" for i in range(6))
+
+    def test_reporting_order_follows_the_bib_not_completion_order(
+        self, many_corpus, monkeypatch, capsys
+    ):
+        """Futures complete in whatever order they finish. If that leaked
+        into stdout, two identical runs would print different output and
+        no one could diff them."""
+        monkeypatch.setattr(pdf_text, "extract_one", fake_extract_one_factory())
+        sync.run()
+        printed = [ln.split()[-1] for ln in capsys.readouterr().out.splitlines()
+                   if ln.startswith("  parsed  ")]
+        assert printed == [f"doc_{i}_2024" for i in range(6)]
+
+    def test_largest_pdf_is_submitted_first(self, many_corpus, monkeypatch):
+        """One 675-page document in this project's real corpus is 5% of
+        all its pages. Picked up last, it alone defines the wall clock --
+        so submission is biggest-first (by file size, which needs no PDF
+        library to measure)."""
+        submitted = []
+        monkeypatch.setattr(pdf_text, "extract_one", fake_extract_one_factory(record=submitted))
+        sync.run()
+        assert [c for c, _ in submitted] == [f"doc_{i}_2024" for i in reversed(range(6))]
+
+    def test_one_bad_pdf_does_not_take_down_the_others(self, many_corpus, monkeypatch, capsys):
+        monkeypatch.setattr(
+            pdf_text, "extract_one", fake_extract_one_factory(fail_citekeys={"doc_3_2024"})
+        )
+        rc = sync.run()
+        captured = capsys.readouterr()
+        out = captured.out
+
+        assert rc == 1
+        assert "5 parsed" in out and "1 failed" in out
+        con = ledger.connect()
+        try:
+            rows = {r["citekey"]: r for r in ledger.all_items(con)}
+        finally:
+            con.close()
+        assert rows["doc_3_2024"]["status"] == "parse_failed"
+        assert rows["doc_2_2024"]["status"] == "parsed"
+
+    def test_each_worker_is_told_its_thread_budget(self, many_corpus, monkeypatch):
+        """workers x threads has to fit the host, so the parent works out
+        the per-worker thread count and passes it down."""
+        record = []
+        monkeypatch.setattr(pdf_text, "extract_one", fake_extract_one_factory(record=record))
+        sync.run()
+        assert {threads for _, threads in record} == {pdf_text.docling_threads(4)}
+
+    def test_a_dead_pool_fails_the_documents_not_the_run(self, many_corpus, monkeypatch, capsys):
+        """A worker killed by the OOM killer breaks the whole pool. That
+        has to be reported against the documents that didn't get parsed,
+        not raised as an uncaught BrokenProcessPool out of sync."""
+        from concurrent.futures.process import BrokenProcessPool
+
+        def explode(job):
+            raise BrokenProcessPool("a worker died")
+
+        monkeypatch.setattr(pdf_text, "extract_one", explode)
+        rc = sync.run()
+        captured = capsys.readouterr()
+
+        assert rc == 1
+        assert "6 failed" in captured.out
+        assert "worker" in captured.err.lower()
+
+
+class TestExecutorChoice:
+    def test_docling_gets_processes(self, monkeypatch):
+        """docling runs in-process and holds the GIL, so threads would
+        serialise exactly the work we want overlapped."""
+        from concurrent.futures import ProcessPoolExecutor
+
+        monkeypatch.setattr(config, "PARSER", "docling")
+        with sync._executor_for(2) as ex:
+            assert isinstance(ex, ProcessPoolExecutor)
+
+    def test_pdftotext_gets_threads(self, monkeypatch):
+        """pdftotext is an external subprocess that releases the GIL
+        while it runs, so a process pool would only add pickling and
+        spawn cost to buy the same concurrency."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        monkeypatch.setattr(config, "PARSER", "pdftotext")
+        with sync._executor_for(2) as ex:
+            assert isinstance(ex, ThreadPoolExecutor)
+
+
+class TestPdfSize:
+    """Only ever used to order work biggest-first."""
+
+    def test_reports_the_file_size(self, tmp_path):
+        pdf = tmp_path / "a.pdf"
+        pdf.write_bytes(b"x" * 321)
+        assert sync._pdf_size(str(pdf)) == 321
+
+    def test_unreadable_file_sorts_last_instead_of_raising(self, tmp_path):
+        """A PDF that vanished between bib resolution and here must not
+        take down the ordering -- the parse will report the real error a
+        moment later, which is the better place for it."""
+        assert sync._pdf_size(str(tmp_path / "gone.pdf")) == 0
+
+
+class TestParseSerial:
+    def test_yields_a_triple_per_reference(self, isolated_config, monkeypatch, tmp_path):
+        monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
+        refs = [make_ref("a", tmp_path), make_ref("b", tmp_path)]
+        assert [(k, e) for k, _, e in sync._parse_serial(refs)] == [("a", None), ("b", None)]
+
+    def test_a_failure_becomes_the_third_slot_not_a_raise(
+        self, isolated_config, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(
+            pdf_text, "extract_text", fake_extract_text_factory(fail_citekeys={"b"})
+        )
+        results = list(sync._parse_serial([make_ref("a", tmp_path), make_ref("b", tmp_path)]))
+        assert results[0][2] is None
+        assert isinstance(results[1][2], pdf_text.ExtractionError)

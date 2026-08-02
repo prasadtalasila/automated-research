@@ -31,7 +31,7 @@ dir = "papers/pdfs"
 # content/parsed/<citekey>.txt: "pdftotext" (default -- fast, needs
 # poppler-utils on PATH, no Python dependency) or "docling" (best
 # structural fidelity, needs the "heavy" Poetry group -- see
-# PDF-PARSER.md for the full tradeoff comparison). Two consequences
+# docs/PDF-PARSER.md for the full tradeoff comparison). Two consequences
 # worth knowing before switching off the default:
 #   - docling is far slower than pdftotext -- ~42x on the same 5 real
 #     bib PDFs measured in total (60.8s vs 1.4s), individual PDFs
@@ -76,6 +76,40 @@ backend = "pdftotext"
 # bad choice here -- it looks for run-together words, not for content
 # that never arrived.
 ocr = false
+
+# How many documents `python -m src.sync` parses at once.
+#
+#   1        the default, and the historical behaviour: one document at a
+#            time, no pool, no subprocesses. Nothing about a run changes
+#            unless you raise this.
+#   <int>    that many workers, clamped -- see below.
+#   "auto"   as many as this host can actually sustain.
+#
+# Only the number of *documents* in flight; each worker is itself
+# multi-threaded when the backend is docling, which is why the ceiling
+# below is not simply "one worker per CPU".
+#
+# The resolved count is min(what you asked for, what the host allows, how
+# many documents actually need parsing), never below 1. "What the host
+# allows" is the CPUs this *process* may run on -- not the machine's
+# total, which on a shared or containerised host can be far larger (on
+# the machine this was developed on: 96 CPUs exist, 48 are permitted) --
+# divided by 4 for the docling backend, because one docling worker uses
+# about 4 CPUs of its own. So:
+#
+#   allowed CPUs   4    8    16   48
+#   "auto"         1    2    4    12
+#
+# A four-core, eight-thread desktop therefore resolves to 2, and asking
+# for 15 there still gets you 2. An over-large request is clamped and
+# said out loud rather than silently obeyed (which thrashes) or silently
+# ignored. Docling's own internal thread count is divided down to match,
+# so workers x threads still fits the host.
+#
+# Two things this cannot see: a cgroup CPU *quota* (`docker --cpus=2`)
+# throttles without changing which CPUs are permitted, and RAM is not
+# considered at all. On either, set an explicit number.
+workers = 1
 
 # Parse-quality guard. `sync` warns when an extracted document has more
 # than `long_word_ratio` of its words longer than `long_word_chars`,
