@@ -58,6 +58,16 @@ def main() -> None:
     sample = json.loads(Path(args.sample).read_text())
     if args.limit:
         sample = sample[: args.limit]
+    # Checked before the output file is opened and before Docling's models
+    # are loaded, so an empty work list costs a one-line message rather
+    # than an IndexError out of the cold-start measurement below (which
+    # needs sample[0]). The realistic cause is a bib file with no
+    # resolvable PDFs, and "no PDFs" is worth saying out loud.
+    if not sample:
+        raise SystemExit(
+            f"{args.sample} has no PDFs to benchmark. Run bench/make_corpus.py "
+            "first; if it reports 0 PDFs, papers/bibliography.bib resolves none."
+        )
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

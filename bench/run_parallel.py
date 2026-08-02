@@ -13,6 +13,7 @@ being handed the 675-page book.
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -47,7 +48,7 @@ def main() -> None:
     outdir = REPO / "bench" / f"par_{args.tag}"
     outdir.mkdir(parents=True, exist_ok=True)
 
-    procs = []
+    procs, logs = [], []
     t0 = time.perf_counter()
     for i, shard in enumerate(shards):
         shard_path = outdir / f"shard{i}.json"
@@ -58,14 +59,31 @@ def main() -> None:
                "--device", args.device, "--mode", "reused"]
         if args.images:
             cmd.append("--images")
-        env_gpu = str(i % args.gpus) if args.device == "cuda" else ""
+        # Pinned for every GPU-capable device, not just the literal
+        # "cuda": AcceleratorDevice.AUTO resolves to cuda:0 for *every*
+        # process, so leaving all four cards visible under --device auto
+        # would silently pile every worker onto GPU 0 -- the exact
+        # failure this round-robin exists to prevent, and one that shows
+        # up as bad throughput rather than as an error.
+        env_gpu = "" if args.device == "cpu" else str(i % args.gpus)
         log = (outdir / f"w{i}.log").open("w")
+        logs.append(log)
         procs.append(subprocess.Popen(
             cmd, stdout=log, stderr=subprocess.STDOUT, cwd=str(REPO),
-            env={**dict(__import__("os").environ), "CUDA_VISIBLE_DEVICES": env_gpu}))
-    for p in procs:
-        p.wait()
+            env={**os.environ, "CUDA_VISIBLE_DEVICES": env_gpu}))
+    # Exit codes are checked before any .jsonl is read. A worker that died
+    # (Docling import failure, OOM kill, unreadable PDF) leaves a missing
+    # or truncated file, and reading it first turns a clear "worker 3
+    # died, see w3.log" into a confusing parse error several lines later.
+    failed = [i for i, p in enumerate(procs) if p.wait() != 0]
     wall = time.perf_counter() - t0
+    for log in logs:
+        log.close()
+    if failed:
+        raise SystemExit(
+            f"worker(s) {failed} exited non-zero -- see "
+            + ", ".join(str(outdir / f'w{i}.log') for i in failed)
+        )
 
     pages, docs, cold = 0, 0, []
     for i in range(args.workers):
