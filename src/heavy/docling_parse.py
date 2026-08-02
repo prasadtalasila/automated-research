@@ -42,11 +42,13 @@ what every .md should contain.
 """
 
 import json
+import multiprocessing
 import os
 import re
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-from src import config
+from src import config, pdf_text
 from src.heavy.corpus import CorpusDoc, safe_filename
 
 # Bump when a change to what parse_doc() *writes* makes an existing .md
@@ -139,7 +141,7 @@ _CAPTION_LABEL_RE = re.compile(
 )
 
 
-def _build_converter():
+def _build_converter(threads: int | None = None):
     """Always configured, never bare: `do_ocr` has to be set explicitly
     because Docling's own default is True and this project's is False
     (see config.toml's [parser].ocr for the measurement behind that).
@@ -158,6 +160,20 @@ def _build_converter():
 
     opts = PdfPipelineOptions()
     opts.do_ocr = config.PARSER_OCR
+    # Under parse_corpus's worker pool each process has claimed its own
+    # GPU (pdf_text.init_worker) and been given a share of the host's
+    # CPUs. Left alone in the single-worker case, so a default run gets
+    # Docling's own accelerator settings unchanged.
+    device = pdf_text.worker_device()
+    if threads is not None or device is not None:
+        from docling.datamodel.accelerator_options import AcceleratorOptions
+
+        kwargs = {}
+        if threads is not None:
+            kwargs["num_threads"] = threads
+        if device is not None:
+            kwargs["device"] = device
+        opts.accelerator_options = AcceleratorOptions(**kwargs)
     if config.DOCLING_IMAGES:
         opts.generate_picture_images = True
         opts.images_scale = config.DOCLING_IMAGE_SCALE
@@ -306,6 +322,52 @@ def _outputs_present(stem: str) -> bool:
     return all(path.exists() for path in expected)
 
 
+def _fingerprint(doc: CorpusDoc) -> list:
+    """(size, mtime_ns) of a doc's PDF -- the cache key parse_doc uses."""
+    st = os.stat(doc.pdf_path)
+    return [st.st_size, st.st_mtime_ns]
+
+
+def _is_cached(doc: CorpusDoc, cache: dict) -> bool:
+    """Whether parse_doc would skip this document.
+
+    Duplicated from parse_doc's own check rather than refactored out of
+    it, because parse_corpus needs the answer *before* dispatching work
+    to a pool -- a cached document must not be sent to a worker, or the
+    run pays a process and a model load to discover there was nothing to
+    do. A stat is nanoseconds next to that.
+    """
+    try:
+        return cache.get(doc.doc_id) == _fingerprint(doc) and _outputs_present(
+            safe_filename(doc.doc_id))
+    except OSError:
+        return False
+
+
+def _pdf_size(path: str | None) -> int:
+    """Bytes, or 0 if it can't be stat'd -- only used to order work."""
+    try:
+        return os.path.getsize(path)
+    except (OSError, TypeError):
+        return 0
+
+
+def _executor_for(workers: int):
+    """Mirrors src/sync.py's: spawn-based processes, one GPU per worker.
+
+    Kept as its own function here rather than imported from sync so that
+    src/heavy/ doesn't depend on the core entrypoint -- the dependency
+    runs the other way everywhere else in this repo.
+    """
+    ctx = multiprocessing.get_context("spawn")
+    return ProcessPoolExecutor(
+        max_workers=workers,
+        mp_context=ctx,
+        initializer=pdf_text.init_worker,
+        initargs=(ctx.Value("i", 0), ctx.Lock(), pdf_text.gpu_count()),
+    )
+
+
 def parse_doc(doc: CorpusDoc, cache: dict | None = None, converter=None) -> Path:
     """cache, when passed explicitly (parse_corpus does this), is
     mutated in place but NOT persisted by this call -- the caller owns
@@ -386,16 +448,103 @@ class _LazyConverter:
         return self._converter.convert(pdf_path)
 
 
+# One converter per worker *process*, not per document. A pool worker
+# handles many documents over its life, and DocumentConverter keeps its
+# initialized_pipelines cache on the instance -- so building one per
+# document would reload Docling's layout, table and OCR models for every
+# file, which is exactly the cost the serial path stopped paying in
+# v0.12.0. Keyed on everything that changes what a converter *is*, so a
+# changed setting can't be served a stale one.
+_WORKER_CONVERTER = None
+_WORKER_CONVERTER_KEY = None
+
+
+def _worker_converter(threads: int | None):
+    global _WORKER_CONVERTER, _WORKER_CONVERTER_KEY
+
+    key = (threads, pdf_text.worker_device(), config.PARSER_OCR,
+           config.DOCLING_IMAGES, config.DOCLING_IMAGE_SCALE)
+    if _WORKER_CONVERTER is None or _WORKER_CONVERTER_KEY != key:
+        _WORKER_CONVERTER = _build_converter(threads)
+        _WORKER_CONVERTER_KEY = key
+    return _WORKER_CONVERTER
+
+
+def _reset_worker_converter() -> None:
+    """Test hook -- module state otherwise leaks between tests."""
+    global _WORKER_CONVERTER, _WORKER_CONVERTER_KEY
+    _WORKER_CONVERTER = None
+    _WORKER_CONVERTER_KEY = None
+
+
+def parse_one(job: tuple) -> tuple:
+    """One worker's unit of work: (doc, threads) in, (doc_id, status,
+    fingerprint) out.
+
+    Module-level and exception-free by design -- both the argument and
+    the result have to survive pickling to and from a worker process, and
+    an arbitrary Docling exception may not. The fingerprint travels back
+    so the *parent* owns every cache write, the same way src/sync.py
+    keeps every ledger write on the main process.
+    """
+    doc, threads = job
+    try:
+        out_path = parse_doc(doc, cache={}, converter=_worker_converter(threads))
+        return doc.doc_id, f"ok: {out_path}", _fingerprint(doc)
+    except Exception as exc:  # noqa: BLE001 -- report per-doc, don't abort the batch
+        return doc.doc_id, f"error: {exc}", None
+
+
 def parse_corpus(docs: list[CorpusDoc]) -> dict[str, str]:
-    """Returns {doc_id: 'ok' | 'error: ...'} -- never raises for a single doc failure."""
+    """Returns {doc_id: 'ok' | 'error: ...'} -- never raises for a single doc failure.
+
+    Parallelised by [parser].workers exactly like src/sync.py, and for
+    the same reason: this is the slowest stage in the repository, and a
+    first run over a real corpus is measured in tens of minutes. The
+    default of 1 keeps the historical serial path, converter reuse and
+    all.
+
+    One constraint that comes with the worker pool: it uses the "spawn"
+    start method (see _executor_for), so each worker re-imports the
+    calling program's __main__. A script that calls this must therefore
+    guard its top level with `if __name__ == "__main__":`, or every
+    worker re-runs it on startup and the pool dies with
+    BrokenProcessPool. scripts/full_pipeline.py and src/sync.py both do;
+    an ad-hoc script that doesn't will fail immediately rather than
+    subtly.
+    """
     cache = _load_cache()
     status = {}
-    converter = _LazyConverter()
-    for doc in docs:
-        try:
-            out_path = parse_doc(doc, cache=cache, converter=converter)
-            status[doc.doc_id] = f"ok: {out_path}"
-        except Exception as exc:  # noqa: BLE001 -- report per-doc, don't abort the batch
-            status[doc.doc_id] = f"error: {exc}"
+
+    pending = [d for d in docs if d.pdf_path and not _is_cached(d, cache)]
+    workers, complaint = pdf_text.resolve_workers(len(pending))
+    if complaint:
+        print(complaint)
+
+    if workers > 1:
+        threads = pdf_text.docling_threads(workers)
+        # Biggest-file-first, same LPT reasoning as src/sync.py: one
+        # 675-page document in this corpus would otherwise define the
+        # wall clock all by itself if it were picked up last.
+        jobs = [(d, threads) for d in sorted(pending, key=lambda d: -_pdf_size(d.pdf_path))]
+        cached = [d for d in docs if d not in pending]
+        for doc in cached:
+            try:
+                status[doc.doc_id] = f"ok: {parse_doc(doc, cache=cache)}"
+            except Exception as exc:  # noqa: BLE001 -- as below
+                status[doc.doc_id] = f"error: {exc}"
+        with _executor_for(workers) as executor:
+            for doc_id, doc_status, fingerprint in executor.map(parse_one, jobs):
+                status[doc_id] = doc_status
+                if fingerprint is not None:
+                    cache[doc_id] = fingerprint
+    else:
+        converter = _LazyConverter()
+        for doc in docs:
+            try:
+                out_path = parse_doc(doc, cache=cache, converter=converter)
+                status[doc.doc_id] = f"ok: {out_path}"
+            except Exception as exc:  # noqa: BLE001 -- report per-doc, don't abort the batch
+                status[doc.doc_id] = f"error: {exc}"
     _save_cache(cache)
     return status

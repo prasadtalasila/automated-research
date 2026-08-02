@@ -354,6 +354,38 @@ always stay on the main process -- sqlite has a single writer -- and
 output is reported in bibliography order regardless of which worker
 finished first, so two identical runs still print identically.
 
+#### Using more than one GPU
+
+Nothing to configure. When the backend is `docling` and more than one
+worker is running, each worker process claims one CUDA device
+round-robin, so a four-GPU host uses all four.
+
+This is not automatic in Docling: its `AcceleratorDevice.AUTO` resolves
+to `cuda:0` in *every* process, so without an explicit per-worker device
+every worker piles onto card 0 while the rest idle. To restrict which
+cards are used, set `CUDA_VISIBLE_DEVICES` as usual -- the pool only ever
+sees what that leaves visible.
+
+Measured over the whole 501-PDF corpus at 12 workers:
+
+| | wall clock |
+|---|---|
+| One A40 (Docling's own `AUTO`) | 528.0s |
+| Four A40s | **326.2s** (1.62x) |
+
+Two caveats worth knowing:
+
+- **It only pays at corpus scale.** On a 60-document subset the same
+  change made no difference at all (122.4s at 4 workers, 123.0s at 12),
+  because per-worker startup -- process spawn, importing torch and
+  docling, loading the models -- dominates before GPU contention does.
+- **Parsed output is not bit-reproducible at high worker counts.**
+  Comparing a one-GPU and a four-GPU run over all 501 documents, 6 files
+  differed by under 0.06% each: Docling grouping dense reference blocks
+  into elements slightly differently under load. The same words, and
+  retrieval tokenises on whitespace, so ranking is unaffected -- but
+  don't expect `diff` to come back empty.
+
 #### Parse-quality guard
 
 `sync` checks each freshly extracted document and warns when an

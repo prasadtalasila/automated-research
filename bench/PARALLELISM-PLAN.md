@@ -105,7 +105,25 @@ contradicting the code.
 Ceiling: at ~3 logical CPUs per worker against 48 allowed, the CPU
 saturates somewhere around 12-16 workers.
 
-## Phase 2 -- GPU: spread the workers across the four A40s -- **now the binding constraint**
+## Phase 2 -- GPU: spread the workers across the four A40s -- **DONE (v1.1.0)**
+
+Shipped: each worker process claims one CUDA device round-robin, via a
+counter handed out in the pool initialiser. Measured over the full
+501-PDF corpus at 12 workers: **528s on one card, 326s across four --
+1.62x**, taking the whole corpus to 5m26s.
+
+Two corrections to what this section predicted, both from measurement:
+it is *not* worth anything at small corpus sizes (a 60-document subset
+showed no difference at all, because per-worker startup dominates), and
+the "GPU 0 at 100%" reading of the 12-worker plateau was only half the
+story -- freeing GPU 0 did not speed that subset up. See RESULTS.md.
+
+`src/heavy/docling_parse.py`'s `parse_corpus` was parallelised in the
+same release, so both Docling paths now use the pool.
+
+The original plan for this phase follows, for the record.
+
+### Original plan
 
 This phase was written as "modest benefit, the GPUs are close to
 redundant on this host". Phase 1's measurement overturned that. At 12

@@ -109,6 +109,14 @@ ocr = false
 # Two things this cannot see: a cgroup CPU *quota* (`docker --cpus=2`)
 # throttles without changing which CPUs are permitted, and RAM is not
 # considered at all. On either, set an explicit number.
+#
+# With the docling backend, each worker also claims one CUDA device
+# round-robin, so a multi-GPU host uses all of its cards rather than
+# stacking every worker on cuda:0 (which is what docling's own AUTO
+# device resolution does in every process). Restrict that with
+# CUDA_VISIBLE_DEVICES; there is no separate setting for it. Measured
+# over this project's 501-PDF corpus at 12 workers: 528s on one A40,
+# 326s across four.
 workers = 1
 
 # Parse-quality guard. `sync` warns when an extracted document has more

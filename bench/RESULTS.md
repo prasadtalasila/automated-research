@@ -180,3 +180,54 @@ for every document in the corpus. Both `pdf_text.py` and
 `heavy/docling_parse.py` now build one converter and reuse it, and
 `parse_corpus` defers the build until a document actually needs parsing,
 so a fully-cached re-run loads no models at all.
+
+## Phase 2, measured: spreading workers across the four A40s
+
+Measured 2026-08-02 with the real `python -m src.sync` over the **whole
+501-PDF corpus** (13,400 pages), `docling`, OCR off, 12 workers. The A/B
+is the same binary either way -- `CUDA_VISIBLE_DEVICES=0` confines every
+worker to one card, which is exactly the pre-v1.1.0 behaviour, since
+`AcceleratorDevice.AUTO` resolves to `cuda:0` in every process.
+
+| | wall clock |
+|---|---|
+| 12 workers, one A40 (`AUTO`, i.e. before this change) | 528.0s |
+| 12 workers, four A40s (round-robin) | **326.2s** |
+| Speedup from using the other three cards | **1.62x** |
+
+Against the ~39-minute serial baseline, the full corpus now parses in
+**5m26s -- about 7x**.
+
+### Corpus size decides whether this is worth anything
+
+The same change measured on a 60-document subset showed **nothing**:
+122.4s at 4 workers, 123.0s at 12, with all four GPUs busy and the CPU
+~85% idle. Per-worker startup -- spawn, importing torch and docling, then
+loading the models -- dominates at that size, and no amount of GPU
+spreading helps. It only pays once there is enough work to amortise
+twelve workers' startup, which the full corpus has and a 60-document
+sample does not.
+
+This is also why the earlier reading of the 12-worker plateau as
+"GPU 0 is the bottleneck" was too simple. GPU 0 *was* pinned at 100%, but
+freeing it did not speed up the 60-document run at all -- the plateau
+there was startup, not contention. Both effects are real; they show up at
+different scales.
+
+### Output is not bit-reproducible under concurrency
+
+Comparing the one-GPU and four-GPU runs over all 501 documents: **6 files
+differ**, by 0 to 59 bytes out of ~100KB each (under 0.06%).
+
+The differences are not device-dependent -- parsing the same document
+explicitly on `cuda:0`, `cuda:1` and `cuda:2` gives byte-identical output
+every time, and repeating a run at the same worker count reproduces
+exactly. What varies is Docling's element grouping inside **dense
+reference blocks** under heavy concurrency: the same words, split across
+list elements or lines differently.
+
+Nothing is lost, and retrieval tokenises on whitespace, so this does not
+affect BM25 ranking. It does mean `content/parsed/` should not be
+expected to be byte-identical across runs at high worker counts -- v1.0.0's
+"byte-identical to serial" observation was measured over 8 documents at 4
+workers, where it holds, and does not generalise to 501 documents at 12.

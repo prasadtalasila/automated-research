@@ -9,6 +9,7 @@ Architecture docs and [DOCKER.md](DOCKER.md) for the container build.
 
 - [Running tests](#running-tests)
 - [Benchmarking the parser](#benchmarking-the-parser)
+- [Writing a script that drives the heavy pipeline](#writing-a-script-that-drives-the-heavy-pipeline)
 - [Repository layout](#repository-layout)
 - [Figures and copyright](#figures-and-copyright)
 - [Citation provenance](#citation-provenance)
@@ -59,10 +60,35 @@ The headline, in the order it was found:
    only 1.79x over CPU-only -- the work was CPU-bound.
 2. Turning OCR off (v0.12.0) was worth 2.46x, more than the GPU.
 3. Parallelising `sync` (v1.0.0) was worth 3.60x at four workers.
-4. That moved the bottleneck: at twelve workers GPU 0 runs at 100% while
-   GPUs 1-3 idle, because docling's `AcceleratorDevice.AUTO` resolves to
-   `cuda:0` in every worker. Spreading workers across the four cards is
-   the next piece of work, and it is now the binding constraint.
+4. That moved the bottleneck onto a single GPU: `AcceleratorDevice.AUTO`
+   resolves to `cuda:0` in every worker, so GPU 0 ran at 100% while
+   GPUs 1-3 idled.
+5. Giving each worker its own card (v1.1.0) was worth a further **1.62x**
+   on the full corpus -- 528s to 326s at twelve workers. The whole
+   501-PDF corpus now parses in **5m26s**, against ~1.6 hours where this
+   started.
+
+The lesson worth carrying: every one of those steps was measured, and two
+of the four intermediate conclusions were wrong until the next
+measurement corrected them. `bench/` exists so that the next one is
+checked too.
+
+## Writing a script that drives the heavy pipeline
+
+`src.heavy.docling_parse.parse_corpus` and `python -m src.sync` both use
+a `"spawn"` worker pool when `[parser].workers` is above 1, so each
+worker re-imports the calling program's `__main__`. Any script of your
+own that calls them must guard its top level:
+
+```python
+if __name__ == "__main__":
+    main()
+```
+
+Without it, every worker re-runs the script on startup and the pool dies
+with `BrokenProcessPool`. `scripts/full_pipeline.py` and `src/sync.py`
+are both guarded already; this only bites ad-hoc scripts, and it bites
+immediately rather than subtly.
 
 ## Repository layout
 

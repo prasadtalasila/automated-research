@@ -98,6 +98,73 @@ def resolve_workers(n_docs: int) -> tuple[int, str | None]:
     return workers, complaint
 
 
+def gpu_count() -> int:
+    """CUDA devices Docling could use, or 0.
+
+    Deliberately forgiving: no torch, a torch without CUDA, or a driver
+    mismatch all mean "no GPUs to spread across", which is a perfectly
+    good answer -- not a reason to take down a sync that would otherwise
+    have run on the CPU.
+    """
+    if config.PARSER != "docling":
+        return 0
+    try:
+        import torch
+
+        return torch.cuda.device_count()
+    except Exception:  # noqa: BLE001 -- see docstring: any failure means 0
+        return 0
+
+
+# The CUDA device this worker process was assigned, or None to leave
+# Docling's own AUTO resolution alone. Process-global because it is set
+# once per worker, at pool startup, and read whenever that worker builds
+# a converter.
+_WORKER_DEVICE = None
+
+
+def worker_device() -> str | None:
+    """The CUDA device this worker claimed, or None if it claimed none.
+
+    The public read of the process-global set by init_worker, so other
+    modules (src/heavy/docling_parse.py) don't reach into this one's
+    internals to build their own converters.
+    """
+    return _WORKER_DEVICE
+
+
+def _reset_worker_device() -> None:
+    """Test hook -- module state otherwise leaks between tests."""
+    global _WORKER_DEVICE
+    _WORKER_DEVICE = None
+    _reset_docling_converter()
+
+
+def init_worker(counter, lock, n_gpus: int) -> None:
+    """Pool initialiser: claim one GPU for this worker, round-robin.
+
+    Docling's `AcceleratorDevice.AUTO` resolves to `cuda:0` in *every*
+    process, so without this, N workers all pile onto one card. Measured
+    on this project's corpus before it existed: at 12 workers GPU 0 ran
+    pinned at 100% while GPUs 1-3 sat at 0%, and 12 workers were no
+    faster than 4.
+
+    The index comes from a shared counter rather than the worker's PID or
+    position, because a ProcessPoolExecutor neither numbers its workers
+    nor guarantees it starts all of them -- it creates them lazily, as
+    work arrives. A counter handed out under a lock is the only thing
+    that gives each *live* worker a distinct index.
+    """
+    global _WORKER_DEVICE
+    if n_gpus <= 0:
+        _WORKER_DEVICE = None
+        return
+    with lock:
+        index = counter.value
+        counter.value += 1
+    _WORKER_DEVICE = f"cuda:{index % n_gpus}"
+
+
 def docling_threads(workers: int) -> int:
     """Docling's per-worker thread count, divided down so that
     workers x threads still fits the host.
@@ -214,7 +281,7 @@ def _reset_docling_converter() -> None:
 def _docling_converter(threads: int | None = None):
     global _DOCLING_CONVERTER, _DOCLING_CONVERTER_KEY
 
-    key = (config.PARSER_OCR, threads)
+    key = (config.PARSER_OCR, threads, _WORKER_DEVICE)
     if _DOCLING_CONVERTER is not None and _DOCLING_CONVERTER_KEY == key:
         return _DOCLING_CONVERTER
 
@@ -227,13 +294,20 @@ def _docling_converter(threads: int | None = None):
 
     opts = PdfPipelineOptions()
     opts.do_ocr = config.PARSER_OCR
-    if threads is not None:
-        # Only touched when a caller has worked out a budget (i.e. when
-        # [parser].workers > 1); left alone otherwise so a default run
-        # gets exactly Docling's own accelerator settings.
+    if threads is not None or _WORKER_DEVICE is not None:
+        # Only touched when a caller has worked out a thread budget or a
+        # pool has claimed a GPU for this worker (i.e. when
+        # [parser].workers > 1); left alone otherwise, so a default
+        # single-worker run gets exactly Docling's own accelerator
+        # settings and this module changes nothing about it.
         from docling.datamodel.accelerator_options import AcceleratorOptions
 
-        opts.accelerator_options = AcceleratorOptions(num_threads=threads)
+        kwargs = {}
+        if threads is not None:
+            kwargs["num_threads"] = threads
+        if _WORKER_DEVICE is not None:
+            kwargs["device"] = _WORKER_DEVICE
+        opts.accelerator_options = AcceleratorOptions(**kwargs)
     _DOCLING_CONVERTER = DocumentConverter(
         format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)}
     )

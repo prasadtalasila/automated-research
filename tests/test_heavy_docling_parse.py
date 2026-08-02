@@ -4,6 +4,7 @@ Docling is mocked via sys.modules (imported lazily inside parse_doc, not
 at module top), so these stay fast and don't need real model weights.
 """
 
+import contextlib
 import json
 import re
 import sys
@@ -12,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from src import config, pdf_text
 from src.heavy import docling_parse
 from src.heavy.corpus import CorpusDoc
 
@@ -122,6 +124,7 @@ def fake_docling(monkeypatch):
     FakeDocumentConverter.last_format_options = None
     FakeDocumentConverter.call_count = 0
     FakeDocumentConverter.build_count = 0
+    docling_parse._reset_worker_converter()
     FakeDocumentConverter.pictures = []
     FakeDocumentConverter.texts = []
     FakeDocument.last_image_mode = None
@@ -135,7 +138,12 @@ def fake_docling(monkeypatch):
     base_models.InputFormat = types.SimpleNamespace(PDF="pdf")
     pipeline_options = types.ModuleType("docling.datamodel.pipeline_options")
     pipeline_options.PdfPipelineOptions = lambda: types.SimpleNamespace(
-        generate_picture_images=False, images_scale=1.0, do_ocr=True
+        generate_picture_images=False, images_scale=1.0, do_ocr=True,
+        accelerator_options=None,
+    )
+    accelerator = types.ModuleType("docling.datamodel.accelerator_options")
+    accelerator.AcceleratorOptions = lambda num_threads=None, device=None: types.SimpleNamespace(
+        num_threads=num_threads, device=device
     )
     core_doc = types.ModuleType("docling_core.types.doc")
     core_doc.ImageRefMode = types.SimpleNamespace(REFERENCED="referenced")
@@ -146,6 +154,7 @@ def fake_docling(monkeypatch):
         ("docling.datamodel", types.ModuleType("docling.datamodel")),
         ("docling.datamodel.base_models", base_models),
         ("docling.datamodel.pipeline_options", pipeline_options),
+        ("docling.datamodel.accelerator_options", accelerator),
         ("docling_core", types.ModuleType("docling_core")),
         ("docling_core.types", types.ModuleType("docling_core.types")),
         ("docling_core.types.doc", core_doc),
@@ -682,3 +691,280 @@ class TestParseCorpus:
         assert status["b2024"].startswith("error:")
         assert "simulated docling failure" in status["b2024"]
         assert status["c2024"] == "error: c2024: no PDF to parse"
+
+
+def _thread_executor(workers):
+    """A real ProcessPoolExecutor would run parse_one in a child
+    interpreter, where this process's sys.modules fakes don't exist -- the
+    fake docling would silently not be used. Swapping the executor keeps
+    the concurrency real while leaving the fakes visible."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    return ThreadPoolExecutor(max_workers=workers)
+
+
+class TestParseCorpusParallel:
+    @pytest.fixture(autouse=True)
+    def _four_workers(self, isolated_config, monkeypatch):
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(config, "PARSER_WORKERS", 4)
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 48)
+        monkeypatch.setattr(docling_parse, "_executor_for", _thread_executor)
+
+    def _docs(self, tmp_path, n=5):
+        docs = []
+        for i in range(n):
+            pdf = tmp_path / f"p{i}.pdf"
+            pdf.write_bytes(b"%PDF" + b"x" * (50 * i))
+            docs.append(CorpusDoc(doc_id=f"d{i}", citekey=f"d{i}", source="bib",
+                                  title="t", pdf_path=str(pdf)))
+        return docs
+
+    def test_every_document_is_parsed(self, isolated_config, fake_docling, tmp_path):
+        status = docling_parse.parse_corpus(self._docs(tmp_path))
+        assert len(status) == 5
+        assert all(v.startswith("ok:") for v in status.values())
+        assert FakeDocumentConverter.call_count == 5
+
+    def test_the_parent_owns_every_cache_write(self, isolated_config, fake_docling, tmp_path):
+        """Workers can't share the parent's cache dict, so they hand back
+        a fingerprint and the parent records it -- the same shape as
+        src/sync.py keeping every ledger write on the main process."""
+        docs = self._docs(tmp_path)
+        docling_parse.parse_corpus(docs)
+
+        cache = json.loads(isolated_config.DOCLING_CACHE_PATH.read_text())
+        assert set(cache["items"]) == {d.doc_id for d in docs}
+
+        # ...and a second run therefore skips all of them.
+        FakeDocumentConverter.call_count = 0
+        docling_parse.parse_corpus(docs)
+        assert FakeDocumentConverter.call_count == 0
+
+    def test_a_cached_document_is_never_sent_to_a_worker(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        """Dispatching a cached doc would cost a process and a model load
+        to discover there was nothing to do."""
+        docs = self._docs(tmp_path)
+        docling_parse.parse_corpus(docs)
+
+        submitted = []
+        real_parse_one = docling_parse.parse_one
+        docling_parse.parse_one = lambda job: submitted.append(job[0].doc_id) or real_parse_one(job)
+        try:
+            status = docling_parse.parse_corpus(docs)
+        finally:
+            docling_parse.parse_one = real_parse_one
+        assert submitted == []
+        assert all(v.startswith("ok:") for v in status.values())
+
+    def test_one_failure_does_not_abort_the_batch(self, isolated_config, fake_docling, tmp_path):
+        docs = self._docs(tmp_path)
+        bad = tmp_path / "explode.pdf"
+        bad.write_bytes(b"%PDF")
+        docs.append(CorpusDoc(doc_id="bad", citekey="bad", source="bib",
+                              title="t", pdf_path=str(bad)))
+
+        status = docling_parse.parse_corpus(docs)
+        assert status["bad"].startswith("error:")
+        assert all(status[f"d{i}"].startswith("ok:") for i in range(5))
+
+        # A failed doc must not be cached, or it would never be retried.
+        cache = json.loads(isolated_config.DOCLING_CACHE_PATH.read_text())
+        assert "bad" not in cache["items"]
+
+    def test_workers_get_a_thread_budget(self, isolated_config, fake_docling, tmp_path):
+        docling_parse.parse_corpus(self._docs(tmp_path, n=2))
+        opts = FakeDocumentConverter.last_format_options["pdf"].pipeline_options
+        assert opts.accelerator_options.num_threads == pdf_text.docling_threads(4)
+
+    def test_biggest_document_is_submitted_first(self, isolated_config, fake_docling, tmp_path):
+        submitted = []
+        real_parse_one = docling_parse.parse_one
+        docling_parse.parse_one = lambda job: submitted.append(job[0].doc_id) or real_parse_one(job)
+        try:
+            docling_parse.parse_corpus(self._docs(tmp_path))
+        finally:
+            docling_parse.parse_one = real_parse_one
+        assert submitted == ["d4", "d3", "d2", "d1", "d0"]
+
+
+class TestParallelHelpers:
+    def test_is_cached_is_false_for_an_unreadable_pdf(self, isolated_config, tmp_path):
+        """A PDF that vanished can't be fingerprinted. Treat it as
+        not-cached so the parse runs and reports the real error, rather
+        than crashing the dispatch loop."""
+        doc = CorpusDoc(doc_id="gone", citekey="gone", source="bib", title="t",
+                        pdf_path=str(tmp_path / "gone.pdf"))
+        assert docling_parse._is_cached(doc, {"gone": [1, 2]}) is False
+
+    def test_pdf_size_of_a_missing_file_sorts_last(self, tmp_path):
+        assert docling_parse._pdf_size(str(tmp_path / "gone.pdf")) == 0
+
+    def test_pdf_size_of_none_sorts_last(self):
+        """corpus docs without a PDF never reach the pool, but the sort
+        key must not raise if one does."""
+        assert docling_parse._pdf_size(None) == 0
+
+    def test_executor_claims_a_gpu_per_worker(self, monkeypatch):
+        """Asserted through a recording stub rather than the executor's
+        private _initializer/_initargs/_mp_context, which are CPython
+        implementation details that could be renamed."""
+        captured = {}
+
+        def record(**kwargs):
+            captured.update(kwargs)
+            return contextlib.nullcontext()
+
+        monkeypatch.setattr(pdf_text, "gpu_count", lambda: 4)
+        monkeypatch.setattr(docling_parse, "ProcessPoolExecutor", record)
+        with docling_parse._executor_for(2):
+            pass
+
+        assert captured["max_workers"] == 2
+        assert captured["initializer"] is pdf_text.init_worker
+        assert captured["initargs"][2] == 4
+        assert captured["mp_context"].get_start_method() == "spawn"
+
+    def test_accelerator_options_are_left_alone_without_a_budget(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        """A single-worker run must reach Docling with its own defaults."""
+        pdf = tmp_path / "a.pdf"
+        pdf.write_bytes(b"%PDF")
+        docling_parse.parse_doc(CorpusDoc(doc_id="a", citekey="a", source="bib",
+                                          title="t", pdf_path=str(pdf)))
+        opts = FakeDocumentConverter.last_format_options["pdf"].pipeline_options
+        assert opts.accelerator_options is None
+
+    def test_worker_device_reaches_the_pipeline(
+        self, isolated_config, fake_docling, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(pdf_text, "_WORKER_DEVICE", "cuda:3")
+        pdf = tmp_path / "a.pdf"
+        pdf.write_bytes(b"%PDF")
+        docling_parse.parse_doc(CorpusDoc(doc_id="a", citekey="a", source="bib",
+                                          title="t", pdf_path=str(pdf)))
+        opts = FakeDocumentConverter.last_format_options["pdf"].pipeline_options
+        assert opts.accelerator_options.device == "cuda:3"
+
+
+class TestParseCorpusParallelEdges:
+    @pytest.fixture(autouse=True)
+    def _pool(self, isolated_config, monkeypatch):
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(docling_parse, "_executor_for", _thread_executor)
+
+    def test_already_cached_docs_are_still_reported_in_a_parallel_run(
+        self, isolated_config, fake_docling, monkeypatch, tmp_path
+    ):
+        """A mixed run -- some cached, some not -- must report every
+        document, not just the ones that went through the pool."""
+        monkeypatch.setattr(config, "PARSER_WORKERS", 1)
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 48)
+        docs = []
+        for i in range(5):
+            pdf = tmp_path / f"p{i}.pdf"
+            pdf.write_bytes(b"%PDF" + b"x" * i)
+            docs.append(CorpusDoc(doc_id=f"d{i}", citekey=f"d{i}", source="bib",
+                                  title="t", pdf_path=str(pdf)))
+        docling_parse.parse_corpus(docs[:2])  # warm the cache for d0, d1
+
+        # Three still to parse, so the resolved worker count stays above
+        # 1 and the parallel branch is genuinely exercised -- with two
+        # cached documents alongside it.
+        monkeypatch.setattr(config, "PARSER_WORKERS", 4)
+        FakeDocumentConverter.call_count = 0
+        status = docling_parse.parse_corpus(docs)
+
+        assert set(status) == {f"d{i}" for i in range(5)}
+        assert all(v.startswith("ok:") for v in status.values())
+        assert FakeDocumentConverter.call_count == 3  # only d2, d3, d4 re-parsed
+
+    def test_an_oversized_worker_request_is_reported(
+        self, isolated_config, fake_docling, monkeypatch, tmp_path, capsys
+    ):
+        monkeypatch.setattr(config, "PARSER_WORKERS", 64)
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 8)
+        pdf = tmp_path / "a.pdf"
+        pdf.write_bytes(b"%PDF")
+        docling_parse.parse_corpus([
+            CorpusDoc(doc_id="a", citekey="a", source="bib", title="t", pdf_path=str(pdf)),
+            CorpusDoc(doc_id="b", citekey="b", source="bib", title="t", pdf_path=str(pdf)),
+        ])
+        assert "[parser].workers=64" in capsys.readouterr().out
+
+    def test_a_doc_with_no_pdf_is_reported_not_raised_in_a_parallel_run(
+        self, isolated_config, fake_docling, monkeypatch, tmp_path
+    ):
+        """A doc with no PDF never reaches the pool -- it has nothing to
+        parse -- so it falls into the same branch as the cached ones and
+        must be reported there rather than taking down the batch."""
+        monkeypatch.setattr(config, "PARSER_WORKERS", 4)
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 48)
+        docs = [CorpusDoc(doc_id="nopdf", citekey="nopdf", source="bib",
+                          title="t", pdf_path=None)]
+        for i in range(3):
+            pdf = tmp_path / f"p{i}.pdf"
+            pdf.write_bytes(b"%PDF" + b"x" * i)
+            docs.append(CorpusDoc(doc_id=f"d{i}", citekey=f"d{i}", source="bib",
+                                  title="t", pdf_path=str(pdf)))
+
+        status = docling_parse.parse_corpus(docs)
+        assert status["nopdf"].startswith("error:")
+        assert "no PDF to parse" in status["nopdf"]
+        assert all(status[f"d{i}"].startswith("ok:") for i in range(3))
+
+
+class TestWorkerConverterReuse:
+    """A pool worker handles many documents over its life, and
+    DocumentConverter keeps its initialized_pipelines cache on the
+    *instance* -- so a converter per document reloads every model per
+    document, which is exactly the cost the serial path stopped paying in
+    v0.12.0. This is the parallel path's version of that guarantee."""
+
+    @pytest.fixture(autouse=True)
+    def _reset(self, isolated_config, monkeypatch):
+        monkeypatch.setattr(config, "PARSER", "docling")
+        docling_parse._reset_worker_converter()
+        yield
+        docling_parse._reset_worker_converter()
+
+    def _doc(self, tmp_path, name):
+        pdf = tmp_path / f"{name}.pdf"
+        pdf.write_bytes(b"%PDF")
+        return CorpusDoc(doc_id=name, citekey=name, source="bib", title="t",
+                         pdf_path=str(pdf))
+
+    def test_one_converter_serves_every_document_a_worker_handles(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        for i in range(5):
+            docling_parse.parse_one((self._doc(tmp_path, f"d{i}"), 4))
+        assert FakeDocumentConverter.build_count == 1
+        assert FakeDocumentConverter.call_count == 5
+
+    def test_a_changed_thread_budget_rebuilds_it(self, isolated_config, fake_docling, tmp_path):
+        docling_parse.parse_one((self._doc(tmp_path, "a"), 4))
+        docling_parse.parse_one((self._doc(tmp_path, "b"), 2))
+        assert FakeDocumentConverter.build_count == 2
+
+    def test_a_changed_device_rebuilds_it(
+        self, isolated_config, fake_docling, monkeypatch, tmp_path
+    ):
+        """Caching on "was one built already" alone would leave a worker
+        using a converter pinned to another worker's GPU."""
+        monkeypatch.setattr(pdf_text, "_WORKER_DEVICE", "cuda:0")
+        docling_parse.parse_one((self._doc(tmp_path, "a"), 4))
+        monkeypatch.setattr(pdf_text, "_WORKER_DEVICE", "cuda:1")
+        docling_parse.parse_one((self._doc(tmp_path, "b"), 4))
+        assert FakeDocumentConverter.build_count == 2
+
+    def test_a_changed_image_setting_rebuilds_it(
+        self, isolated_config, fake_docling, monkeypatch, tmp_path
+    ):
+        docling_parse.parse_one((self._doc(tmp_path, "a"), 4))
+        monkeypatch.setattr(isolated_config, "DOCLING_IMAGES", True)
+        docling_parse.parse_one((self._doc(tmp_path, "b"), 4))
+        assert FakeDocumentConverter.build_count == 2
