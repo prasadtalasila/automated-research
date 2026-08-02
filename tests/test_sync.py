@@ -1,6 +1,7 @@
 """src/sync.py: the deterministic bib -> ledger -> parsed-text entrypoint
 ("job 1" -- AGENTS.md). No LLM calls, must be idempotent."""
 
+import contextlib
 import subprocess
 import sys
 from pathlib import Path
@@ -787,20 +788,40 @@ class TestParseSerial:
 
 
 class TestGpuAssignment:
+    @staticmethod
+    def _capture(monkeypatch):
+        """Record what ProcessPoolExecutor was constructed with.
+
+        Asserted this way rather than through the executor's private
+        _initializer/_initargs/_mp_context, which are CPython
+        implementation details that could be renamed under us.
+        """
+        captured = {}
+
+        def record(**kwargs):
+            captured.update(kwargs)
+            return contextlib.nullcontext()
+
+        monkeypatch.setattr(sync, "ProcessPoolExecutor", record)
+        return captured
+
     def test_docling_pool_hands_each_worker_its_own_gpu(self, monkeypatch):
         """The whole point: docling's AcceleratorDevice.AUTO resolves to
         cuda:0 in every process, so without an explicit per-worker device
         N workers contend for one card while the rest idle."""
         monkeypatch.setattr(config, "PARSER", "docling")
         monkeypatch.setattr(pdf_text, "gpu_count", lambda: 4)
+        captured = self._capture(monkeypatch)
 
-        with sync._executor_for(2) as ex:
-            assert ex._initializer is pdf_text.init_worker
-            counter, lock, n_gpus = ex._initargs
-            assert n_gpus == 4
-            # A shared counter, not a per-process guess: a pool creates
-            # workers lazily and numbers none of them.
-            assert counter.value == 0
+        with sync._executor_for(2):
+            pass
+
+        assert captured["initializer"] is pdf_text.init_worker
+        counter, _lock, n_gpus = captured["initargs"]
+        assert n_gpus == 4
+        # A shared counter, not a per-process guess: a pool creates
+        # workers lazily and numbers none of them.
+        assert counter.value == 0
 
     def test_spawn_is_used_so_a_cuda_touching_parent_is_safe(self, monkeypatch):
         """Counting GPUs initialises CUDA in the parent, and a forked
@@ -809,16 +830,22 @@ class TestGpuAssignment:
         is noise against that."""
         monkeypatch.setattr(config, "PARSER", "docling")
         monkeypatch.setattr(pdf_text, "gpu_count", lambda: 4)
+        captured = self._capture(monkeypatch)
 
-        with sync._executor_for(2) as ex:
-            assert ex._mp_context.get_start_method() == "spawn"
+        with sync._executor_for(2):
+            pass
+
+        assert captured["mp_context"].get_start_method() == "spawn"
 
     def test_a_cpu_only_host_still_builds_a_working_pool(self, monkeypatch):
         monkeypatch.setattr(config, "PARSER", "docling")
         monkeypatch.setattr(pdf_text, "gpu_count", lambda: 0)
+        captured = self._capture(monkeypatch)
 
-        with sync._executor_for(2) as ex:
-            assert ex._initargs[2] == 0
+        with sync._executor_for(2):
+            pass
+
+        assert captured["initargs"][2] == 0
 
     def test_pdftotext_pool_has_no_gpu_initialiser(self, monkeypatch):
         from concurrent.futures import ThreadPoolExecutor

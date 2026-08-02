@@ -164,14 +164,15 @@ def _build_converter(threads: int | None = None):
     # GPU (pdf_text.init_worker) and been given a share of the host's
     # CPUs. Left alone in the single-worker case, so a default run gets
     # Docling's own accelerator settings unchanged.
-    if threads is not None or pdf_text._WORKER_DEVICE is not None:
+    device = pdf_text.worker_device()
+    if threads is not None or device is not None:
         from docling.datamodel.accelerator_options import AcceleratorOptions
 
         kwargs = {}
         if threads is not None:
             kwargs["num_threads"] = threads
-        if pdf_text._WORKER_DEVICE is not None:
-            kwargs["device"] = pdf_text._WORKER_DEVICE
+        if device is not None:
+            kwargs["device"] = device
         opts.accelerator_options = AcceleratorOptions(**kwargs)
     if config.DOCLING_IMAGES:
         opts.generate_picture_images = True
@@ -447,6 +448,35 @@ class _LazyConverter:
         return self._converter.convert(pdf_path)
 
 
+# One converter per worker *process*, not per document. A pool worker
+# handles many documents over its life, and DocumentConverter keeps its
+# initialized_pipelines cache on the instance -- so building one per
+# document would reload Docling's layout, table and OCR models for every
+# file, which is exactly the cost the serial path stopped paying in
+# v0.12.0. Keyed on everything that changes what a converter *is*, so a
+# changed setting can't be served a stale one.
+_WORKER_CONVERTER = None
+_WORKER_CONVERTER_KEY = None
+
+
+def _worker_converter(threads: int | None):
+    global _WORKER_CONVERTER, _WORKER_CONVERTER_KEY
+
+    key = (threads, pdf_text.worker_device(), config.PARSER_OCR,
+           config.DOCLING_IMAGES, config.DOCLING_IMAGE_SCALE)
+    if _WORKER_CONVERTER is None or _WORKER_CONVERTER_KEY != key:
+        _WORKER_CONVERTER = _build_converter(threads)
+        _WORKER_CONVERTER_KEY = key
+    return _WORKER_CONVERTER
+
+
+def _reset_worker_converter() -> None:
+    """Test hook -- module state otherwise leaks between tests."""
+    global _WORKER_CONVERTER, _WORKER_CONVERTER_KEY
+    _WORKER_CONVERTER = None
+    _WORKER_CONVERTER_KEY = None
+
+
 def parse_one(job: tuple) -> tuple:
     """One worker's unit of work: (doc, threads) in, (doc_id, status,
     fingerprint) out.
@@ -459,7 +489,7 @@ def parse_one(job: tuple) -> tuple:
     """
     doc, threads = job
     try:
-        out_path = parse_doc(doc, cache={}, converter=_build_converter(threads))
+        out_path = parse_doc(doc, cache={}, converter=_worker_converter(threads))
         return doc.doc_id, f"ok: {out_path}", _fingerprint(doc)
     except Exception as exc:  # noqa: BLE001 -- report per-doc, don't abort the batch
         return doc.doc_id, f"error: {exc}", None

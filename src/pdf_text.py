@@ -123,6 +123,16 @@ def gpu_count() -> int:
 _WORKER_DEVICE = None
 
 
+def worker_device() -> str | None:
+    """The CUDA device this worker claimed, or None if it claimed none.
+
+    The public read of the process-global set by init_worker, so other
+    modules (src/heavy/docling_parse.py) don't reach into this one's
+    internals to build their own converters.
+    """
+    return _WORKER_DEVICE
+
+
 def _reset_worker_device() -> None:
     """Test hook -- module state otherwise leaks between tests."""
     global _WORKER_DEVICE

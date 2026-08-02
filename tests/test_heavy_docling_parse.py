@@ -4,6 +4,7 @@ Docling is mocked via sys.modules (imported lazily inside parse_doc, not
 at module top), so these stay fast and don't need real model weights.
 """
 
+import contextlib
 import json
 import re
 import sys
@@ -123,6 +124,7 @@ def fake_docling(monkeypatch):
     FakeDocumentConverter.last_format_options = None
     FakeDocumentConverter.call_count = 0
     FakeDocumentConverter.build_count = 0
+    docling_parse._reset_worker_converter()
     FakeDocumentConverter.pictures = []
     FakeDocumentConverter.texts = []
     FakeDocument.last_image_mode = None
@@ -806,11 +808,24 @@ class TestParallelHelpers:
         assert docling_parse._pdf_size(None) == 0
 
     def test_executor_claims_a_gpu_per_worker(self, monkeypatch):
+        """Asserted through a recording stub rather than the executor's
+        private _initializer/_initargs/_mp_context, which are CPython
+        implementation details that could be renamed."""
+        captured = {}
+
+        def record(**kwargs):
+            captured.update(kwargs)
+            return contextlib.nullcontext()
+
         monkeypatch.setattr(pdf_text, "gpu_count", lambda: 4)
-        with docling_parse._executor_for(2) as ex:
-            assert ex._initializer is pdf_text.init_worker
-            assert ex._initargs[2] == 4
-            assert ex._mp_context.get_start_method() == "spawn"
+        monkeypatch.setattr(docling_parse, "ProcessPoolExecutor", record)
+        with docling_parse._executor_for(2):
+            pass
+
+        assert captured["max_workers"] == 2
+        assert captured["initializer"] is pdf_text.init_worker
+        assert captured["initargs"][2] == 4
+        assert captured["mp_context"].get_start_method() == "spawn"
 
     def test_accelerator_options_are_left_alone_without_a_budget(
         self, isolated_config, fake_docling, tmp_path
@@ -900,3 +915,56 @@ class TestParseCorpusParallelEdges:
         assert status["nopdf"].startswith("error:")
         assert "no PDF to parse" in status["nopdf"]
         assert all(status[f"d{i}"].startswith("ok:") for i in range(3))
+
+
+class TestWorkerConverterReuse:
+    """A pool worker handles many documents over its life, and
+    DocumentConverter keeps its initialized_pipelines cache on the
+    *instance* -- so a converter per document reloads every model per
+    document, which is exactly the cost the serial path stopped paying in
+    v0.12.0. This is the parallel path's version of that guarantee."""
+
+    @pytest.fixture(autouse=True)
+    def _reset(self, isolated_config, monkeypatch):
+        monkeypatch.setattr(config, "PARSER", "docling")
+        docling_parse._reset_worker_converter()
+        yield
+        docling_parse._reset_worker_converter()
+
+    def _doc(self, tmp_path, name):
+        pdf = tmp_path / f"{name}.pdf"
+        pdf.write_bytes(b"%PDF")
+        return CorpusDoc(doc_id=name, citekey=name, source="bib", title="t",
+                         pdf_path=str(pdf))
+
+    def test_one_converter_serves_every_document_a_worker_handles(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        for i in range(5):
+            docling_parse.parse_one((self._doc(tmp_path, f"d{i}"), 4))
+        assert FakeDocumentConverter.build_count == 1
+        assert FakeDocumentConverter.call_count == 5
+
+    def test_a_changed_thread_budget_rebuilds_it(self, isolated_config, fake_docling, tmp_path):
+        docling_parse.parse_one((self._doc(tmp_path, "a"), 4))
+        docling_parse.parse_one((self._doc(tmp_path, "b"), 2))
+        assert FakeDocumentConverter.build_count == 2
+
+    def test_a_changed_device_rebuilds_it(
+        self, isolated_config, fake_docling, monkeypatch, tmp_path
+    ):
+        """Caching on "was one built already" alone would leave a worker
+        using a converter pinned to another worker's GPU."""
+        monkeypatch.setattr(pdf_text, "_WORKER_DEVICE", "cuda:0")
+        docling_parse.parse_one((self._doc(tmp_path, "a"), 4))
+        monkeypatch.setattr(pdf_text, "_WORKER_DEVICE", "cuda:1")
+        docling_parse.parse_one((self._doc(tmp_path, "b"), 4))
+        assert FakeDocumentConverter.build_count == 2
+
+    def test_a_changed_image_setting_rebuilds_it(
+        self, isolated_config, fake_docling, monkeypatch, tmp_path
+    ):
+        docling_parse.parse_one((self._doc(tmp_path, "a"), 4))
+        monkeypatch.setattr(isolated_config, "DOCLING_IMAGES", True)
+        docling_parse.parse_one((self._doc(tmp_path, "b"), 4))
+        assert FakeDocumentConverter.build_count == 2
