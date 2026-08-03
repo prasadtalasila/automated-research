@@ -180,7 +180,7 @@ class TestRun:
         assert rc == 0
         assert "0 parsed, 2 unchanged, 1 without a PDF attachment, 0 failed" in out
 
-    def test_previously_failed_parse_is_retried_on_the_next_run(
+    def test_a_deterministic_failure_is_reported_every_run_without_re_parsing(
         self, basic_corpus, monkeypatch, capsys
     ):
         # Was the opposite until v1.2.0, and the test that asserted it
@@ -199,8 +199,12 @@ class TestRun:
 
         rc = sync.run()
         out = capsys.readouterr().out
-        assert rc == 1  # retried, failed again, and said so
-        assert "0 parsed, 1 unchanged, 1 without a PDF attachment, 1 failed" in out
+        # Narrowed in 2.0.0: the PDF is unreadable, so re-parsing it every
+        # run would waste the same minutes forever. It is not retried --
+        # but it still keeps the run nonzero and still says what to do.
+        assert rc == 1
+        assert "0 parsed, 2 unchanged" in out
+        assert "needs attention" in out
         con = ledger.connect()
         try:
             row = {r["citekey"]: r for r in ledger.all_items(con)}["doe_broken_2023"]
@@ -208,11 +212,11 @@ class TestRun:
             con.close()
         assert row["status"] == "parse_failed"
 
-    def test_a_retried_parse_that_succeeds_recovers_the_document(
+    def test_reparse_recovers_a_document_written_off_as_deterministic(
         self, basic_corpus, monkeypatch, capsys
     ):
-        """The point of retrying: a transient failure (a dead worker, an
-        OOM) must not cost the document permanently."""
+        """The escape hatch for a misclassification, or for a PDF that has
+        since been fixed in place."""
         monkeypatch.setattr(
             pdf_text, "extract_text", fake_extract_text_factory(fail_citekeys={"doe_broken_2023"})
         )
@@ -220,7 +224,7 @@ class TestRun:
         capsys.readouterr()
 
         monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
-        assert sync.run() == 0
+        assert sync.run(reparse=True) == 0
         con = ledger.connect()
         try:
             row = {r["citekey"]: r for r in ledger.all_items(con)}["doe_broken_2023"]
@@ -1059,3 +1063,75 @@ class TestStallWatchdog:
         err = capsys.readouterr().err
         assert "gave up waiting" in err
         assert "worker died" not in err
+
+
+class TestReparse:
+    def test_reparse_re_extracts_everything(self, basic_corpus, monkeypatch, capsys):
+        """The recovery path for output that is recorded as fine but
+        isn't -- which the ledger, by definition, cannot detect itself."""
+        monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
+        sync.run()
+        capsys.readouterr()
+
+        assert sync.run() == 0
+        assert "0 parsed, 2 unchanged" in capsys.readouterr().out
+
+        sync.run(reparse=True)
+        assert "2 parsed, 0 unchanged" in capsys.readouterr().out
+
+    def test_reparse_is_registered_on_the_cli(self, isolated_config):
+        import subprocess
+        out = subprocess.run(
+            [sys.executable, "-m", "src.sync", "--help"],
+            capture_output=True, text=True, cwd=str(config.REPO_ROOT),
+        ).stdout
+        assert "--reparse" in out
+
+
+class TestFailureReporting:
+    def test_a_backend_failure_is_deterministic_and_not_retried(
+        self, basic_corpus, monkeypatch, capsys
+    ):
+        """A PDF the backend cannot read is not going to become readable
+        next run. Re-parsing it every time wastes minutes and trains the
+        reader to ignore exit 1."""
+        monkeypatch.setattr(
+            pdf_text, "extract_text", fake_extract_text_factory(fail_citekeys={"doe_broken_2023"})
+        )
+        assert sync.run() == 1
+        capsys.readouterr()
+
+        assert sync.run() == 1  # still reported...
+        out = capsys.readouterr().out
+        assert "0 parsed" in out  # ...but not re-parsed
+        assert "needs attention" in out
+
+    def test_a_worker_death_is_transient_and_is_retried(self, many_corpus, monkeypatch, capsys):
+        """The failure that motivated retrying at all: one dead worker
+        marks every in-flight document failed, and they must come back."""
+        from concurrent.futures.process import BrokenProcessPool
+
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(config, "PARSER_WORKERS", 4)
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 48)
+        monkeypatch.setattr(sync, "_executor_for", _thread_executor)
+        monkeypatch.setattr(
+            pdf_text, "extract_one",
+            lambda job: (_ for _ in ()).throw(BrokenProcessPool("worker died")),
+        )
+        assert sync.run() == 1
+        capsys.readouterr()
+
+        monkeypatch.setattr(config, "PARSER_WORKERS", 1)
+        monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
+        assert sync.run() == 0
+        assert "6 parsed" in capsys.readouterr().out
+
+    def test_the_summary_separates_the_two_kinds(self, basic_corpus, monkeypatch, capsys):
+        monkeypatch.setattr(
+            pdf_text, "extract_text", fake_extract_text_factory(fail_citekeys={"doe_broken_2023"})
+        )
+        sync.run()
+        out = capsys.readouterr().out
+        assert "1 failed" in out
+        assert "needs attention" in out

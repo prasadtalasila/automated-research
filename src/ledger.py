@@ -73,6 +73,22 @@ _MIGRATIONS: list[tuple[tuple[str, str], ...]] = [
         ("pdf_size", "ALTER TABLE items ADD COLUMN pdf_size INTEGER"),
         ("pdf_mtime_ns", "ALTER TABLE items ADD COLUMN pdf_mtime_ns INTEGER"),
     ),
+    (
+        # version 2: 'parse_failed' conflated two failures that want
+        # opposite handling. A worker dying marks every in-flight
+        # document failed and must be retried, or one OOM silently
+        # removes them from the corpus for good; a corrupt PDF must NOT
+        # be re-parsed every run, because a sync that exits 1 forever
+        # trains its reader to ignore exit 1 -- which is how the next
+        # real failure gets missed.
+        #
+        # NULL means "recorded before this distinction existed", and is
+        # deliberately treated as transient: those rows predate the
+        # column, and retrying one corrupt PDF once is cheaper than
+        # silently abandoning a document that failed for a transient
+        # reason.
+        ("failure_kind", "ALTER TABLE items ADD COLUMN failure_kind TEXT"),
+    ),
 ]
 
 
@@ -113,7 +129,7 @@ def _stat_pdf(path: str) -> tuple[int, int]:
     return st.st_size, st.st_mtime_ns
 
 
-def upsert_reference(con: sqlite3.Connection, ref: Reference) -> bool:
+def upsert_reference(con: sqlite3.Connection, ref: Reference, force: bool = False) -> bool:
     """Insert or update a reference's bibliographic fields.
 
     Returns True if the PDF content is new/changed and needs (re-)parsing.
@@ -121,7 +137,8 @@ def upsert_reference(con: sqlite3.Connection, ref: Reference) -> bool:
     now = datetime.now(timezone.utc).isoformat()
 
     row = con.execute(
-        "SELECT pdf_hash, pdf_size, pdf_mtime_ns, status FROM items WHERE citekey = ?",
+        "SELECT pdf_hash, pdf_size, pdf_mtime_ns, status, failure_kind "
+        "FROM items WHERE citekey = ?",
         (ref.citekey,),
     ).fetchone()
 
@@ -144,6 +161,12 @@ def upsert_reference(con: sqlite3.Connection, ref: Reference) -> bool:
         pdf_hash = row[0] if stat_unchanged else _hash_pdf(ref.pdf_path)
 
     needs_parse = False
+    if force and pdf_hash is not None:
+        # `sync --reparse`: re-extract regardless of what the ledger
+        # believes. The point is to recover from output that is recorded
+        # as fine but isn't -- which the ledger, by definition, cannot
+        # detect on its own.
+        needs_parse = True
     if row is None:
         status = "discovered" if pdf_hash else "no_pdf"
         needs_parse = pdf_hash is not None
@@ -158,12 +181,17 @@ def upsert_reference(con: sqlite3.Connection, ref: Reference) -> bool:
              ref.doi, ref.url, ref.pdf_path, pdf_hash, pdf_size, pdf_mtime_ns, status, now),
         )
     else:
-        old_hash, _old_size, _old_mtime_ns, old_status = row
-        if pdf_hash != old_hash:
+        old_hash, _old_size, _old_mtime_ns, old_status, old_kind = row
+        if force and pdf_hash is not None:
+            new_status = "discovered"
+        elif pdf_hash != old_hash:
             needs_parse = pdf_hash is not None
             new_status = "discovered" if pdf_hash else "no_pdf"
-        elif old_status == "parse_failed" and pdf_hash is not None:
-            # Retry a failed parse even though the PDF is byte-identical.
+        elif (old_status == "parse_failed" and pdf_hash is not None
+                and old_kind != "deterministic"):
+            # Retry a *transient* failed parse even though the PDF is
+            # byte-identical -- a NULL kind predates the distinction and
+            # counts as transient (see _MIGRATIONS version 2).
             # Without this, needs_parse was true only for a new or
             # changed document, so a failure stuck until the file itself
             # changed -- which for a corrupt PDF is never. That was
@@ -175,6 +203,12 @@ def upsert_reference(con: sqlite3.Connection, ref: Reference) -> bool:
             # and exits 0. A retry costs one re-parse of a genuinely bad
             # PDF per run, which is visible and bounded; the alternative
             # is invisible and permanent.
+            #
+            # A deterministic failure deliberately falls through to the
+            # else branch: it keeps its parse_failed status, so it is
+            # still counted and still makes the run exit nonzero, but it
+            # is not re-parsed. --reparse and editing the PDF are the two
+            # escape hatches for a misclassification.
             needs_parse = True
             new_status = "discovered"
         else:
@@ -202,12 +236,34 @@ def mark_parsed(con: sqlite3.Connection, citekey: str, parsed_path: Path) -> Non
     con.commit()
 
 
-def mark_parse_failed(con: sqlite3.Connection, citekey: str, error: str) -> None:
+def mark_parse_failed(
+    con: sqlite3.Connection, citekey: str, error: str, *, transient: bool = False
+) -> None:
+    """transient=True for a failure caused by the *run* rather than the
+    document -- a dead pool worker, a stalled run. Those are retried
+    automatically. The default is deterministic: the backend read this
+    particular PDF and could not parse it, so re-reading it next run
+    would only waste the same time again."""
     con.execute(
-        "UPDATE items SET status = 'parse_failed', parse_error = ? WHERE citekey = ?",
-        (error, citekey),
+        "UPDATE items SET status = 'parse_failed', parse_error = ?, failure_kind = ? "
+        "WHERE citekey = ?",
+        (error, "transient" if transient else "deterministic", citekey),
     )
     con.commit()
+
+
+def failure_counts(con: sqlite3.Connection) -> dict[str, int]:
+    """{'transient': n, 'deterministic': n} over parse_failed rows.
+
+    A NULL failure_kind counts as transient -- see _MIGRATIONS version 2.
+    """
+    counts = {"transient": 0, "deterministic": 0}
+    for kind, n in con.execute(
+        "SELECT failure_kind, count(*) FROM items WHERE status = 'parse_failed' "
+        "GROUP BY failure_kind"
+    ):
+        counts["deterministic" if kind == "deterministic" else "transient"] += n
+    return counts
 
 
 def known_citekeys(con: sqlite3.Connection) -> set[str]:
