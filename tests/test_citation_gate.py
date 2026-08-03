@@ -169,7 +169,7 @@ class TestExtractCitekeysWholeDocument:
 
 
 class TestCodeAndVerbatimExclusion:
-    """tutorial-writer's whole job is worked code examples, and code
+    """The teaching genres' whole job is worked code examples, and code
     routinely contains @-tokens (Python's @dataclass, @property) or
     cite-shaped strings that aren't citations. With the PostToolUse hook
     (.claude/hooks/citation_gate_hook.py) treating a FAIL as blocking, a
@@ -292,6 +292,22 @@ class TestCliEntrypoint:
         )
         assert result.returncode == 2
         assert "usage:" in result.stderr
+
+    @pytest.mark.parametrize("flag", ["-h", "--help"])
+    def test_help_prints_usage_and_exits_0(self, isolated_config, flag):
+        """This took a filename before, so `--help` died with a
+        FileNotFoundError traceback -- on the one tool every genre skill
+        and the write hook invoke, i.e. the first one anyone tries it on.
+        Help goes to stdout and exits 0; the no-args *error* keeps
+        stderr and exit 2."""
+        result = subprocess.run(
+            [sys.executable, "-m", "src.citation_gate", flag],
+            cwd=str(Path(__file__).resolve().parent.parent),
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0
+        assert "usage:" in result.stdout
+        assert "Traceback" not in result.stderr
 
     def test_runs_with_bare_system_python3_no_bibtexparser(self, system_python, isolated_config, tmp_path):
         """AGENTS.md's hard requirement: citation_gate must run with the

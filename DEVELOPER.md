@@ -41,13 +41,15 @@ aren't on `PATH`.
 ## Benchmarking the parser
 
 `bench/` measures what a full `docling` parse of the bib corpus costs on
-this host, and is deliberately kept out of `tests/`: it takes a couple of
+a given machine, and is deliberately kept out of `tests/`: it takes a couple of
 hours, needs real PDFs and a GPU, and answers a "how long / what's the
 bottleneck" question rather than a pass/fail one. It is excluded from the
 release zip for the same reason `tests/` is.
 
-- [docs/PARALLELISM.md](docs/PARALLELISM.md) -- the whole story across six
-  releases, including the four conclusions that turned out wrong
+- [docs/PERFORMANCE.md](docs/PERFORMANCE.md) -- what each setting costs,
+  organised by setting. Ships in the release archive, unlike `bench/`
+- [docs/PARALLELISM.md](docs/PARALLELISM.md) -- the whole story across
+  seven releases, including the six conclusions that turned out wrong
 - [bench/README.md](bench/README.md) -- how to run it, and what each
   switch measures
 - [bench/RESULTS.md](bench/RESULTS.md) -- the 2026-08-02 baseline, with
@@ -69,18 +71,25 @@ The headline, in the order it was found:
    on the full corpus -- 528s to 326s at twelve workers. The whole
    501-PDF corpus now parses in **5m26s**, against ~1.6 hours where this
    started.
+6. Per-worker startup (v2.1.0) turned out to be 3.2s of importing torch
+   and docling plus ~5s of loading Docling's models, and only the first
+   is shareable between processes. A forkserver pool with those modules
+   preloaded, started before the bibliography is read, takes a fixed
+   ~1.5-2s off pool startup -- 9.6% of an 8-document run, 2.5% of a
+   60-document one.
 
-The lesson worth carrying: every one of those steps was measured, and two
-of the four intermediate conclusions were wrong until the next
-measurement corrected them. `bench/` exists so that the next one is
+The lesson worth carrying: every one of those steps was measured, and six
+intermediate conclusions were wrong until the next measurement corrected
+them -- including two that sat in the code as stated fact. `bench/` exists so that the next one is
 checked too.
 
 ## Writing a script that drives the heavy pipeline
 
 `src.heavy.docling_parse.parse_corpus` and `python -m src.sync` both use
-a `"spawn"` worker pool when `[parser].workers` is above 1, so each
-worker re-imports the calling program's `__main__`. Any script of your
-own that calls them must guard its top level:
+a worker pool when `[parser].workers` is above 1, and every start method
+they can pick (`forkserver` or `spawn` -- see `[parser].start_method`)
+re-imports the calling program's `__main__` in each worker. Any script of
+your own that calls them must guard its top level:
 
 ```python
 if __name__ == "__main__":
@@ -106,7 +115,9 @@ DOCKER.md                 running this repo in a container (docker/Dockerfile)
 docs/                     reference docs that ship in the release zip -- everything except the four
                           root-level ones above, which stay put because they're what a reader looks
                           for first
-  PARALLELISM.md            how the parser got 17x faster across six releases, and what it cost
+  PARALLELISM.md            how the parser got 17x faster across seven releases, and what it cost
+  PERFORMANCE.md            what each config setting costs, measured -- the lookup-oriented companion
+                            to PARALLELISM.md's narrative
   ZOTERO.md                 getting a bib file and its PDFs into the shape this pipeline expects
   CLI.md                    every command, and which interpreter each one needs
   CONFIG.md                 every setting, with config.toml.example reproduced in full
@@ -162,7 +173,8 @@ tests/                    pytest suite -- unit tests per module + end-to-end fea
 content/                  generated, gitignored (regenerate with sync)
   ledger.sqlite, parsed/<citekey>.txt, provenance/,
   docling/, chroma/, topics.json, topic_embed_cache.json, rendered/  (src/heavy/ outputs)
-.claude/skills/           genre layer: survey-writer, thesis-chapter-writer, tutorial-writer, deep-research
+.claude/skills/           genre layer: survey-writer, thesis-chapter-writer,
+                          textbook-chapter-writer, tutorial-writer, deep-research
 .claude/agents/           deep-research's subagents: deep-research-interviewer, deep-research-writer, peer-reviewer
 .claude/hooks/            citation_gate_hook.py -- PostToolUse hook, mechanically enforces citation_gate on
                           every Write/Edit under content/drafts/*.md and *.tex (see AGENTS.md)

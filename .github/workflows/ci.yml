@@ -92,7 +92,37 @@ jobs:
         shell: bash
         run: |
           export VIRTUAL_ENV="$PWD/.venv-full"
-          poetry run python -m pytest --cov=src --cov=scripts --cov-report=term-missing
+          set -o pipefail
+          poetry run python -m pytest --cov=src --cov=scripts --cov-report=term-missing \
+            -rf | tee pytest-output.txt
+
+      # Which test failed is the only actionable part of a red run, and on
+      # the exploratory Windows leg it is easy to miss: continue-on-error
+      # means the run's own conclusion still reads "success", so nothing
+      # on the PR page says a test failed at all. Surfacing the short
+      # summary as annotations and in the job summary puts it where it is
+      # seen rather than looked for.
+      #
+      # (An earlier version of this comment claimed the logs were
+      # unreadable without an actions:read scope. That was wrong -- the
+      # logs endpoint 302s to a signed blob URL that rejects an
+      # Authorization header, so a client that follows the redirect with
+      # the header still attached gets a 401 that looks like a permission
+      # error and isn't. Drop the header on the redirect and the logs read
+      # fine. This step earns its place on visibility, not access.)
+      - name: Report which tests failed
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "### Test failures on ${{ matrix.os }}"
+            echo '```'
+            sed -n '/short test summary info/,$p' pytest-output.txt || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          grep -E '^(FAILED|ERROR) ' pytest-output.txt | while read -r line; do
+            echo "::error::${{ matrix.os }}: ${line}"
+          done
 
       - name: poetry check
         shell: bash

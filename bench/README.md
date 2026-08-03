@@ -3,7 +3,7 @@
 `docs/PDF-PARSER.md` puts Docling at "~42x slower than pdftotext", measured on
 5 PDFs. That is enough to choose a backend and not nearly enough to
 answer "how long does a full sync of the bib corpus actually take, on
-this host, and what is the bottleneck". This directory answers that, and
+the machine in front of me, and what is the bottleneck". This directory answers that, and
 keeps the answer reproducible so the parallelism work in
 [PARALLELISM-PLAN.md](PARALLELISM-PLAN.md) can be checked against
 measurement rather than argued from first principles.
@@ -17,7 +17,7 @@ Needs the "heavy" Poetry group (`bash scripts/install_full_pipeline.sh
 python-deps`), since it drives the real Docling stack.
 
 ```bash
-# 1. Build the work lists from this host's bib file (gitignored output --
+# 1. Build the work lists from your own bib file (gitignored output --
 #    they carry absolute PDF paths, like the bib file itself).
 .venv-full/bin/python bench/make_corpus.py
 
@@ -33,6 +33,46 @@ CUDA_VISIBLE_DEVICES=0 .venv-full/bin/python bench/bench_docling.py \
 .venv-full/bin/python bench/run_parallel.py \
     --sample bench/sample16.json --workers 8 --gpus 4 --tag w8
 ```
+
+## What this harness does *not* measure
+
+`run_parallel.py` launches N **independent** worker processes, each
+handed a shard and a GPU via `CUDA_VISIBLE_DEVICES`. That predates
+`[parser].workers` and is deliberately a different thing from the pool
+`src/sync.py` actually uses -- no shared counter, no pool initialiser, no
+`start_method`. It answers "how does this workload scale across
+processes and cards", not "what does the shipped pool cost".
+
+So every **pool-level** figure in `RESULTS.md` -- worker counts,
+per-worker GPU assignment, and `[parser].start_method` -- was measured
+with the real `python -m src.sync`, not with this harness. The recipe:
+
+```bash
+# A/B two settings over a subset of the real corpus, three runs each.
+# A fresh CONTENT_DIR per run is the point: every document must actually
+# need a parse, or you are timing the ledger's skip logic instead.
+for method in spawn forkserver; do
+  for rep in 1 2 3; do
+    rm -rf /tmp/bench-content && mkdir -p /tmp/bench-content
+    /usr/bin/time -f "$method rep$rep %e s" \
+      env CONTENT_DIR=/tmp/bench-content BIB_FILE=/path/to/subset.bib \
+          PARSER=docling PARSER_OCR=false \
+          PARSER_WORKERS=4 PARSER_START_METHOD=$method \
+      .venv-full/bin/python -m src.sync > /dev/null
+  done
+done
+```
+
+Take the **median of three**: run-to-run spread on a quiet machine was
+0.3-1.0s, which is the same order as some of the effects being measured.
+
+Build `subset.bib` by filtering your real bib file down to a
+rank-stratified sample of entries -- the same reasoning as
+`make_corpus.py`'s sampling. It must live in the same directory as the
+PDFs it references, since `file =` paths resolve relative to the bib
+file. Sampling the *smallest* N documents instead would make every run
+startup-dominated by construction, which flatters exactly the change
+being tested.
 
 ## What each file is
 

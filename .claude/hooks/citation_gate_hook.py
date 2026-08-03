@@ -6,7 +6,8 @@ suggestion" and every genre skill's prose instructs the agent to run it
 before presenting a draft -- but until this hook existed, nothing
 mechanically enforced that instruction; an agent could just skip the
 step. This makes it enforced by the harness: every Write/Edit under
-content/drafts/ (.md from survey-writer/tutorial-writer/deep-research,
+content/drafts/ (.md from survey-writer/textbook-chapter-writer/
+tutorial-writer/deep-research,
 .tex from thesis-chapter-writer -- see each SKILL.md's "Save the
 draft/fragment as content/drafts/<slug>.{md,tex}" step) is gated
 automatically, and a failure is surfaced back to Claude as blocking

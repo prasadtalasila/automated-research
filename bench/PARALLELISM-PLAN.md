@@ -157,6 +157,49 @@ workers would all land on `cuda:0`.
   count rises, or if Phase 0's OCR change shifts the remaining work onto
   the GPU.
 
+## Phase 4 -- per-worker startup -- **DONE (v2.1.0)**
+
+The question Phase 2's measurement left open: a 60-document subset showed
+no benefit from anything, because "per-worker startup dominates". This
+phase measured what that startup *is*.
+
+It is ~8.5s per worker on this host: **3.2s importing torch and docling,
+~5.0s loading Docling's models**, and the second is not shareable between
+processes at all -- `initialized_pipelines` lives on the converter
+instance. So the ceiling on this whole phase was ever only 3.2s.
+
+Shipped: `[parser].start_method`, defaulting to `"auto"`, which resolves
+to **forkserver** with torch and docling in its preload list. Measured
+(medians of three): over 8 real bib PDFs, **23.1s to 21.8s at 4 workers
+and 22.9s to 20.7s at 8**; over 60, **103.6s to 101.9s at 4 and 80.8s to
+78.8s at 12**. The same ~1.3-2.2s every time -- 9.6% of the smallest run
+and 2.5% of the largest.
+
+Three corrections to what was assumed before this phase, all from
+measurement:
+
+- **"Counting GPUs initialises CUDA in the parent" was false.** That was
+  the stated reason for `spawn`, and against torch 2.7.1 it is simply
+  not what happens -- `device_count()` goes through NVML and leaves
+  `torch.cuda.is_initialized()` False. `gpu_count()` reads `nvidia-smi`
+  now anyway, so the question cannot come back, but the old comment was
+  wrong rather than merely cautious.
+- **Plain `fork` is still ruled out -- by sqlite, not CUDA.** The parent
+  holds the run lock and the ledger open as live connections when the
+  pool is built. It also measured no faster than forkserver, so nothing
+  is being given up.
+- **A shared import is a wash on its own.** Workers import concurrently,
+  so moving 3.2s out of N children and into one parent nets zero
+  (22.4s vs 22.9s, measured). The saving comes from *when*: the
+  forkserver is started before the bibliography is read, so its preload
+  overlaps the ~2.5s that takes.
+
+The honest summary is that this phase takes a fixed ~1.5-2s off pool
+startup, which is worth having when the run is a handful of documents and
+is lost in the noise when it is the whole corpus. That is the shape the
+breakdown predicted once it existed. See RESULTS.md's "Per-worker
+startup" section.
+
 ## Phase 3 -- keep it measurable
 
 - Keep `bench/`. It is what turns "docling is ~42x pdftotext" (../docs/PDF-PARSER.md,

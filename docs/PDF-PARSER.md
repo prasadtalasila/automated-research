@@ -49,14 +49,14 @@ same words, different boundaries, under 0.06% of a file. This is Docling's
 own behaviour under load, not something this repo's parallelism
 introduced, and it cannot be switched off: Docling exposes no determinism
 setting. It does not affect retrieval, which tokenises on whitespace. See
-README's ["Using more than one GPU"](../README.md#using-more-than-one-gpu)
+[PERFORMANCE.md](PERFORMANCE.md#output-is-not-bit-reproducible-under-heavy-concurrency)
 and `bench/RESULTS.md` (developer-only, in the repository).
 
 Turning OCR off is a trade-off, not a free win: it drops text that the
 PDF stores as a bitmap rather than as characters, which on this sample
 was mostly publisher furniture and figure sub-captions but on one
-document included two whole tables. See README's ["OCR: off by default,
-and why that is a trade-off"](../README.md#ocr-off-by-default-and-why-that-is-a-trade-off).
+document included two whole tables. See
+[PERFORMANCE.md](PERFORMANCE.md#parserocr----the-largest-single-lever-and-a-trade).
 
 ### `grobid`
 GROBID is most valuable for reference extraction and scholarly structure. It was never a drop-in replacement for the other tools, and is no longer part of this repo -- see below.

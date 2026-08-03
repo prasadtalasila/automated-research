@@ -162,6 +162,47 @@ class TestGetWorkers:
             config._get_workers("W", "parser", "workers", default=1)
 
 
+class TestGetStartMethod:
+    """[parser].start_method decides how the docling pool creates its
+    workers. A typo has to be rejected at load, naming the alternatives,
+    rather than surfacing as a ValueError out of get_context() once a
+    pool is already half-built."""
+
+    @pytest.fixture(autouse=True)
+    def _toml(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"parser": {}})
+
+    def test_missing_key_uses_default(self):
+        assert config._get_start_method("M", "parser", "start_method", default="auto") == "auto"
+
+    def test_value_from_toml(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"parser": {"start_method": "spawn"}})
+        assert config._get_start_method("M", "parser", "start_method", default="auto") == "spawn"
+
+    @pytest.mark.parametrize("raw", ["FORKSERVER", " forkserver "])
+    def test_case_and_space_insensitive(self, monkeypatch, raw):
+        monkeypatch.setenv("M", raw)
+        assert config._get_start_method("M", "parser", "start_method", default="auto") == "forkserver"
+
+    def test_env_override_wins(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"parser": {"start_method": "spawn"}})
+        monkeypatch.setenv("M", "forkserver")
+        assert config._get_start_method("M", "parser", "start_method", default="auto") == "forkserver"
+
+    def test_a_typo_is_rejected_with_the_alternatives(self, monkeypatch):
+        monkeypatch.setenv("M", "forkserv")
+        with pytest.raises(ValueError, match="auto, forkserver, spawn"):
+            config._get_start_method("M", "parser", "start_method", default="auto")
+
+    def test_fork_is_rejected(self, monkeypatch):
+        """Not an accepted value: this process holds the run lock and the
+        ledger open as live sqlite connections, which a forked worker
+        must not inherit."""
+        monkeypatch.setenv("M", "fork")
+        with pytest.raises(ValueError, match="auto, forkserver, spawn"):
+            config._get_start_method("M", "parser", "start_method", default="auto")
+
+
 class TestModuleReloadWithEnvOverrides:
     """Full module-level reload, to cover the constant-computation lines
     themselves (BIB_FILE_PATH = REPO_ROOT / _get(...), etc.) under a real

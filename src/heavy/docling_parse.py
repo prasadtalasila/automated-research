@@ -42,7 +42,6 @@ what every .md should contain.
 """
 
 import json
-import multiprocessing
 import os
 import re
 from concurrent.futures import ProcessPoolExecutor
@@ -354,13 +353,16 @@ def _pdf_size(path: str | None) -> int:
 
 
 def _executor_for(workers: int):
-    """Mirrors src/sync.py's: spawn-based processes, one GPU per worker.
+    """Mirrors src/sync.py's: one GPU per worker, and whichever start
+    method pdf_text.process_pool_context picks.
 
     Kept as its own function here rather than imported from sync so that
     src/heavy/ doesn't depend on the core entrypoint -- the dependency
     runs the other way everywhere else in this repo.
     """
-    ctx = multiprocessing.get_context("spawn")
+    ctx, complaint = pdf_text.process_pool_context()
+    if complaint:
+        print(complaint)
     return ProcessPoolExecutor(
         max_workers=workers,
         mp_context=ctx,
@@ -516,14 +518,15 @@ def parse_corpus(docs: list[CorpusDoc]) -> dict[str, str]:
     default of 1 keeps the historical serial path, converter reuse and
     all.
 
-    One constraint that comes with the worker pool: it uses the "spawn"
-    start method (see _executor_for), so each worker re-imports the
-    calling program's __main__. A script that calls this must therefore
-    guard its top level with `if __name__ == "__main__":`, or every
-    worker re-runs it on startup and the pool dies with
-    BrokenProcessPool. scripts/full_pipeline.py and src/sync.py both do;
-    an ad-hoc script that doesn't will fail immediately rather than
-    subtly.
+    One constraint that comes with the worker pool: every start method it
+    can pick (see _executor_for) re-imports the calling program's
+    __main__ in each worker -- forkserver preloads torch and docling in
+    its server process, but the worker still runs spawn's preparation
+    step. A script that calls this must therefore guard its top level
+    with `if __name__ == "__main__":`, or every worker re-runs it on
+    startup and the pool dies with BrokenProcessPool.
+    scripts/full_pipeline.py and src/sync.py both do; an ad-hoc script
+    that doesn't will fail immediately rather than subtly.
     """
     cache = _load_cache()
     status = {}

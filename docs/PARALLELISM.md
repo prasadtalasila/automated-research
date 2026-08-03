@@ -1,9 +1,14 @@
 # How the parser got 17x faster, and what it cost
 
-A record of six releases of parallelism work on the Docling parse path,
-written for someone who wasn't there. It is as much about the wrong turns
-as the right ones, because four of the intermediate conclusions were
-wrong and only the next measurement showed it.
+A record of seven releases of parallelism work on the Docling parse
+path, written for someone who wasn't there. It is as much about the wrong
+turns as the right ones, because **six** of the intermediate conclusions
+were wrong and only the next measurement showed it.
+
+Every figure here is one machine's -- read them as ratios, not as times
+to plan against. [PERFORMANCE.md](PERFORMANCE.md) is the
+lookup-oriented version of the same measurements, organised by config
+setting; this is the narrative.
 
 The short version: a full parse of this project's 501-PDF bibliography
 went from **~1.6 hours to 5m26s**. Almost none of that came from the
@@ -180,6 +185,78 @@ Also fixed alongside: `convert(raises_on_error=True)` raises only on
 written and marked parsed -- a silently incomplete source, on a pipeline
 whose entire purpose is grounding claims in sources.
 
+## v2.1.0 -- taking apart the ten seconds
+
+Every measurement above that came out flat blamed the same thing:
+"per-worker startup dominates". Nobody had measured what that startup
+*was*. It turns out to be:
+
+| | |
+|---|---|
+| `import torch` | 1.16s |
+| `import docling` | 2.08s |
+| build `DocumentConverter` | 0.13s |
+| first `convert()` -- Docling loads its models | 5.17s |
+| **before the first parsed page** | **8.5s** |
+
+**Half the ceiling was gone before starting.** The 5s model load happens
+inside the converter instance, in whichever process owns it, and no
+multiprocessing start method shares that. Only the 3.2s of imports was
+ever available.
+
+So: forkserver, with torch and docling in its preload list, so the
+imports happen once in a server process that every worker is forked
+from. `[parser].start_method`, defaulting to `"auto"`.
+
+**Then the shared import turned out to be worth nothing.** Head to head
+on the real `sync`, 8 documents at 4 workers: spawn 22.9s, forkserver
+22.4s. Workers import *concurrently* -- on a host with spare CPUs that
+cost was already overlapped, so moving it out of N children and into one
+parent nets zero. What is not overlapped is the preload, which blocks
+pool construction.
+
+The fix is ordering, not machinery: start the forkserver *before*
+reading the bibliography, so its imports run during the ~2.5s that takes.
+`ensure_running()` returns in 0.02s without waiting for them. Four live
+workers ready at **4.40s instead of 6.90s**.
+
+End to end on the real `sync`, medians of three:
+
+| Documents | Workers | spawn | forkserver |
+|---|---|---|---|
+| 8 | 4 | 23.1s | **21.8s** |
+| 8 | 8 | 22.9s | **20.7s** |
+| 60 | 4 | 103.6s | **101.9s** |
+| 60 | 12 | 80.8s | **78.8s** |
+
+**Say what this is worth, not what it sounds like.** It is the same
+~1.3-2.2s off pool startup at every point -- 9.6% of the smallest run,
+2.5% of the largest, and it would be under 1% of the full 501-PDF corpus.
+This release does not make a bulk parse faster. It helps the case every
+earlier measurement kept tripping over: a handful of documents, where
+startup *is* the run.
+
+### Two things believed for three releases, both wrong
+
+**"Counting GPUs initialises CUDA in the parent."** This was the stated
+reason `sync` used `spawn`, written into the code as fact. Against torch
+2.7.1 it is not what happens: `torch.cuda.device_count()` goes through
+NVML, `torch.cuda.is_initialized()` stays `False`, and a child forked
+from that parent uses CUDA without complaint. `gpu_count()` now reads
+`nvidia-smi --list-gpus` regardless -- not to fix a bug, but so that a
+safety property stops depending on an implementation detail of one torch
+version, and so the parent stops importing 200MB of torch to answer a
+question the driver's own CLI answers.
+
+**"fork would be safe once that moved."** Also wrong, for a reason nobody
+had raised: by the time the pool is built this process holds two live
+sqlite connections -- the run lock, deliberately parked in an
+uncommitted `BEGIN IMMEDIATE`, and the ledger. SQLite says not to carry
+an open connection across `fork()`. forkserver's server is a fresh
+interpreter launched with `spawnv_passfds`, so it inherits neither. And
+fork measured no faster than forkserver anyway, so ruling it out cost
+nothing.
+
 ## Where the time actually went
 
 | Change | Kind | Full corpus |
@@ -188,9 +265,13 @@ whose entire purpose is grounding claims in sources.
 | OCR off + converter reuse | not parallelism | ~39 min |
 | 12 CPU workers | CPU | ~8.8 min |
 | four GPUs | GPU | **5m26s** |
+| forkserver pool startup | startup | 5m26s -- under 1% at this size |
 
 The GPU work -- the thing that looked like the answer at the start -- is
-the smallest contribution. The largest is a boolean.
+the smallest contribution but one. The largest is a boolean. And the last
+release bought nothing measurable here at all, which was the honest
+result rather than a disappointment: it targets small runs, where a fixed
+1.3-2.2s of pool startup is most of the wall clock.
 
 ## What to take from this
 
@@ -200,13 +281,22 @@ the smallest contribution. The largest is a boolean.
    until parallelism made them binding. The 12-worker plateau was GPU
    contention, until a bigger sample showed it was startup cost.
 3. **Sample size decides which effect you see.** 8 documents, 16, 60 and
-   501 gave four different answers, and only the largest was the one
-   users experience.
-4. **Parallelism's cost lands in operability, not correctness.** The
+   501 gave four different answers, and no one of them is *the* answer --
+   a bulk first sync and a three-paper top-up are different workloads,
+   and the last release exists for the second one.
+4. **A comment stating a reason is a claim, and claims rot.** "Counting
+   GPUs initialises CUDA in the parent" sat in the code as fact for three
+   releases and was never true of the torch version in use. Nothing
+   failed, because the conclusion it justified happened to be right for
+   an unrelated reason.
+5. **Parallelism's cost lands in operability, not correctness.** The
    parse output stayed right. What broke was Ctrl+C, progress reporting,
    and failure recovery -- none of which a unit test was watching, and
    all of which a user hit within one run.
 
-The harness that produced every number here is in `bench/`; the raw
+The harness that produced most of these numbers is in `bench/`; the raw
 per-PDF timings are in `bench/results/`, and `bench/RESULTS.md` is the
-long-form measurement record.
+long-form measurement record. The pool-level A/Bs -- worker counts, GPU
+assignment, start method -- were measured with the real
+`python -m src.sync` rather than that harness; `bench/README.md` has the
+recipe.

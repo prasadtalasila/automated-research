@@ -1,8 +1,8 @@
 # Automated Research Pipeline
 
 Turns a BibTeX bibliography into grounded survey papers, thesis chapters,
-and undergraduate tutorial chapters, with every citation traceable back to
-a paper the bibliography actually holds.
+undergraduate textbook chapters and hands-on tutorials, with every citation
+traceable back to a paper the bibliography actually holds.
 
 ## About
 
@@ -31,10 +31,14 @@ below follows from that one rule.
 
 ### Writing
 
-Four genre skills, each with its own register, all sharing the same
+Five genre skills, each with its own register, all sharing the same
 grounding rules: **survey/related-work**, **thesis chapter** (LaTeX
-fragment, RQ-driven), **undergraduate tutorial** (worked examples and
-exercises), and **deep research** (multi-perspective, corpus-grounded).
+fragment, RQ-driven), **undergraduate textbook chapter** (worked examples
+and exercises, for a reader who is studying), **tutorial** (a Diataxis
+lesson the reader follows at a keyboard to a working result), and **deep
+research** (multi-perspective, corpus-grounded). The two teaching genres
+are deliberately separate: a textbook chapter explains, a tutorial is
+verified to run.
 Drafts render to PDF or LaTeX through Pandoc/TeX Live, with a
 `## References` section generated from the citekeys actually cited.
 
@@ -62,9 +66,13 @@ measured rather than asserted -- a full Docling parse went from **~1.6
 hours to 5m26s**:
 
 - **Parallel parsing**, opt-in via `[parser].workers`, defaulting to
-  serial. The worker count is clamped to what the host can actually
+  serial. The worker count is clamped to what the machine can actually
   sustain, counting the CPUs the *process* is allowed rather than the
-  machine's total.
+  machine's total. Workers are forked from a helper process that has
+  already imported torch and docling, started early enough to overlap
+  with reading the bibliography -- a fixed ~1.5-2s off pool startup,
+  which is 9.6% of an eight-document run and under 1% of the full corpus.
+  Measured rather than assumed to be more.
 - **Multi-GPU**, automatically: each worker claims its own CUDA device,
   because Docling would otherwise put every worker on `cuda:0`.
 - **Bounded and interruptible.** Per-document and stalled-run timeouts,
@@ -84,24 +92,53 @@ attached to it is *right*.
 
 ## Table of contents
 
-- [About](#about)
+- [Documentation](#documentation)
 - [Quickstart](#quickstart)
 - [Hardware requirements](#hardware-requirements)
 - [Architecture](#architecture)
 - [The heavy pipeline](#the-heavy-pipeline)
 - [Acknowledgements](#acknowledgements)
 
-Reference material lives in `docs/`:
-[ZOTERO.md](docs/ZOTERO.md) (getting your library in),
-[CLI.md](docs/CLI.md) (every command, and which interpreter it needs),
-[CONFIG.md](docs/CONFIG.md) (every setting),
-[PDF-PARSER.md](docs/PDF-PARSER.md) (backend tradeoffs),
-[PARALLELISM.md](docs/PARALLELISM.md) (how the parser got 17x faster),
-[DESIGN.md](docs/DESIGN.md) (architecture and the conflict policy),
-[CITATION-PROVENANCE.md](docs/CITATION-PROVENANCE.md).
+## Documentation
 
-See also: [DEVELOPER.md](DEVELOPER.md) (tests, repo layout, open
-questions) and [DOCKER.md](DOCKER.md) (running this repo in a container).
+This file is the overview: what the pipeline is, how to get it running,
+and what it needs. Everything else lives in one document per question.
+
+**Getting started**
+
+| Document | Answers |
+|---|---|
+| [docs/ZOTERO.md](docs/ZOTERO.md) | How do I get my library and its PDFs into the shape this expects? Includes the attachment-path trap that silently leaves every entry without a PDF |
+| [docs/CLI.md](docs/CLI.md) | What commands are there, what flags does each take, and which interpreter does it need? |
+| [docs/CONFIG.md](docs/CONFIG.md) | What settings exist, what values does each accept, and what is the default? Starts with a minimal `config.toml` |
+
+**Choosing settings**
+
+| Document | Answers |
+|---|---|
+| [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | What does each setting *cost*? Every measured figure in one place, organised by setting |
+| [docs/PDF-PARSER.md](docs/PDF-PARSER.md) | Which PDF backend should I use, and why were two others dropped? |
+
+**Understanding the output**
+
+| Document | Answers |
+|---|---|
+| [docs/WRITING-STANDARDS.md](docs/WRITING-STANDARDS.md) | What prose standards do the genre skills follow, and where in the technical-communication literature do they come from? |
+| [docs/CITATION-PROVENANCE.md](docs/CITATION-PROVENANCE.md) | What does the provenance report say, and how do I read it? |
+| [docs/DESIGN.md](docs/DESIGN.md) | How is this put together, and what happens when two runs collide? |
+| [docs/PARALLELISM.md](docs/PARALLELISM.md) | How did the parse get 17x faster, and which conclusions along the way turned out to be wrong? |
+
+**Working on the repository itself**
+
+| Document | Answers |
+|---|---|
+| [DEVELOPER.md](DEVELOPER.md) | How do I run the tests, where does everything live, and what is unbuilt? |
+| [DOCKER.md](DOCKER.md) | How do I run this in a container? |
+| [AGENTS.md](AGENTS.md) | The rules a coding agent working here must follow -- above all, never fabricate a citekey |
+
+`bench/` (measurement harness and raw timings) is in the repository but
+excluded from the release archive, along with `tests/` and the two files
+above it in that table.
 
 ## Quickstart
 
@@ -139,7 +176,8 @@ python3 -m src.ledger
 # 5. In Claude Code, ask for a draft, e.g.:
 #    "write a survey section on digital twin composability"
 #    "draft a thesis chapter on runtime verification for autonomous robots"
-#    "write a tutorial chapter introducing digital twin asset reuse"
+#    "write a textbook chapter introducing digital twin asset reuse"
+#    "write a tutorial that builds a minimal digital twin asset from scratch"
 # The matching skill in .claude/skills/ picks this up automatically,
 # including its own citation_gate -> references -> render_output chain
 
@@ -168,22 +206,28 @@ deleting everything in one run.
 
 ## Hardware requirements
 
-Originally observed on a small CPU-only host (4 cores, 9.7GB RAM, ~3GB
-actually free once other processes were accounted for); GPU behavior
-below was separately verified on an NVIDIA A40 host (96 cores, 251GB RAM,
-driver 555.42.02) on 2026-07-30:
+The table below is what the pipeline needs, not what it was developed
+on. The specific observations behind it come from two reference
+machines, named here because [docs/PERFORMANCE.md](docs/PERFORMANCE.md)
+refers back to them -- **treat every measured figure as that machine's,
+and expect yours to differ**:
+
+- **the small machine** -- 4 cores, 9.7GB RAM (~3GB actually free), no GPU.
+- **the multi-GPU machine** -- 4x NVIDIA A40 46GB, 96 cores (48 available
+  to the process), 251GB RAM, driver 555.42.02, verified 2026-07-30.
+
 
 | Resource | Minimum (core pipeline only) | Recommended (`src/heavy/` in regular use) |
 |---|---|---|
 | Disk | ~1GB (bibtexparser + content/) | **10-20GB+** -- the full venv alone is **6.0GB** (torch pulled in twice over via sentence-transformers/docling, plus docling's own layout/OCR models); TeX Live adds several GB more on top |
 | RAM | ~1-2GB (sync, citation_gate, keyword retrieval are all lightweight) | **8GB minimum, 16GB+ better**. At ~3GB free, Docling parsing a 17-page PDF pushed the process to 3.6GB RSS and the host swapped 6.3GB -- it still finished, just slowly. Bigger PDFs or a bigger corpus will make this worse |
 | CPU | 1-2 cores | **4+ cores** without a GPU -- Docling's layout inference and BERTopic's UMAP/HDBSCAN are CPU-bound if there's no GPU to offload to; more cores directly reduces wall-clock time |
-| GPU | none needed | **none required**, but if present, `scripts/install_full_pipeline.sh`'s `ensure_gpu_torch` detects the NVIDIA driver's supported CUDA ceiling (`nvidia-smi`) and automatically reinstalls torch from a matching CUDA-tagged wheel index -- verified end-to-end on an A40 (driver capped at CUDA 12.5; the default pip/Poetry-resolved torch wheel needed CUDA 13 and silently ran CPU-only until this ran). sentence-transformers/Docling/BERTopic all then use the GPU automatically |
+| GPU | none needed | **none required**, but if present, `scripts/install_full_pipeline.sh`'s `ensure_gpu_torch` detects the NVIDIA driver's supported CUDA ceiling (`nvidia-smi`) and automatically reinstalls torch from a matching CUDA-tagged wheel index -- verified end-to-end on the multi-GPU machine (driver capped at CUDA 12.5; the default pip/Poetry-resolved torch wheel needed CUDA 13 and silently ran CPU-only until this ran). sentence-transformers/Docling/BERTopic all then use the GPU automatically |
 | Network | needed once, for `poetry install` | also needed for first-run model downloads (the embedding model, Docling's layout/OCR models) |
 
 Tips:
 - **No GPU, disk tight**: `pip`/Poetry's default torch wheel pulls a full
-  set of `nvidia-*` CUDA packages even on a CPU-only machine (several GB,
+  set of `nvidia-*` CUDA packages even with no GPU present (several GB,
   unused). Install torch from the CPU-only wheel index first (`pip
   install torch --index-url https://download.pytorch.org/whl/cpu`, inside
   the venv) before running `scripts/install_full_pipeline.sh` if disk is
@@ -241,8 +285,9 @@ extension of job 2:
 
 - **Genre layer** (job 2: generative, on-demand, reviewed by you) --
   Claude Code skills in `.claude/skills/`: `survey-writer`,
-  `thesis-chapter-writer`, `tutorial-writer`, and `deep-research` (a
-  heavier, multi-perspective alternative -- see Acknowledgements). Each
+  `thesis-chapter-writer`, `textbook-chapter-writer`, `tutorial-writer`,
+  and `deep-research` (a heavier, multi-perspective alternative -- see
+  Acknowledgements). Each
   reads the content layer above; none of them regenerate it. Optionally
   extended by **the heavy pipeline** (`src/heavy/`,
   `scripts/full_pipeline.py`) -- see ["The heavy pipeline"](#the-heavy-pipeline)
@@ -291,15 +336,19 @@ is a separate, ad-hoc review aid (not part of this automatic chain) for
 spot-checking a draft against its sources for verbatim overlap or
 page-locating a quoted phrase.
 
-### What works on this host
+### What each capability requires
+
+The pipeline probes for what it needs and reports what is missing, so a
+machine with only some of these still works -- it just reports the rest
+as unavailable rather than failing.
 
 | Capability | What it needs |
 |---|---|
 | Parse bib file, track citekeys + PDF paths | `bibtexparser` (venv, main Poetry group) |
-| Extract PDF text | `pdftotext` (poppler-utils, `os-deps` stage) by default -- `docling` is an opt-in alternative, see ["Choosing a parser backend"](docs/CONFIG.md#choosing-a-parser-backend) |
+| Extract PDF text | `pdftotext` (poppler-utils, `os-deps` stage) by default -- `docling` is an opt-in alternative, see [CONFIG.md](docs/CONFIG.md#backend-pdftotext-or-docling) |
 | Track parse status incrementally | stdlib `sqlite3` |
 | BM25-ranked retrieval | stdlib only |
-| Citation verification gate, auto References section, standalone tex/pdf render | stdlib only, no venv needed (see "Venv requirement" above) |
+| Citation verification gate, auto References section, standalone tex/pdf render | stdlib only, no venv needed (see [CLI.md](docs/CLI.md#which-interpreter)) |
 | Docling layout-aware parsing, embeddings/Chroma, BERTopic | venv, `heavy` Poetry group (`src/heavy/`) |
 | Compiling generated `.tex` chapters to PDF (Pandoc/TeX Live) | `pandoc`, `pdflatex`, `latexmk` (`os-deps` stage) |
 

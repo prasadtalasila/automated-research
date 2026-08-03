@@ -221,6 +221,39 @@ def _get_workers(env_var: str, *toml_path: str, default: int) -> "int | str":
 # and src/pdf_text.resolve_workers for the arithmetic.
 PARSER_WORKERS = _get_workers("PARSER_WORKERS", "parser", "workers", default=1)
 
+
+def _get_start_method(env_var: str, *toml_path: str, default: str) -> str:
+    """One of PARSER_START_METHODS.
+
+    Its own loader rather than a bare _get so a typo ("forkserv") is
+    reported here, naming the alternatives, instead of surfacing as a
+    ValueError out of multiprocessing.get_context() once a pool is
+    already being built -- same reasoning as _get_workers.
+    """
+    raw = _get(env_var, *toml_path, default=default).strip().lower()
+    if raw not in PARSER_START_METHODS:
+        raise ValueError(
+            f"{'/'.join(toml_path)} (or {env_var}) must be one of "
+            f"{', '.join(PARSER_START_METHODS)}, not {raw!r}."
+        )
+    return raw
+
+
+# How the docling worker pool creates its processes. "auto" picks
+# forkserver where the platform has it and spawn everywhere else; the
+# other two force one. Only ever consulted when [parser].workers > 1 and
+# the backend is docling, since nothing else uses a process pool.
+#
+# Measured on the documented A40 host, wall clock for a pool to reach its
+# first parsed document: forkserver 9.6s against spawn 11.3s at four
+# workers. The saving is one shared import of torch+docling rather than
+# one per worker; the model load that dominates the rest is per process
+# either way. Plain "fork" is deliberately not offered -- see
+# src/pdf_text.start_method.
+PARSER_START_METHODS = ("auto", "forkserver", "spawn")
+PARSER_START_METHOD = _get_start_method(
+    "PARSER_START_METHOD", "parser", "start_method", default="auto")
+
 # Give up on a single document after this many seconds, or None for no
 # limit. Applies to both backends, by the mechanism each one has:
 # docling's own PdfPipelineOptions.document_timeout, and a subprocess

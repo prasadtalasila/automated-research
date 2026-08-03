@@ -21,7 +21,6 @@ runs with the bare system interpreter.
 """
 
 import argparse
-import multiprocessing
 import os
 import sys
 from collections import Counter
@@ -52,17 +51,20 @@ def _executor_for(workers: int):
     by a shared counter under a lock, because a pool creates its workers
     lazily and numbers none of them.
 
-    "spawn", not the Linux default "fork": counting GPUs initialises CUDA
-    in this parent process, and a forked child inherits a broken CUDA
-    context from a parent that has. Each worker reloads Docling's models
-    anyway, so spawn's extra startup is noise against that.
+    The start method is pdf_text.process_pool_context's to choose --
+    forkserver where it exists, so torch and docling are imported once
+    for the whole pool rather than once per worker, and spawn otherwise.
+    Never plain fork: this process holds the run lock and the ledger open
+    as live sqlite connections, which must not be inherited.
 
     Also the seam the tests substitute: a real ProcessPoolExecutor runs
     its work in a child interpreter, where the test process's
     monkeypatches don't exist.
     """
     if config.PARSER == "docling":
-        ctx = multiprocessing.get_context("spawn")
+        ctx, complaint = pdf_text.process_pool_context()
+        if complaint:
+            print(complaint, file=sys.stderr)
         return ProcessPoolExecutor(
             max_workers=workers,
             mp_context=ctx,
@@ -249,6 +251,13 @@ def _parse_parallel(refs, workers: int, threads: int | None):
 
 
 def run(remove_stale: bool = False, reparse: bool = False) -> int:
+    # Before the bibliography, not after: on a docling run with a worker
+    # pool this starts the forkserver importing torch and docling in the
+    # background, and reading a 646-entry bib file is the ~2.5s that
+    # would otherwise be spent doing nothing else. A no-op for every
+    # other configuration, including the default one.
+    pdf_text.prestart_pool()
+
     print(f"Reading bibliography from {config.BIB_FILE_PATH} ...")
     references = bib_reader.read_library()
     print(f"  found {len(references)} bibliographic item(s)")

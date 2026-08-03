@@ -1,3 +1,4 @@
+import multiprocessing
 import shutil
 from pathlib import Path
 
@@ -24,6 +25,35 @@ def _pin_parser_settings(monkeypatch):
     monkeypatch.setattr(config, "PARSER", "pdftotext")
     monkeypatch.setattr(config, "PARSER_OCR", False)
     monkeypatch.setattr(config, "PARSER_WORKERS", 1)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_forkserver(monkeypatch):
+    """Keep the suite from launching an actual forkserver process.
+
+    `sync.run()` calls `pdf_text.prestart_pool()` before reading the
+    bibliography, and any test that drives `run()` with the docling
+    backend and more than one worker reaches it for real -- measured, 22
+    times in tests/test_sync.py alone. Each one spawns a process whose
+    whole job is to import torch and docling: hundreds of megabytes and
+    seconds of CPU, in a unit-test suite that mocks docling precisely so
+    it never has to pay that.
+
+    Neutralised at `ensure_running` rather than at `prestart_pool`, so
+    the decision logic under test still runs -- only the process launch
+    is stubbed. The tests that assert *on* that launch patch this same
+    name afterwards and read their own recorder; monkeypatch is
+    last-write-wins within a test.
+
+    Guarded because Windows has no forkserver module path worth
+    importing -- there, `start_method()` resolves to spawn and
+    `prestart_pool` returns before it would ever be reached.
+    """
+    if "forkserver" not in multiprocessing.get_all_start_methods():
+        return
+    from multiprocessing import forkserver
+
+    monkeypatch.setattr(forkserver, "ensure_running", lambda: None)
 
 
 @pytest.fixture
