@@ -10,7 +10,7 @@ Related reading:
 - [PDF-PARSER.md](PDF-PARSER.md) -- how the two backends compare on
   fidelity, and why two other candidates were evaluated and dropped.
 - [PARALLELISM.md](PARALLELISM.md) -- the narrative of how the parse got
-  17x faster across six releases, including the conclusions that later
+  17x faster across seven releases, including the conclusions that later
   measurement overturned.
 - `bench/RESULTS.md` -- the raw measurement record with per-PDF timings.
   Developer-only: `bench/` is excluded from the release archive, so it is
@@ -29,8 +29,8 @@ Two reference machines are used throughout, and
 
 | Name used below | What it is |
 |---|---|
-| **the small host** | 4 cores, 9.7 GB RAM, no GPU |
-| **the multi-GPU host** | 96 logical cores (48 available to the process), 251 GB RAM, 4x NVIDIA A40 46 GB, driver 555.42.02, CUDA 12.5 |
+| **the small machine** | 4 cores, 9.7 GB RAM, no GPU |
+| **the multi-GPU machine** | 96 logical cores (48 available to the process), 251 GB RAM, 4x NVIDIA A40 46 GB, driver 555.42.02, CUDA 12.5 |
 
 The corpus is this project's own bibliography: **501 PDFs, 13,400 pages,
 1.54 GB**, median 16 pages, with one 675-page book that is 5% of all
@@ -66,7 +66,7 @@ run, which is what the rest of this document is for.
 ## `[parser].ocr` -- the largest single lever, and a trade
 
 Measured over 16 rank-stratified bibliography PDFs (943 pages) on the
-multi-GPU host, one process, one GPU:
+multi-GPU machine, one process, one GPU:
 
 | | s/page | Extrapolated to the 501-PDF corpus |
 |---|---|---|
@@ -113,7 +113,7 @@ why the parallelism work went after CPU-level document concurrency first.
 ## `[parser].workers` -- document-level parallelism
 
 Measured with the real `python -m src.sync` over 60 bibliography PDFs
-(1,166 pages), docling, OCR off, on the multi-GPU host:
+(1,166 pages), docling, OCR off, on the multi-GPU machine:
 
 | Workers | Wall clock | Speedup | Efficiency |
 |---|---|---|---|
@@ -158,7 +158,7 @@ Per-worker startup dominates at that size.
 ## `[parser].start_method` -- per-worker startup
 
 A cold docling worker needs about **8.5s** before it produces its first
-page on the multi-GPU host:
+page on the multi-GPU machine:
 
 | Stage | Time |
 |---|---|

@@ -437,6 +437,34 @@ class TestAllowedCpus:
         assert pdf_text.allowed_cpus() == 1
 
 
+class TestWorkerCeiling:
+    """The one ceiling that doesn't depend on how many documents there
+    are -- which is why it can be asked before the bibliography is read."""
+
+    def test_docling_charges_four_cpus_per_worker(self, monkeypatch):
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 48)
+        assert pdf_text.worker_ceiling() == 12
+
+    def test_pdftotext_gets_one_per_cpu(self, monkeypatch):
+        """A short single-threaded subprocess, so charging it a docling
+        worker's 4 CPUs would under-use the machine."""
+        monkeypatch.setattr(config, "PARSER", "pdftotext")
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 48)
+        assert pdf_text.worker_ceiling() == 48
+
+    @pytest.mark.parametrize("cpus,expected", [(1, 1), (4, 1), (8, 2), (16, 4), (48, 12)])
+    def test_the_table_the_docs_promise(self, monkeypatch, cpus, expected):
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: cpus)
+        assert pdf_text.worker_ceiling() == expected
+
+    def test_never_below_one(self, monkeypatch):
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 1)
+        assert pdf_text.worker_ceiling() == 1
+
+
 class TestResolveWorkers:
     @pytest.fixture(autouse=True)
     def _host(self, monkeypatch):
@@ -876,6 +904,49 @@ class TestPrestartPool:
 
         pdf_text.prestart_pool()
 
+        assert started == []
+
+    def test_auto_on_a_small_machine_starts_nothing(self, monkeypatch, started):
+        """`workers = "auto"` is not the same as "a pool is coming".
+        Four available CPUs put the docling ceiling at 1, so the run goes
+        serial no matter how many documents there are -- and without this
+        check every sync on a four-core laptop would launch a forkserver
+        and import torch to then not use it."""
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(config, "PARSER_WORKERS", "auto")
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 4)
+        monkeypatch.setattr(pdf_text, "start_method", lambda: ("forkserver", None))
+
+        pdf_text.prestart_pool()
+
+        assert pdf_text.worker_ceiling() == 1
+        assert started == []
+
+    def test_auto_on_a_large_machine_does_start(self, monkeypatch, started):
+        """The other side of the same check -- 48 CPUs is a ceiling of 12,
+        so a pool really is coming."""
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(config, "PARSER_WORKERS", "auto")
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 48)
+        monkeypatch.setattr(pdf_text, "start_method", lambda: ("forkserver", None))
+
+        pdf_text.prestart_pool()
+
+        assert started == ["started"]
+
+    def test_an_explicit_count_above_a_ceiling_of_one_starts_nothing(
+        self, monkeypatch, started
+    ):
+        """Asking for 8 on a four-core machine still resolves to 1 --
+        resolve_workers clamps it -- so there is still no pool to warm."""
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(config, "PARSER_WORKERS", 8)
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 4)
+        monkeypatch.setattr(pdf_text, "start_method", lambda: ("forkserver", None))
+
+        pdf_text.prestart_pool()
+
+        assert pdf_text.resolve_workers(100)[0] == 1
         assert started == []
 
     def test_the_pdftotext_backend_starts_nothing(self, monkeypatch, started):

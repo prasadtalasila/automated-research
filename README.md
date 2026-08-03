@@ -62,7 +62,7 @@ measured rather than asserted -- a full Docling parse went from **~1.6
 hours to 5m26s**:
 
 - **Parallel parsing**, opt-in via `[parser].workers`, defaulting to
-  serial. The worker count is clamped to what the host can actually
+  serial. The worker count is clamped to what the machine can actually
   sustain, counting the CPUs the *process* is allowed rather than the
   machine's total. Workers are forked from a helper process that has
   already imported torch and docling, started early enough to overlap

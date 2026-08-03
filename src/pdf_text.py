@@ -75,26 +75,37 @@ def allowed_cpus() -> int:
     return os.cpu_count() or 1
 
 
+def worker_ceiling() -> int:
+    """The most workers this machine can sustain, whatever the run holds.
+
+    Split out from resolve_workers because it is the one ceiling that
+    does *not* depend on how many documents there are, so it can be asked
+    before the bibliography has been read -- which is what lets
+    prestart_pool decline on a machine that will end up serial anyway.
+    """
+    cpus = allowed_cpus()
+    if config.PARSER == "docling":
+        return max(1, cpus // _CPUS_PER_DOCLING_WORKER)
+    # Each pdftotext is a short, single-threaded subprocess, so charging
+    # it a docling worker's 4 CPUs would under-use the machine.
+    return cpus
+
+
 def resolve_workers(n_docs: int) -> tuple[int, str | None]:
     """(workers, complaint) for a run that has `n_docs` to parse.
 
     The resolved count is the smallest of three independent ceilings,
-    floored at 1: what was asked for, what the host can sustain, and how
-    many documents there actually are. The third matters more than it
+    floored at 1: what was asked for, what the machine can sustain, and
+    how many documents there actually are. The third matters more than it
     looks -- standing up 12 docling workers to parse 3 documents pays 12
     model loads to save two documents' worth of work.
 
-    An explicit request above the host ceiling is clamped *and reported*.
-    Obeying it thrashes; ignoring it silently leaves someone believing
-    they configured something they didn't.
+    An explicit request above the machine's ceiling is clamped *and
+    reported*. Obeying it thrashes; ignoring it silently leaves someone
+    believing they configured something they didn't.
     """
     cpus = allowed_cpus()
-    if config.PARSER == "docling":
-        ceiling = max(1, cpus // _CPUS_PER_DOCLING_WORKER)
-    else:
-        # Each pdftotext is a short, single-threaded subprocess, so
-        # charging it a docling worker's 4 CPUs would under-use the host.
-        ceiling = cpus
+    ceiling = worker_ceiling()
 
     requested = config.PARSER_WORKERS
     wanted = ceiling if requested == "auto" else requested
@@ -322,13 +333,23 @@ _PRELOAD_MODULES = (
 
 
 def preload_modules() -> list[str]:
-    """_PRELOAD_MODULES, minus anything not installed on this host.
+    """_PRELOAD_MODULES, minus anything this machine hasn't got installed.
 
-    forkserver.main() already swallows ImportError per module, but only
-    ImportError -- a torch whose native library fails to load raises
-    OSError, and that would take the forkserver itself down before a
-    single worker existed. find_spec answers "is it there" without
-    running any of it.
+    Keeps the preload list honest on a pdftotext-only install, where
+    naming docling modules would be asking the forkserver to import
+    packages that were never installed.
+
+    **This is not a guard against a broken installation**, and it is
+    worth being exact about that. `find_spec` only answers "can this
+    module be located", not "does importing it work" -- an installed
+    torch whose native library fails to load passes this check and then
+    raises OSError inside the forkserver, which `forkserver.main()` does
+    not swallow (it catches ImportError only). Such a machine gets a dead
+    forkserver, and the pool fails when it tries to use it. That is a
+    real gap; it is left open because the same installation fails under
+    `spawn` too, one worker later, and because probing it properly would
+    mean importing torch in the parent -- the exact cost this whole path
+    exists to avoid.
     """
     available = []
     for name in _PRELOAD_MODULES:
@@ -427,15 +448,28 @@ def prestart_pool() -> None:
     optimisation, and a caller that gets a slower pool than it could have
     is not a caller with a problem to report.
 
-    Not free in one case worth naming: this has to commit before the
-    caller knows how much work there is, so a run that turns out to need
-    no parsing -- or whose worker count resolves to 1 anyway -- has
-    started a torch-importing process for nothing. That is why it is
-    gated on [parser].workers being something other than the default 1:
-    a default sync never reaches this at all, and a user who raised it
-    has already opted into pool machinery.
+    Declines in three cases, because starting a torch-importing process
+    for a run that will not use one is pure cost:
+
+    - not the docling backend (pdftotext gets threads, and has no use for
+      torch at all);
+    - [parser].workers left at its default of 1, i.e. the serial path;
+    - this machine's ceiling is 1 regardless of what was asked for, which
+      is `workers = "auto"` on anything up to four available CPUs. That
+      case is the reason worker_ceiling() exists separately: without it,
+      "auto" on a four-core laptop would launch a forkserver and import
+      torch on every sync, then run serially anyway.
+
+    What it still cannot know is how many documents need parsing -- that
+    needs the bibliography this call is meant to overlap with. So a run
+    with nothing to do has paid for a forkserver. That is the one case
+    left, it costs a background import rather than any wall clock the
+    user waits on, and closing it would mean giving up the overlap that
+    is the entire point.
     """
     if config.PARSER != "docling" or config.PARSER_WORKERS == 1:
+        return
+    if worker_ceiling() <= 1:
         return
     if start_method()[0] != "forkserver":
         return
