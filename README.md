@@ -4,8 +4,87 @@ Turns a BibTeX bibliography into grounded survey papers, thesis chapters,
 and undergraduate tutorial chapters, with every citation traceable back to
 a paper the bibliography actually holds.
 
+## About
+
+Fabricated placeholder references have made it into real papers before.
+This pipeline is built to make that impossible rather than unlikely: a
+citekey may only be used if it appears in your own `.bib` export **and**
+was picked up into the ledger by a real parse of a real PDF. Everything
+below follows from that one rule.
+
+### Grounding, enforced rather than requested
+
+- **The bibliography is the source of truth.** Citekeys come from your
+  reference manager's BibTeX export. The pipeline never invents one, and
+  never renames one.
+- **A hard citation gate.** `python -m src.citation_gate` fails on any
+  citekey not in the ledger. It is a gate, not a linter -- a `FAIL` is
+  treated like a failing test.
+- **Enforced mechanically, not by good intentions.** A PostToolUse hook
+  runs the gate on every write under `content/drafts/`, so a draft cannot
+  be saved with an unverifiable citation even if someone forgets.
+- **Provenance you can read.** `python -m src.citation_provenance` reports
+  what in each cited source actually supports the claim citing it,
+  quoting a real passage; `python scripts/verbatim_check.py` finds
+  verbatim overlap and locates it by page. Both are review aids,
+  deliberately not gates.
+
+### Writing
+
+Four genre skills, each with its own register, all sharing the same
+grounding rules: **survey/related-work**, **thesis chapter** (LaTeX
+fragment, RQ-driven), **undergraduate tutorial** (worked examples and
+exercises), and **deep research** (multi-perspective, corpus-grounded).
+Drafts render to PDF or LaTeX through Pandoc/TeX Live, with a
+`## References` section generated from the citekeys actually cited.
+
+### The content layer
+
+- **Incremental by design.** `sync` skips any PDF whose bytes haven't
+  changed, embeddings and topic models re-encode only what moved, and
+  Docling parsing is fingerprint-cached. Re-running costs close to
+  nothing.
+- **Two PDF backends.** `pdftotext` for speed and page boundaries;
+  `docling` for reading order, sections and tables. Chosen per install,
+  with a parse-quality guard that catches a backend silently losing word
+  boundaries.
+- **BM25 retrieval** over the parsed corpus, with a cached term-frequency
+  index; an embeddings + Chroma path and BERTopic topic modelling sit
+  behind the optional heavy group.
+- **Honest failure.** Every stage probes for the binaries and packages it
+  needs and reports what's missing, rather than crashing or silently
+  succeeding.
+
+### Built for a real corpus, on real hardware
+
+This runs over 501 PDFs / 13,400 pages, and the performance work is
+measured rather than asserted -- a full Docling parse went from **~1.6
+hours to 5m26s**:
+
+- **Parallel parsing**, opt-in via `[parser].workers`, defaulting to
+  serial. The worker count is clamped to what the host can actually
+  sustain, counting the CPUs the *process* is allowed rather than the
+  machine's total.
+- **Multi-GPU**, automatically: each worker claims its own CUDA device,
+  because Docling would otherwise put every worker on `cuda:0`.
+- **Bounded and interruptible.** Per-document and stalled-run timeouts,
+  Ctrl+C that stops in about a second, live progress, and a
+  one-writer-at-a-time lock that releases itself if the holder is killed.
+- **A benchmark harness** (`bench/`) so the numbers stay checkable. The
+  full story, including the conclusions later measurement overturned, is
+  in [docs/PARALLELISM.md](docs/PARALLELISM.md).
+
+### What it deliberately is not
+
+Not a paper fetcher -- it never downloads anything; you curate the
+bibliography. Not a citation manager. Not a substitute for reading the
+sources: the provenance and verbatim tools exist to help you check the
+draft, and the gate guarantees a citekey is *real*, not that the claim
+attached to it is *right*.
+
 ## Table of contents
 
+- [About](#about)
 - [Quickstart](#quickstart)
   - [Exporting your library from Zotero](#exporting-your-library-from-zotero)
 - [Venv requirement](#venv-requirement)
