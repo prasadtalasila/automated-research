@@ -143,6 +143,10 @@ PROVENANCE_DIR = CONTENT_DIR / "provenance"
 # search() call only re-tokenizes docs whose text actually changed since
 # the last run, mirroring src/ledger.py's own stat-before-hash skip logic.
 RETRIEVAL_INDEX_PATH = CONTENT_DIR / "retrieval_index.json"
+# Mutex for anything that writes content/ -- see src/runlock.py. A
+# dedicated sqlite file rather than the ledger, so that locking a run
+# doesn't force the ledger's five commit points into one transaction.
+PIPELINE_LOCK_PATH = CONTENT_DIR / "pipeline.lock.db"
 
 SOURCE_PDFS_DIR = REPO_ROOT / _get("SOURCE_PDFS_DIR", "source_pdfs", "dir", default="papers/pdfs")
 SOURCE_PDFS_MANIFEST = SOURCE_PDFS_DIR / "manifest.json"

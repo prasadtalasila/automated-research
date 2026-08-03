@@ -188,3 +188,21 @@ class TestMain:
         assert "error" in out
         assert "stage exploded" in out
         assert "embed" in out  # second stage still ran despite the first raising
+
+
+class TestPipelineLock:
+    def test_a_concurrent_run_is_refused_with_its_own_exit_code(self, monkeypatch, capsys):
+        """The heavy stage writes content/ too, and sync's parsed-text
+        writes are not atomic -- so a heavy run overlapping a sync can
+        read a half-written .txt. Exit code 2, distinct from 1, so an
+        unattended caller can tell "skipped" from "failed"."""
+        from src import runlock
+
+        def refuse():
+            raise runlock.AlreadyRunning("another sync or pipeline run is already running")
+
+        monkeypatch.setattr(runlock, "pipeline_lock", lambda *a, **k: refuse())
+        monkeypatch.setattr(sys, "argv", ["full_pipeline.py", "--stages", "docling"])
+
+        assert full_pipeline.main() == runlock.EXIT_ALREADY_RUNNING
+        assert "already running" in capsys.readouterr().out

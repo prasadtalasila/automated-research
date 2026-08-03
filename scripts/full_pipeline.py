@@ -31,7 +31,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.heavy import corpus, docling_parse, embed_index, render_output, topic_model
-from src import citation_provenance, config
+from src import citation_provenance, config, runlock
 
 STAGE_ORDER = ["docling", "embed", "bertopic", "provenance", "render"]
 
@@ -108,6 +108,20 @@ def main() -> int:
     if unknown:
         print(f"WARNING: unknown stage(s) {', '.join(unknown)} -- known stages: {', '.join(STAGE_ORDER)}")
 
+    # Same lock as `python -m src.sync`: this stage writes content/ too,
+    # and sync's parsed-text writes are not atomic, so a heavy run
+    # overlapping a sync can read a half-written .txt. One lock rather
+    # than two, because the unsafe overlap is any-writer-vs-any-writer,
+    # not just sync-vs-sync.
+    try:
+        with runlock.pipeline_lock():
+            return _run_stages(args, selected)
+    except runlock.AlreadyRunning as exc:
+        print(f"  {exc}")
+        return runlock.EXIT_ALREADY_RUNNING
+
+
+def _run_stages(args, selected) -> int:
     docs = corpus.build_corpus()
     n_bib = sum(1 for d in docs if d.source == "bib")
     n_source_pdfs = sum(1 for d in docs if d.source == "source-pdfs")
