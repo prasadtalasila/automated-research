@@ -139,7 +139,7 @@ def fake_docling(monkeypatch):
     pipeline_options = types.ModuleType("docling.datamodel.pipeline_options")
     pipeline_options.PdfPipelineOptions = lambda: types.SimpleNamespace(
         generate_picture_images=False, images_scale=1.0, do_ocr=True,
-        accelerator_options=None,
+        accelerator_options=None, document_timeout=None,
     )
     accelerator = types.ModuleType("docling.datamodel.accelerator_options")
     accelerator.AcceleratorOptions = lambda num_threads=None, device=None: types.SimpleNamespace(

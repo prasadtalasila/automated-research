@@ -39,6 +39,9 @@ _CPUS_PER_DOCLING_WORKER = 4
 # How long a worker gets to honour SIGTERM before being killed outright.
 _TERMINATE_GRACE_SECONDS = 2.0
 
+# Distinct docling error messages to quote before summarising the rest.
+_MAX_DOCLING_ERRORS = 3
+
 
 def allowed_cpus() -> int:
     """How many CPUs this *process* may run on -- not how many the
@@ -341,7 +344,16 @@ def _extract_pdftotext(pdf_path: str, out_path: Path, threads: int | None = None
             check=True,
             capture_output=True,
             text=True,
+            # The one backend where a hang can genuinely be stopped:
+            # this is a hard kill of an external process, not the
+            # cooperative between-stages check docling offers.
+            timeout=config.PARSER_DOCUMENT_TIMEOUT,
         )
+    except subprocess.TimeoutExpired as exc:
+        raise ExtractionError(
+            f"pdftotext exceeded the {config.PARSER_DOCUMENT_TIMEOUT}s "
+            "[parser].document_timeout and was killed"
+        ) from exc
     except subprocess.CalledProcessError as exc:
         raise ExtractionError(exc.stderr or str(exc)) from exc
 
@@ -371,7 +383,7 @@ def _reset_docling_converter() -> None:
 def _docling_converter(threads: int | None = None):
     global _DOCLING_CONVERTER, _DOCLING_CONVERTER_KEY
 
-    key = (config.PARSER_OCR, threads, _WORKER_DEVICE)
+    key = (config.PARSER_OCR, threads, _WORKER_DEVICE, config.PARSER_DOCUMENT_TIMEOUT)
     if _DOCLING_CONVERTER is not None and _DOCLING_CONVERTER_KEY == key:
         return _DOCLING_CONVERTER
 
@@ -384,6 +396,12 @@ def _docling_converter(threads: int | None = None):
 
     opts = PdfPipelineOptions()
     opts.do_ocr = config.PARSER_OCR
+    # Docling checks this between pipeline stages, so it bounds a
+    # pathologically slow document but will not interrupt a hard hang
+    # inside one stage. On expiry it returns PARTIAL_SUCCESS rather than
+    # raising -- which check_docling_status turns into an ExtractionError,
+    # so the truncated text is never written.
+    opts.document_timeout = config.PARSER_DOCUMENT_TIMEOUT
     if threads is not None or _WORKER_DEVICE is not None:
         # Only touched when a caller has worked out a thread budget or a
         # pool has claimed a GPU for this worker (i.e. when
@@ -425,9 +443,20 @@ def check_docling_status(result) -> None:
     name = getattr(status, "name", str(status))
     if status is None or name == "SUCCESS":
         return
-    errors = "; ".join(
-        str(getattr(e, "error_message", e)) for e in getattr(result, "errors", [])
-    )
+    # Deduplicated and capped: docling appends one error per failed page,
+    # so a timeout on a 675-page book produced 675 identical copies of
+    # "document timeout exceeded" in a single line. The distinct reasons
+    # are the diagnostic; the repetition is noise that buries the summary
+    # line after it.
+    seen, ordered = set(), []
+    for error in getattr(result, "errors", []):
+        message = str(getattr(error, "error_message", error))
+        if message not in seen:
+            seen.add(message)
+            ordered.append(message)
+    errors = "; ".join(ordered[:_MAX_DOCLING_ERRORS])
+    if len(ordered) > _MAX_DOCLING_ERRORS:
+        errors += f"; (+{len(ordered) - _MAX_DOCLING_ERRORS} more)"
     raise ExtractionError(
         f"docling returned {name} rather than SUCCESS -- the extracted text would "
         f"be incomplete{': ' + errors if errors else ''}"

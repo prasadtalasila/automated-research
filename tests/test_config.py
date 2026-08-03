@@ -227,3 +227,74 @@ class TestModuleReloadWithEnvOverrides:
         assert config.CONFIG_PATH == custom_toml
         assert config.BIB_FILE_PATH == config.REPO_ROOT / "elsewhere.bib"
         assert config.EMBEDDING_MODEL == "custom/model"
+
+
+class TestGetOptionalFloat:
+    """A duration that can be switched off. _get_float can't express
+    that -- it requires a float default -- and encoding "off" as 0 in a
+    config file reads as "zero seconds", which is the opposite."""
+
+    @pytest.fixture(autouse=True)
+    def _toml(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"parser": {}})
+
+    def test_missing_key_is_off(self):
+        assert config._get_optional_float("T", "parser", "t") is None
+
+    def test_number_from_toml(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"parser": {"t": 600}})
+        assert config._get_optional_float("T", "parser", "t") == 600.0
+
+    @pytest.mark.parametrize("raw", ["", "off", "none", "false", "OFF"])
+    def test_env_can_switch_it_off(self, monkeypatch, raw):
+        monkeypatch.setattr(config, "_toml", {"parser": {"t": 600}})
+        monkeypatch.setenv("T", raw)
+        assert config._get_optional_float("T", "parser", "t") is None
+
+    def test_env_override_wins(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"parser": {"t": 600}})
+        monkeypatch.setenv("T", "90")
+        assert config._get_optional_float("T", "parser", "t") == 90.0
+
+    @pytest.mark.parametrize("raw", ["0", "-5"])
+    def test_non_positive_is_rejected(self, monkeypatch, raw):
+        monkeypatch.setenv("T", raw)
+        with pytest.raises(ValueError, match="positive number"):
+            config._get_optional_float("T", "parser", "t")
+
+    def test_nonsense_is_rejected(self, monkeypatch):
+        monkeypatch.setenv("T", "soon")
+        with pytest.raises(ValueError, match="positive number"):
+            config._get_optional_float("T", "parser", "t")
+
+    def test_bool_in_toml_is_rejected(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"parser": {"t": True}})
+        with pytest.raises(ValueError, match="positive number"):
+            config._get_optional_float("T", "parser", "t")
+
+    @pytest.mark.parametrize("raw", ["off", "none", "OFF", " off "])
+    def test_off_words_work_from_the_toml_too_not_just_the_env(self, monkeypatch, raw):
+        """The shipped config.toml.example writes `document_timeout =
+        "off"`, so this is the path every new user takes. Handling the
+        off-words only on the env path made the example itself fail to
+        load."""
+        monkeypatch.setattr(config, "_toml", {"parser": {"t": raw}})
+        assert config._get_optional_float("T", "parser", "t", default=1800.0) is None
+
+    def test_default_applies_when_absent(self):
+        assert config._get_optional_float("T", "parser", "t", default=1800.0) == 1800.0
+
+    def test_an_explicit_off_beats_a_non_none_default(self, monkeypatch):
+        """Otherwise a setting with a default could never be switched
+        off -- which is exactly what [parser].stall_timeout needs."""
+        monkeypatch.setenv("T", "off")
+        assert config._get_optional_float("T", "parser", "t", default=1800.0) is None
+
+    @pytest.mark.parametrize("raw", ["nan", "inf", "-inf", "Infinity"])
+    def test_non_finite_durations_are_rejected(self, monkeypatch, raw):
+        """float() accepts these and `seconds <= 0` doesn't catch NaN, so
+        they would reach wait()/subprocess.run(timeout=...) and misbehave
+        there instead of being reported here."""
+        monkeypatch.setenv("T", raw)
+        with pytest.raises(ValueError, match="positive number"):
+            config._get_optional_float("T", "parser", "t")

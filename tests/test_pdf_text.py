@@ -137,7 +137,7 @@ def fake_docling(monkeypatch):
     base_models.InputFormat = types.SimpleNamespace(PDF="pdf")
     pipeline_options = types.ModuleType("docling.datamodel.pipeline_options")
     pipeline_options.PdfPipelineOptions = lambda: types.SimpleNamespace(
-        do_ocr=True, accelerator_options=None
+        do_ocr=True, accelerator_options=None, document_timeout=None
     )
     accelerator = types.ModuleType("docling.datamodel.accelerator_options")
     accelerator.AcceleratorOptions = lambda num_threads=None, device=None: types.SimpleNamespace(
@@ -811,3 +811,87 @@ class TestInterruptGuard:
         assert procs[0].terminated
         # 130 = 128 + SIGINT, the conventional shell exit code.
         assert exits == [130]
+
+
+class TestDocumentTimeout:
+    """One setting, both backends, by whichever mechanism each has."""
+
+    def test_pdftotext_gets_a_subprocess_timeout(self, isolated_config, monkeypatch, tmp_path):
+        monkeypatch.setattr(config, "PARSER_DOCUMENT_TIMEOUT", 30.0)
+        monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/pdftotext")
+        captured = {}
+
+        def fake_run(cmd, **kwargs):
+            captured.update(kwargs)
+            open(cmd[-1], "w").close()
+            return subprocess.CompletedProcess(cmd, 0)
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        pdf_text.extract_text(str(tmp_path / "a.pdf"), "a")
+        assert captured["timeout"] == 30.0
+
+    def test_pdftotext_without_a_timeout_waits_forever(
+        self, isolated_config, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(config, "PARSER_DOCUMENT_TIMEOUT", None)
+        monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/pdftotext")
+        captured = {}
+
+        def fake_run(cmd, **kwargs):
+            captured.update(kwargs)
+            open(cmd[-1], "w").close()
+            return subprocess.CompletedProcess(cmd, 0)
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        pdf_text.extract_text(str(tmp_path / "a.pdf"), "a")
+        assert captured["timeout"] is None
+
+    def test_a_timed_out_pdftotext_is_an_extraction_error(
+        self, isolated_config, monkeypatch, tmp_path
+    ):
+        """A hard kill, unlike docling's, which is cooperative -- so this
+        is the one backend where a hang really can be stopped."""
+        monkeypatch.setattr(config, "PARSER_DOCUMENT_TIMEOUT", 5.0)
+        monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/pdftotext")
+
+        def fake_run(cmd, **kwargs):
+            raise subprocess.TimeoutExpired(cmd, 5.0)
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        with pytest.raises(pdf_text.ExtractionError, match="5.0s"):
+            pdf_text.extract_text(str(tmp_path / "a.pdf"), "a")
+
+    def test_docling_gets_its_own_document_timeout(
+        self, isolated_config, fake_docling, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(config, "PARSER_DOCUMENT_TIMEOUT", 120.0)
+        pdf_text.extract_text(str(tmp_path / "a.pdf"), "a")
+        assert fake_docling.pipeline_options().document_timeout == 120.0
+
+    def test_docling_timeout_is_part_of_the_converter_cache_key(
+        self, isolated_config, fake_docling, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(config, "PARSER_DOCUMENT_TIMEOUT", 120.0)
+        pdf_text.extract_text(str(tmp_path / "a.pdf"), "a")
+        monkeypatch.setattr(config, "PARSER_DOCUMENT_TIMEOUT", 60.0)
+        pdf_text.extract_text(str(tmp_path / "b.pdf"), "b")
+        assert fake_docling.build_count == 2
+
+
+class TestDoclingErrorMessage:
+    def test_repeated_reasons_are_collapsed(self):
+        """docling appends one error per failed page: a timeout on the
+        675-page book in this corpus produced 675 identical copies in a
+        single line, burying the summary that followed them."""
+        result = _FakeResult("PARTIAL_SUCCESS", ["document timeout exceeded"] * 675)
+        with pytest.raises(pdf_text.ExtractionError) as excinfo:
+            pdf_text.check_docling_status(result)
+        assert str(excinfo.value).count("document timeout exceeded") == 1
+
+    def test_distinct_reasons_are_kept_and_the_rest_counted(self):
+        result = _FakeResult("PARTIAL_SUCCESS", [f"reason {i}" for i in range(10)])
+        with pytest.raises(pdf_text.ExtractionError) as excinfo:
+            pdf_text.check_docling_status(result)
+        message = str(excinfo.value)
+        assert "reason 0" in message and "reason 2" in message
+        assert "(+7 more)" in message

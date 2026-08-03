@@ -160,6 +160,7 @@ def _build_converter(threads: int | None = None):
 
     opts = PdfPipelineOptions()
     opts.do_ocr = config.PARSER_OCR
+    opts.document_timeout = config.PARSER_DOCUMENT_TIMEOUT
     # Under parse_corpus's worker pool each process has claimed its own
     # GPU (pdf_text.init_worker) and been given a share of the host's
     # CPUs. Left alone in the single-worker case, so a default run gets
@@ -473,7 +474,8 @@ def _worker_converter(threads: int | None):
     global _WORKER_CONVERTER, _WORKER_CONVERTER_KEY
 
     key = (threads, pdf_text.worker_device(), config.PARSER_OCR,
-           config.DOCLING_IMAGES, config.DOCLING_IMAGE_SCALE)
+           config.DOCLING_IMAGES, config.DOCLING_IMAGE_SCALE,
+           config.PARSER_DOCUMENT_TIMEOUT)
     if _WORKER_CONVERTER is None or _WORKER_CONVERTER_KEY != key:
         _WORKER_CONVERTER = _build_converter(threads)
         _WORKER_CONVERTER_KEY = key

@@ -25,7 +25,8 @@ import multiprocessing
 import os
 import sys
 from collections import Counter
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import (FIRST_COMPLETED, ProcessPoolExecutor,
+                                ThreadPoolExecutor, wait)
 from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 
@@ -85,6 +86,46 @@ def _pdf_size(path: str) -> int:
         return 0
 
 
+def _as_they_land(futures, executor, stalled):
+    """Yield futures as they complete, giving up if the whole pool goes
+    silent for config.PARSER_STALL_TIMEOUT.
+
+    `wait(..., FIRST_COMPLETED)` rather than `as_completed(timeout=...)`:
+    as_completed measures its timeout from the original call, i.e. total
+    elapsed, so on a long corpus it would fire on a perfectly healthy
+    run. What is wanted is the gap *between* completions -- with several
+    workers those arrive constantly, so silence across the entire pool is
+    what distinguishes a hung worker from a merely slow document. That
+    distinction matters because the slowest legitimate document in this
+    corpus takes 246s, and no per-document deadline can be both above
+    that and a useful hang detector.
+
+    The workers are terminated on the way out, not merely abandoned.
+    Without that, in-flight jobs keep running and write
+    content/parsed/<citekey>.txt for documents this run has already
+    reported as failed -- a file on disk contradicting the ledger -- and
+    the processes stay alive holding GPU memory.
+
+    Giving up here is not a data loss: the caller reports the
+    unfinished documents as failures, and since v1.2.0 a failed document
+    is retried on the next run rather than dropped.
+    """
+    pending = set(futures)
+    while pending:
+        done, pending = wait(pending, timeout=config.PARSER_STALL_TIMEOUT,
+                             return_when=FIRST_COMPLETED)
+        if not done:
+            stalled.append(True)
+            pdf_text.terminate_workers(executor)
+            print(f"  WARNING no document finished in "
+                  f"{config.PARSER_STALL_TIMEOUT}s ([parser].stall_timeout) -- "
+                  f"giving up on the {len(pending)} still outstanding. They are "
+                  "reported as failures below and retried on the next run.",
+                  file=sys.stderr)
+            return
+        yield from done
+
+
 def _parse_serial(refs):
     """The historical path, taken whenever [parser].workers resolves to 1.
 
@@ -112,11 +153,12 @@ def _parse_parallel(refs, workers: int, threads: int | None):
             for r in sorted(refs, key=lambda r: -_pdf_size(r.pdf_path))]
     results = {}
     broken = None
-    # submit()/as_completed() rather than map(): map yields in *input*
+    stalled = []
+    # submit() plus _as_they_land() rather than map(): map yields in *input*
     # order, so a pool that breaks while the first (largest) job is still
     # running would raise before yielding the smaller jobs that had
     # already finished, throwing away real work and reporting parsed
-    # documents as failures. as_completed records each result at the
+    # documents as failures. _as_they_land records each result at the
     # moment it lands, so a broken pool costs only what was actually in
     # flight.
     # Not `with _executor_for(...)`: the context manager's __exit__ calls
@@ -133,7 +175,7 @@ def _parse_parallel(refs, workers: int, threads: int | None):
             executor, lambda: f"{done}/{len(jobs)} document(s) parsed"
         ):
             futures = [executor.submit(pdf_text.extract_one, job) for job in jobs]
-            for future in as_completed(futures):
+            for future in _as_they_land(futures, executor, stalled):
                 try:
                     citekey, out_path, exc = future.result()
                 except BrokenProcessPool as pool_exc:
@@ -172,10 +214,13 @@ def _parse_parallel(refs, workers: int, threads: int | None):
         print(f"  WARNING a parse worker died ({broken}) -- the documents it "
               "had not finished are reported as failures below. A lower "
               "[parser].workers is the usual fix.", file=sys.stderr)
+    unfinished = ("gave up waiting: no document finished within "
+                  f"{config.PARSER_STALL_TIMEOUT}s ([parser].stall_timeout)"
+                  if stalled else
+                  "parse worker died before this document was parsed")
     for ref in refs:
         if ref.citekey not in results:
-            results[ref.citekey] = (None, pdf_text.ExtractionError(
-                "parse worker died before this document was parsed"))
+            results[ref.citekey] = (None, pdf_text.ExtractionError(unfinished))
     return ((ref.citekey, *results[ref.citekey]) for ref in refs)
 
 

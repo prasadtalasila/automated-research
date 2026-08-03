@@ -119,6 +119,43 @@ ocr = false
 # 326s across four.
 workers = 1
 
+# Give up on a single document after this many seconds. "off" (the
+# default) means no limit.
+#
+# Applies to both backends, by the mechanism each one has, and those
+# mechanisms are not equally strong:
+#   - pdftotext: a subprocess timeout, i.e. a real kill. This is the one
+#     backend where a wedged parse can actually be stopped.
+#   - docling: its own PdfPipelineOptions.document_timeout, checked
+#     *between* pipeline stages. It bounds a pathologically slow
+#     document; it will not interrupt a hang inside a single stage.
+#
+# Any value has to clear the slowest document you legitimately have. In
+# this project's corpus that is a 675-page book which takes 246s on its
+# own, so a threshold that is safe here may not be safe on another
+# corpus -- measure before setting it. A document that times out is
+# reported as a failure, not silently truncated, and is retried on the
+# next run.
+document_timeout = "off"
+
+# Give up on a *parallel* run when no document at all has completed for
+# this many seconds. "off" means wait forever.
+#
+# Not a per-document deadline, and the difference is the point: with
+# several workers, completions arrive constantly, so total silence
+# across the whole pool separates a hung worker from a merely slow
+# document far better than any per-document number could -- which
+# matters precisely because the slowest legitimate document here takes
+# 246s.
+#
+# On by default, unlike most safety valves here, because the failure it
+# catches is one a user actually hit: a run that never finishes. The
+# default is loose on purpose (7x that slowest document), and a false
+# positive is cheap -- the outstanding documents are marked failed and
+# retried next run, not lost. Only applies when [parser].workers > 1;
+# a serial run has no pool to go silent.
+stall_timeout = 1800
+
 # Parse-quality guard. `sync` warns when an extracted document has more
 # than `long_word_ratio` of its words longer than `long_word_chars`,
 # which is what a backend losing the spaces between words looks like --
