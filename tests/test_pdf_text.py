@@ -874,6 +874,23 @@ class TestPrestartPool:
     from them it adds to pool construction -- unless that import is
     overlapped with the parent's own pre-pool work."""
 
+    @pytest.fixture(autouse=True)
+    def _a_machine_with_room(self, monkeypatch):
+        """Pin the CPU count, because prestart_pool now asks
+        worker_ceiling() and every test here depends on the answer.
+
+        Without this these tests read the *developer's* core count and
+        mean different things on different machines: at 48 cores the
+        ceiling is 12 and a pool is coming, at 2 it is 1 and
+        prestart_pool correctly declines. That is exactly how this class
+        passed locally and failed CI -- on the change whose whole point
+        was to make the pool decision machine-dependent.
+
+        The small-machine tests below override it; monkeypatch is
+        last-write-wins within a test.
+        """
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 48)
+
     @pytest.fixture
     def started(self, monkeypatch):
         """Records whether the forkserver was asked to start."""
@@ -885,6 +902,11 @@ class TestPrestartPool:
             multiprocessing, "get_context",
             lambda method: types.SimpleNamespace(set_forkserver_preload=lambda names: None))
         return calls
+
+    def test_the_fixture_above_means_a_pool_really_is_coming(self):
+        """Guards the guard: if this stops being >1, every "starts
+        nothing" test below would pass for the wrong reason."""
+        assert pdf_text.worker_ceiling() > 1
 
     def test_starts_the_forkserver_when_a_pool_is_coming(self, monkeypatch, started):
         monkeypatch.setattr(config, "PARSER", "docling")
@@ -950,7 +972,11 @@ class TestPrestartPool:
         assert started == []
 
     def test_the_pdftotext_backend_starts_nothing(self, monkeypatch, started):
-        """It gets a thread pool, and has no use for torch at all."""
+        """It gets a thread pool, and has no use for torch at all.
+
+        Note the machine here has plenty of room -- the autouse fixture
+        pins 48 CPUs -- so this really is the backend check declining,
+        not the ceiling check."""
         monkeypatch.setattr(config, "PARSER", "pdftotext")
         monkeypatch.setattr(config, "PARSER_WORKERS", 4)
 

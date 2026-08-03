@@ -1,5 +1,7 @@
 content/parsed/
 content/ledger.sqlite
+content/pipeline.lock.db
+content/pipeline.lock.db.holder
 content/library.bib
 content/provenance/
 content/docling/
