@@ -214,17 +214,22 @@ def _parse_parallel(refs, workers: int, threads: int | None):
         print(f"  WARNING a parse worker died ({broken}) -- the documents it "
               "had not finished are reported as failures below. A lower "
               "[parser].workers is the usual fix.", file=sys.stderr)
+    # Marked transient: these documents were never given a fair attempt,
+    # so they must come back next run. A failure the *backend* returned
+    # for a specific PDF is deterministic and stays that way.
     unfinished = ("gave up waiting: no document finished within "
                   f"{config.PARSER_STALL_TIMEOUT}s ([parser].stall_timeout)"
                   if stalled else
                   "parse worker died before this document was parsed")
     for ref in refs:
         if ref.citekey not in results:
-            results[ref.citekey] = (None, pdf_text.ExtractionError(unfinished))
+            error = pdf_text.ExtractionError(unfinished)
+            error.transient = True
+            results[ref.citekey] = (None, error)
     return ((ref.citekey, *results[ref.citekey]) for ref in refs)
 
 
-def run(remove_stale: bool = False) -> int:
+def run(remove_stale: bool = False, reparse: bool = False) -> int:
     print(f"Reading bibliography from {config.BIB_FILE_PATH} ...")
     references = bib_reader.read_library()
     print(f"  found {len(references)} bibliographic item(s)")
@@ -278,7 +283,7 @@ def run(remove_stale: bool = False) -> int:
         # minutes serial with docling -- and that case is opt-in.
         to_parse = []
         for ref in references:
-            needs_parse = ledger.upsert_reference(con, ref)
+            needs_parse = ledger.upsert_reference(con, ref, force=reparse)
             if not ref.pdf_path:
                 no_pdf += 1
                 no_pdf_reasons[ref.pdf_resolution] += 1
@@ -335,7 +340,12 @@ def run(remove_stale: bool = False) -> int:
                 backend_unavailable += 1
                 print(f"  no-{config.PARSER}  {citekey}: {exc}", file=sys.stderr)
             else:
-                ledger.mark_parse_failed(con, citekey, str(exc))
+                # getattr, not isinstance: the marker rides on the
+                # exception instance because it is set by whoever knows
+                # the *cause*, which is the pool, not the raiser.
+                ledger.mark_parse_failed(
+                    con, citekey, str(exc), transient=getattr(exc, "transient", False)
+                )
                 failed += 1
                 print(f"  FAILED  {citekey}: {exc}", file=sys.stderr)
         # Only the ledger row is removed -- see prune_missing's own
@@ -380,6 +390,9 @@ def run(remove_stale: bool = False) -> int:
                 # meant to be.
                 for citekey, _parsed_path in stale:
                     print(f"  stale   {citekey} (no longer in {config.BIB_FILE_PATH.name})")
+        # Read while the connection is still open -- the summary below
+        # runs after it is closed.
+        kinds = ledger.failure_counts(con)
     finally:
         con.close()
 
@@ -389,6 +402,16 @@ def run(remove_stale: bool = False) -> int:
         f"Sync complete: {parsed} parsed, {skipped} unchanged, "
         f"{no_pdf} without a PDF attachment, {failed} failed, {stale_count} {stale_label}."
     )
+    # A deterministic failure is not retried, so it would otherwise
+    # vanish from view after the run that produced it while still making
+    # every later run exit nonzero. Say what it is and what to do.
+    if kinds["deterministic"]:
+        summary += (
+            f" {kinds['deterministic']} needs attention (will not be retried -- "
+            "fix or remove the PDF, or re-run with --reparse)."
+        )
+    if kinds["transient"]:
+        summary += f" {kinds['transient']} will be retried next run."
     if backend_unavailable:
         summary += f" {backend_unavailable} skipped ({config.PARSER} unavailable)."
     print(summary)
@@ -419,12 +442,21 @@ def run(remove_stale: bool = False) -> int:
               "--remove-stale to delete them from the ledger.")
     print(f"Ledger:      {config.LEDGER_PATH}")
     print(f"Parsed text: {config.PARSED_DIR}/")
-    return 1 if failed or backend_unavailable else 0
+    # A deterministic failure keeps the run nonzero on *every* run until
+    # it is resolved, not just the run that produced it. It is not
+    # retried, so `failed` (which counts this run's attempts) is zero for
+    # it -- and a corpus with a hole in it must never report success.
+    return 1 if failed or backend_unavailable or kinds["deterministic"] else 0
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Sync content/ledger.sqlite from the bib file (job 1 -- deterministic pipeline)."
+    )
+    parser.add_argument(
+        "--reparse", action="store_true",
+        help="Re-extract every PDF, ignoring the ledger's record of what is already parsed "
+             "(use when output is recorded as fine but you have reason to doubt it)",
     )
     parser.add_argument(
         "--remove-stale", action="store_true",
@@ -436,7 +468,7 @@ if __name__ == "__main__":
     # lock, and only an actual invocation contends for it.
     try:
         with runlock.pipeline_lock():
-            raise SystemExit(run(remove_stale=args.remove_stale))
+            raise SystemExit(run(remove_stale=args.remove_stale, reparse=args.reparse))
     except runlock.AlreadyRunning as exc:
         print(f"  {exc}", file=sys.stderr)
         raise SystemExit(runlock.EXIT_ALREADY_RUNNING) from None

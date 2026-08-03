@@ -2,6 +2,7 @@
 
 import os
 import sqlite3
+from pathlib import Path
 import time
 
 import pytest
@@ -450,15 +451,18 @@ class TestFailedParseIsRetried:
     "unchanged" and exits 0.
     """
 
-    def test_parse_failed_is_retried_while_the_pdf_is_unchanged(
+    def test_a_transient_parse_failure_is_retried_while_the_pdf_is_unchanged(
         self, isolated_config, ledger_con, tmp_path
     ):
+        # Narrowed in 2.0.0: v1.2.0 retried *every* failure, which meant a
+        # corrupt PDF re-parsed forever and sync exited 1 forever. Only
+        # run-caused failures are retried now; see TestFailureKind.
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-1.4 content")
         ref = make_reference(pdf_path=str(pdf))
 
         assert ledger.upsert_reference(ledger_con, ref) is True
-        ledger.mark_parse_failed(ledger_con, ref.citekey, "worker died")
+        ledger.mark_parse_failed(ledger_con, ref.citekey, "worker died", transient=True)
 
         # Same bytes, same mtime -- and it must still come back for retry.
         assert ledger.upsert_reference(ledger_con, ref) is True
@@ -484,10 +488,109 @@ class TestFailedParseIsRetried:
         pdf.write_bytes(b"%PDF-1.4 content")
         ref = make_reference(pdf_path=str(pdf))
         ledger.upsert_reference(ledger_con, ref)
-        ledger.mark_parse_failed(ledger_con, ref.citekey, "worker died")
+        ledger.mark_parse_failed(ledger_con, ref.citekey, "worker died", transient=True)
 
         ledger.upsert_reference(ledger_con, ref)
         row = ledger_con.execute(
             "SELECT status FROM items WHERE citekey = ?", (ref.citekey,)
         ).fetchone()
         assert row[0] == "discovered"
+
+
+class TestFailureKind:
+    """Two failures wearing one status is what made retry-everything the
+    only option. A dead worker marks every in-flight document failed and
+    must be retried; a corrupt PDF must not be re-parsed forever, because
+    a sync that exits 1 on every run trains its reader to ignore exit 1
+    -- which is how the next real failure gets missed."""
+
+    def _failed(self, con, tmp_path, *, transient):
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"%PDF-1.4 content")
+        ref = make_reference(pdf_path=str(pdf))
+        ledger.upsert_reference(con, ref)
+        ledger.mark_parse_failed(con, ref.citekey, "boom", transient=transient)
+        return ref
+
+    def test_a_transient_failure_is_retried(self, isolated_config, ledger_con, tmp_path):
+        ref = self._failed(ledger_con, tmp_path, transient=True)
+        assert ledger.upsert_reference(ledger_con, ref) is True
+
+    def test_a_deterministic_failure_is_not_retried(self, isolated_config, ledger_con, tmp_path):
+        ref = self._failed(ledger_con, tmp_path, transient=False)
+        assert ledger.upsert_reference(ledger_con, ref) is False
+
+    def test_a_deterministic_failure_keeps_its_status_so_it_stays_reported(
+        self, isolated_config, ledger_con, tmp_path
+    ):
+        """Not retried is not the same as forgotten -- it must still show
+        up in the summary and still make the run exit nonzero."""
+        ref = self._failed(ledger_con, tmp_path, transient=False)
+        ledger.upsert_reference(ledger_con, ref)
+        row = ledger_con.execute(
+            "SELECT status FROM items WHERE citekey = ?", (ref.citekey,)
+        ).fetchone()
+        assert row[0] == "parse_failed"
+
+    def test_changed_pdf_bytes_retry_a_deterministic_failure(
+        self, isolated_config, ledger_con, tmp_path
+    ):
+        """Editing or replacing the PDF is the documented escape hatch
+        for a misclassified failure."""
+        ref = self._failed(ledger_con, tmp_path, transient=False)
+        Path(ref.pdf_path).write_bytes(b"%PDF-1.4 different content entirely")
+        assert ledger.upsert_reference(ledger_con, ref) is True
+
+    def test_force_retries_a_deterministic_failure(self, isolated_config, ledger_con, tmp_path):
+        """--reparse, the other escape hatch."""
+        ref = self._failed(ledger_con, tmp_path, transient=False)
+        assert ledger.upsert_reference(ledger_con, ref, force=True) is True
+
+    def test_force_reparses_an_already_parsed_document(
+        self, isolated_config, ledger_con, tmp_path
+    ):
+        """The point of --reparse: re-extract text that is recorded as
+        fine but that you have reason to doubt."""
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"%PDF-1.4 content")
+        ref = make_reference(pdf_path=str(pdf))
+        ledger.upsert_reference(con=ledger_con, ref=ref)
+        ledger.mark_parsed(ledger_con, ref.citekey, tmp_path / "out.txt")
+
+        assert ledger.upsert_reference(ledger_con, ref) is False
+        assert ledger.upsert_reference(ledger_con, ref, force=True) is True
+
+    def test_force_does_not_invent_work_for_a_document_with_no_pdf(
+        self, isolated_config, ledger_con
+    ):
+        ref = make_reference(pdf_path=None)
+        assert ledger.upsert_reference(ledger_con, ref, force=True) is False
+
+    def test_counts_split_transient_from_deterministic(
+        self, isolated_config, ledger_con, tmp_path
+    ):
+        for i, transient in enumerate([True, True, False]):
+            pdf = tmp_path / f"p{i}.pdf"
+            pdf.write_bytes(b"%PDF" + bytes([i]))
+            ref = make_reference(citekey=f"k{i}", pdf_path=str(pdf))
+            ledger.upsert_reference(ledger_con, ref)
+            ledger.mark_parse_failed(ledger_con, ref.citekey, "boom", transient=transient)
+        assert ledger.failure_counts(ledger_con) == {"transient": 2, "deterministic": 1}
+
+    def test_an_old_ledger_without_the_column_is_migrated(self, isolated_config, tmp_path):
+        """A pre-2.0.0 ledger has no failure_kind. Its existing
+        parse_failed rows must not be silently reclassified as
+        deterministic and abandoned -- they predate the distinction, so
+        they are retried once, as they were before."""
+        con = ledger.connect()
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"%PDF-1.4 content")
+        ref = make_reference(pdf_path=str(pdf))
+        ledger.upsert_reference(con, ref)
+        con.execute(
+            "UPDATE items SET status='parse_failed', failure_kind=NULL WHERE citekey=?",
+            (ref.citekey,),
+        )
+        con.commit()
+        assert ledger.upsert_reference(con, ref) is True
+        con.close()
