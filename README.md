@@ -140,12 +140,9 @@ bash scripts/install_full_pipeline.sh
 #    list (see "Removing a paper" below) -- not needed on a first run.
 .venv-full/bin/python -m src.sync
 
-# 4. Inspect what it found
-.venv-full/bin/python -c "
-from src import ledger
-con = ledger.connect()
-for row in ledger.all_items(con): print(dict(row))
-"
+# 4. Inspect what it found. Read-only, takes no lock (so it works while a
+#    sync is running), and needs no venv.
+python3 -m src.ledger
 
 # 5. In Claude Code, ask for a draft, e.g.:
 #    "write a survey section on digital twin composability"
@@ -227,6 +224,8 @@ run fine with the bare system `python3`:
   (stdlib `sqlite3`).
 - `python -m src.references <file>` -- same, plus its own regex extraction
   (shared with `citation_gate`).
+- `python3 -m src.ledger` -- read-only status for the content layer; also
+  takes no lock, so it works while a sync is running.
 - `python -m src.heavy.render_output <file> --format pdf` -- despite living
   under `src/heavy/`, this one only needs `stdlib` + `src.config` +
   `src.citation_gate` + `src.references`; it shells out to the `pandoc`/
@@ -485,6 +484,35 @@ Progress is printed to stderr as each document completes, so a long run
 over a large corpus is visibly making progress -- which matters because
 docling's own OCR chatter can otherwise fill the terminal for half an
 hour with no sign of whether anything is happening.
+
+#### Seeing what the content layer holds
+
+```bash
+python3 -m src.ledger
+```
+
+```
+Ledger: content/ledger.sqlite   (646 item(s) from bibliography.bib)
+
+   500  parsed
+   145  no PDF attachment
+     1  found, not yet parsed
+
+  Nothing needs attention.
+```
+
+Detail is behind flags rather than in the way:
+
+```bash
+python3 -m src.ledger --status parse_failed   # just what needs attention
+python3 -m src.ledger --citekey smith_2024    # one item, in full
+python3 -m src.ledger --list                  # everything
+```
+
+It is a separate command rather than a `sync` flag on purpose. `sync`
+takes the write lock, so an inspect flag on it would refuse exactly when
+you most want to look -- during a run. This takes no lock, and needs only
+the system `python3`.
 
 #### Only one run at a time
 
