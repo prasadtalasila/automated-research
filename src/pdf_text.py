@@ -405,7 +405,7 @@ def _docling_converter(threads: int | None = None):
     return _DOCLING_CONVERTER
 
 
-def _check_docling_status(result) -> None:
+def check_docling_status(result) -> None:
     """Reject a conversion Docling only half-finished.
 
     `convert(raises_on_error=True)` -- the default -- raises only on
@@ -438,7 +438,7 @@ def _extract_docling(pdf_path: str, out_path: Path, threads: int | None = None) 
     converter = _docling_converter(threads)
     try:
         result = converter.convert(pdf_path)
-        _check_docling_status(result)
+        check_docling_status(result)
     except ExtractionError:
         raise
     except Exception as exc:  # noqa: BLE001 -- docling has no narrower

@@ -707,7 +707,7 @@ class TestDoclingPartialSuccess:
     def test_a_backend_without_a_status_attribute_is_not_rejected(self):
         """Defensive: don't make the check itself a new failure mode if a
         docling version stops exposing status."""
-        pdf_text._check_docling_status(types.SimpleNamespace())
+        pdf_text.check_docling_status(types.SimpleNamespace())
 
 
 class _FakeResult:

@@ -400,7 +400,17 @@ def parse_doc(doc: CorpusDoc, cache: dict | None = None, converter=None) -> Path
     # never loads Docling's models at all.
     if converter is None:
         converter = _build_converter()
-    dl_doc = converter.convert(doc.pdf_path).document
+    result = converter.convert(doc.pdf_path)
+    # Same hole src/pdf_text.py closed in v1.2.0, on the other call site:
+    # convert(raises_on_error=True) raises only on FAILURE, so a
+    # PARTIAL_SUCCESS would otherwise be written to
+    # content/docling/<doc>.md as though complete -- and that .md feeds
+    # embeddings, topic modelling and citation provenance, where a
+    # truncated source is one a claim can be checked against and silently
+    # pass. Raised before anything is written, so the document stays
+    # uncached and is retried next run.
+    pdf_text.check_docling_status(result)
+    dl_doc = result.document
     if config.DOCLING_IMAGES:
         from docling_core.types.doc import ImageRefMode
 
