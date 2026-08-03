@@ -41,13 +41,29 @@ what it found before starting.
 | User asks for "deep research", a multi-perspective analysis, or an in-depth report with contradiction mapping / peer review | Invoke this skill |
 | User asks for a standard literature survey / background section | Use `survey-writer` instead -- faster, single-pass |
 | User asks for a thesis chapter | Use `thesis-chapter-writer` instead |
-| User asks for teaching material | Use `tutorial-writer` instead |
+| User asks for a textbook chapter / lecture notes | Use `textbook-chapter-writer` instead |
+| User asks for a hands-on tutorial | Use `tutorial-writer` instead |
 | Ledger is empty or stale | Run `python -m src.sync`, report results, then proceed |
 
 Tell the user up front that this is a heavy, multi-phase run before
 starting -- it dispatches several subagents and does many retrieval calls.
 Create a TodoWrite list with the 7 phases below and work through them in
 order.
+
+## Prose standards
+
+Follow `docs/WRITING-STANDARDS.md` for the cross-genre rules, and its
+"Sources and attribution" section for where they come from. Two apply with
+particular force to a multi-agent pipeline, because parallel writers drift
+apart in ways a single-author draft doesn't:
+
+- **Terminology is fixed at outline time, not at polish time.** When you
+  dispatch Phase 5 writers, hand each one the same glossary of terms and
+  their agreed definitions. Reconciling four writers who each named the same
+  concept differently is a Phase 6 problem you can avoid entirely here.
+- **Scope is stated in the report, not just held in your head.** The Phase 6
+  lead says what this report covers and what it doesn't -- including which
+  sub-questions the corpus couldn't answer.
 
 ## Depth presets
 
@@ -121,6 +137,12 @@ Sketch a draft outline from general topic knowledge, then refine using the
 interview findings and contradiction map. No "Summary"/"Introduction"
 heading (the lead comes in Phase 6).
 
+Also fix, at this point, two things Phase 5 will otherwise get wrong in
+parallel: **the reader** (who this report is for, one concrete sentence --
+see `docs/WRITING-STANDARDS.md` §1) and **the glossary** (each recurring term
+with the one definition every section writer must use). Pass both to every
+dispatched writer alongside their section fragment and citekeys.
+
 ## Phase 5 -- Cited section writing (parallel)
 
 For each top-level section, select the relevant kept citekeys from Phase
@@ -137,8 +159,22 @@ against this project's corpus, never inventing a citekey.
 
 ## Phase 6 -- Polish + synthesis briefing
 
-**(a) Lead:** `## Summary`, <=4 cited paragraphs. Remove repetition across
-sections.
+**(a) Lead:** `## Summary`, <=4 cited paragraphs, opening with a scope
+statement -- what this report covers, what it doesn't, and which
+sub-questions the corpus couldn't answer. Remove repetition across sections.
+
+**(a2) Reconcile across sections.** Parallel writers produce specific,
+predictable seams; fix them here rather than leaving them for the reviewers:
+
+- the same concept named two ways, or one name used for two concepts
+- a term defined independently in two sections
+- notation that shifts between sections
+- the same finding stated at different strengths in two places
+- a claim that section 3 assumes but only section 5 establishes
+
+Then read the assembled draft once as the Phase 4 reader
+(`docs/WRITING-STANDARDS.md` §6) -- a pass over the whole document, which no
+individual section writer was in a position to do.
 
 **(b) Synthesis briefing:** one-paragraph executive summary; 5 key findings
 ranked by reliability (perspectives supporting/challenging each, cited by
@@ -224,3 +260,27 @@ not).
   bound concurrency per `reference.md` §1.
 - **Be honest about cost.** This is intentionally heavy and slower than
   `survey-writer` -- point users there if they want something faster.
+
+## Sources
+
+The prose standards this skill inherits are not original to this project.
+
+Full citations, licences and a per-principle attribution table are in
+[`docs/WRITING-STANDARDS.md`](../../../docs/WRITING-STANDARDS.md#sources-and-attribution).
+All three works are openly licensed (CC-BY or CC-BY-SA) and require credit.
+
+What bears on *this* genre specifically:
+
+- **Google, *Technical Writing Courses* (CC-BY 4.0)** -- using the same term
+  for the same concept throughout is the direct ancestor of the Phase 4
+  glossary. In a single-author document that rule is a style preference; in
+  a pipeline dispatching parallel section writers it is the difference
+  between one report and four stitched together, which is why it is
+  enforced structurally at outline time rather than left to Phase 6 polish.
+- **Last, *Technical Writing Essentials* (CC-BY 4.0)** -- the introduction
+  checklist -- scope ("what will and will not be covered") plus the reader's
+  assumed background -- behind Phase 6's scope statement.
+- **Procida, *Diátaxis* (CC-BY-SA 4.0)** -- the genre-separation principle.
+  A multi-perspective research report is not a Diátaxis quadrant, and none
+  of the tutorial/how-to structural rules apply; what transfers is the
+  requirement that the report know which single job it is doing.

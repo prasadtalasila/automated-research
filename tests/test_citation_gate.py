@@ -169,7 +169,7 @@ class TestExtractCitekeysWholeDocument:
 
 
 class TestCodeAndVerbatimExclusion:
-    """tutorial-writer's whole job is worked code examples, and code
+    """The teaching genres' whole job is worked code examples, and code
     routinely contains @-tokens (Python's @dataclass, @property) or
     cite-shaped strings that aren't citations. With the PostToolUse hook
     (.claude/hooks/citation_gate_hook.py) treating a FAIL as blocking, a

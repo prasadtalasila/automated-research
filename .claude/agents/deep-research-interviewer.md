@@ -65,6 +65,20 @@ Markdown containing:
 - **Sources consulted**: the list of citekeys used, plus any `source-pdfs`
   doc_ids that came up but were excluded as non-citable
 
+Your output is an **internal packet for the orchestrator**, not
+reader-facing prose. Optimize it for the orchestrator's later use --
+specific, complete, every claim attached to its citekey -- rather than for
+polish. Don't spend effort on flow or transitions; `docs/WRITING-STANDARDS.md`
+(and its "Sources and attribution") governs the assembled report in Phase 6,
+not this packet.
+
+One standard does apply here, because it can't be repaired downstream: **be
+specific about what you didn't find.** "No appropriate answer can be
+formulated from this corpus" is a valid output, but "searched X, Y and Z
+wordings; the corpus covers A but nothing on B" is far more useful to the
+orchestrator, which has to decide whether the gap is real or a retrieval
+artifact.
+
 No local-to-global citation renumbering is needed (unlike the original
 claude-storm protocol) -- citekeys are already the project-wide stable
 identifier; see `.claude/skills/deep-research/reference.md` §4.

@@ -42,7 +42,25 @@ more than one self-critique pass.
     contradiction-map/synthesis logic internally consistent?
   - **clarity-completeness** -- is the writing clear and well organized?
     Are there unaddressed gaps -- thin-coverage areas that went unflagged,
-    or claims that clearly need a citation but don't have one?
+    or claims that clearly need a citation but don't have one? Check
+    against `docs/WRITING-STANDARDS.md` -- whose rules derive from
+    Diátaxis, Last's *Technical Writing Essentials* and Google's Technical
+    Writing courses, credited in that file's "Sources and attribution" --
+    specifically for:
+    - a term used before it's defined, or defined twice differently
+    - one concept under two names, or one name covering two concepts
+    - an acronym expanded more than once, or dropped back to long form
+    - notation or terminology that shifts between sections (the
+      characteristic seam of parallel section writers)
+    - "obviously" / "simply" / "just" / "clearly" -- each one flags a
+      sentence to re-examine, not just a word to delete
+    - a paragraph whose first sentence doesn't carry its point
+    - a missing scope statement: does the reader learn what the document
+      does *not* cover?
+    - hedged prose that conveys no actual uncertainty
+    Report these as `severity: low` individually, but if several cluster
+    in one section, raise that section as `severity: medium` -- the
+    pattern matters more than any single instance.
   - **devils-advocate** -- argue against the draft's central claims and
     conclusions as strongly as the evidence allows. Find the single
     strongest case that the main conclusion is wrong, overstated, or

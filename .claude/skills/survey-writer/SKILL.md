@@ -29,11 +29,44 @@ before drafting anything.
 |---|---|
 | User asks for a survey / lit review / background / related-work section on topic X | Invoke this skill |
 | User asks for a thesis chapter | Use `thesis-chapter-writer` instead |
-| User asks for teaching material / tutorial | Use `tutorial-writer` instead |
+| User asks for a textbook chapter / lecture notes / worked examples | Use `textbook-chapter-writer` instead |
+| User asks for a hands-on tutorial the reader follows at a keyboard | Use `tutorial-writer` instead |
 | Ledger is empty or stale | Run `python -m src.sync`, report results, then proceed |
+
+## Prose standards
+
+Follow `docs/WRITING-STANDARDS.md` for the cross-genre rules: name the reader
+before drafting, define terms once, state scope up front, active voice with a
+named actor, ban "obviously/simply/just", and reread as the reader before
+presenting. That file also carries the attribution for where these
+principles come from -- Diátaxis, Last's *Technical Writing Essentials*, and
+Google's Technical Writing courses, all CC-licensed and all requiring credit.
+The genre-specific additions below layer on top of it.
+
+### What a survey owes its reader
+
+A survey's job is to **organize a field and locate the gaps in it** -- not to
+teach the topic and not to advocate a position. Two failure directions:
+
+- **Drifting into a textbook chapter.** You start explaining the concepts for
+  a reader who doesn't know them. A survey's reader is a researcher entering
+  the area; they need the map, not the lesson. If the user actually wants the
+  lesson, `textbook-chapter-writer` exists -- say so.
+- **Drifting into an argument.** You start defending one approach as correct.
+  Weighing alternatives is the deliverable here; picking a winner is the
+  thesis chapter's job, and doing it in a survey hides the disagreement the
+  reader came for.
+
+Unlike the tutorial genre, **alternatives and options are the point**. Never
+collapse them for the sake of a cleaner narrative.
 
 ## Process
 
+0. **Name the reader and the scope.** Before searching, settle who this
+   survey is for (a thesis reader? a grant reviewer? a paper's related-work
+   section?) and what it will and won't cover. Write the scope statement into
+   the draft's opening paragraph -- including what's deliberately excluded, so
+   a reader can tell an omission from an oversight.
 1. **Retrieve broadly, over-fetching on purpose.** Break the requested topic
    into 2-4 sub-themes if it's broad. Call `src.retrieval.search(sub_theme, k=15)`
    for each -- pull more candidates than you expect to use. This is a
@@ -115,6 +148,36 @@ before drafting anything.
     `[error]`, print a one-line warning in chat with that message and
     continue anyway — a rendering failure never blocks presenting the
     `.md` draft.
-12. Present the draft plus a one-paragraph summary of thin-coverage areas and
+12. **Read it once as the reader** (`docs/WRITING-STANDARDS.md` §6). Check
+    specifically for: terms used before they're defined, a theme heading that
+    doesn't match what the subsection actually argues, a comparison-table row
+    that repeats prose already above it, and any paragraph whose first
+    sentence doesn't carry its point.
+13. Present the draft plus a one-paragraph summary of thin-coverage areas and
     any unresolved cross-source disagreement, and report the render outcome
     (paths to the `.tex`/`.pdf` if they succeeded, or the warning if not).
+
+## Sources
+
+The prose standards this skill inherits are not original to this project.
+
+Full citations, licences and a per-principle attribution table are in
+[`docs/WRITING-STANDARDS.md`](../../../docs/WRITING-STANDARDS.md#sources-and-attribution).
+All three works are openly licensed (CC-BY or CC-BY-SA) and require credit.
+
+What bears on *this* genre specifically:
+
+- **Last, *Technical Writing Essentials* (CC-BY 4.0)** -- audience and task
+  analysis as a step before drafting, and the introduction checklist that
+  asks for scope and the reader's assumed background. Step 0 is that
+  checklist applied to a survey.
+- **Google, *Technical Writing Courses* (CC-BY 4.0)** -- the curse of
+  knowledge, defining each term once, and leading a paragraph with its
+  point. The last matters more here than in any other genre, because a
+  survey is read by skimming.
+- **Procida, *Diátaxis* (CC-BY-SA 4.0)** -- the genre-separation principle
+  behind "What a survey owes its reader". Note that a literature survey is
+  **not** one of Diátaxis's four quadrants: Diátaxis describes software
+  documentation, and its tutorial/how-to rules (single path, no options)
+  would destroy a survey. Only the underlying insight transfers -- that a
+  document trying to do two jobs does both badly.

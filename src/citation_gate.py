@@ -1,6 +1,6 @@
 """Citation verification gate.
 
-Every genre skill (survey/thesis-chapter/tutorial) MUST run this
+Every genre skill (survey/thesis-chapter/textbook-chapter/tutorial) MUST run this
 against its own output before presenting a draft as finished. It is a
 hard gate, not advisory: a citekey that doesn't resolve to something
 `sync` actually pulled from the bib file is treated as fabricated and
@@ -79,7 +79,7 @@ _LATEX_CITE_RE = re.compile(
 # thesis-chapter-writer's content/drafts/<slug>.tex is hook-gated too.
 _PANDOC_CITE_RE = re.compile(r"(?<![A-Za-z0-9._%+\-\\])-?@([A-Za-z][A-Za-z0-9_-]*)")
 
-# tutorial-writer's whole job is worked code examples, and code routinely
+# The teaching genres' whole job is worked code examples, and code routinely
 # contains @-tokens that look like a Pandoc citation (Python's @dataclass,
 # @property) or a LaTeX-command-shaped string that isn't one -- these are
 # false positives, not the false negatives above, but with a PostToolUse

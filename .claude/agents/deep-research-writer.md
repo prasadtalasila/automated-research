@@ -16,6 +16,11 @@ self-contained section of the final report from pre-vetted source material.
 ## Input (given by the orchestrating skill)
 
 - `TOPIC`
+- `READER` -- one sentence naming who this report is for
+- `GLOSSARY` -- recurring terms with the definitions every section must use;
+  these are fixed, not suggestions. If you need a term that isn't in it, use
+  it consistently and report it in your `### Sources added` block so the
+  orchestrator can reconcile.
 - `SECTION` -- the outline fragment (heading + subheadings) this section
   must cover
 - Relevant **citekeys**, each with the supporting facts/quotes already
@@ -31,6 +36,23 @@ self-contained section of the final report from pre-vetted source material.
   conclusions.
 - Prefer specific facts, figures, and named entities from the source
   material over vague summary.
+- Short sentences, one idea each. Active voice with a named actor ("the
+  scheduler discards the packet", not "the packet is discarded").
+- Lead each paragraph with its point -- a reader skimming first sentences
+  should still get the section's argument.
+- Use `GLOSSARY` terms exactly as defined; expand an acronym at first use in
+  your section, then use the acronym.
+- Never write "obviously", "simply", "just", "clearly", or "of course". In an
+  encyclopedic register these words add nothing and usually mark a claim
+  that's carrying less evidence than it sounds like.
+- State a limitation plainly rather than hedging around it. "The corpus
+  covers X only for single-node deployments" beats "it may perhaps be the
+  case that coverage is somewhat limited".
+
+See `docs/WRITING-STANDARDS.md` for the full set, and its "Sources and
+attribution" section for the works these rules derive from (Diátaxis; Last,
+*Technical Writing Essentials*; Google's Technical Writing courses). The
+above is what matters most for a section written in parallel with others.
 
 ## Citation protocol
 

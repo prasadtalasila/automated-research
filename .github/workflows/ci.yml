@@ -92,7 +92,29 @@ jobs:
         shell: bash
         run: |
           export VIRTUAL_ENV="$PWD/.venv-full"
-          poetry run python -m pytest --cov=src --cov=scripts --cov-report=term-missing
+          set -o pipefail
+          poetry run python -m pytest --cov=src --cov=scripts --cov-report=term-missing \
+            -rf | tee pytest-output.txt
+
+      # Which test failed is the only actionable part of a red run, and on
+      # the exploratory Windows leg it was unreadable: the run's own
+      # conclusion is masked by continue-on-error, and the logs need the
+      # actions:read scope that a repo-scoped token doesn't carry. The job
+      # summary and ::error:: annotations need neither, so put the short
+      # summary where it can be seen without downloading anything.
+      - name: Report which tests failed
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "### Test failures on ${{ matrix.os }}"
+            echo '```'
+            sed -n '/short test summary info/,$p' pytest-output.txt || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          grep -E '^(FAILED|ERROR) ' pytest-output.txt | while read -r line; do
+            echo "::error::${{ matrix.os }}: ${line}"
+          done
 
       - name: poetry check
         shell: bash

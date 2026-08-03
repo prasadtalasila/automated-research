@@ -173,7 +173,8 @@ tests/                    pytest suite -- unit tests per module + end-to-end fea
 content/                  generated, gitignored (regenerate with sync)
   ledger.sqlite, parsed/<citekey>.txt, provenance/,
   docling/, chroma/, topics.json, topic_embed_cache.json, rendered/  (src/heavy/ outputs)
-.claude/skills/           genre layer: survey-writer, thesis-chapter-writer, tutorial-writer, deep-research
+.claude/skills/           genre layer: survey-writer, thesis-chapter-writer,
+                          textbook-chapter-writer, tutorial-writer, deep-research
 .claude/agents/           deep-research's subagents: deep-research-interviewer, deep-research-writer, peer-reviewer
 .claude/hooks/            citation_gate_hook.py -- PostToolUse hook, mechanically enforces citation_gate on
                           every Write/Edit under content/drafts/*.md and *.tex (see AGENTS.md)

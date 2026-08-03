@@ -1,8 +1,8 @@
 # Automated Research Pipeline
 
 Turns a BibTeX bibliography into grounded survey papers, thesis chapters,
-and undergraduate tutorial chapters, with every citation traceable back to
-a paper the bibliography actually holds.
+undergraduate textbook chapters and hands-on tutorials, with every citation
+traceable back to a paper the bibliography actually holds.
 
 ## About
 
@@ -31,10 +31,14 @@ below follows from that one rule.
 
 ### Writing
 
-Four genre skills, each with its own register, all sharing the same
+Five genre skills, each with its own register, all sharing the same
 grounding rules: **survey/related-work**, **thesis chapter** (LaTeX
-fragment, RQ-driven), **undergraduate tutorial** (worked examples and
-exercises), and **deep research** (multi-perspective, corpus-grounded).
+fragment, RQ-driven), **undergraduate textbook chapter** (worked examples
+and exercises, for a reader who is studying), **tutorial** (a Diataxis
+lesson the reader follows at a keyboard to a working result), and **deep
+research** (multi-perspective, corpus-grounded). The two teaching genres
+are deliberately separate: a textbook chapter explains, a tutorial is
+verified to run.
 Drafts render to PDF or LaTeX through Pandoc/TeX Live, with a
 `## References` section generated from the citekeys actually cited.
 
@@ -119,6 +123,7 @@ and what it needs. Everything else lives in one document per question.
 
 | Document | Answers |
 |---|---|
+| [docs/WRITING-STANDARDS.md](docs/WRITING-STANDARDS.md) | What prose standards do the genre skills follow, and where in the technical-communication literature do they come from? |
 | [docs/CITATION-PROVENANCE.md](docs/CITATION-PROVENANCE.md) | What does the provenance report say, and how do I read it? |
 | [docs/DESIGN.md](docs/DESIGN.md) | How is this put together, and what happens when two runs collide? |
 | [docs/PARALLELISM.md](docs/PARALLELISM.md) | How did the parse get 17x faster, and which conclusions along the way turned out to be wrong? |
@@ -171,7 +176,8 @@ python3 -m src.ledger
 # 5. In Claude Code, ask for a draft, e.g.:
 #    "write a survey section on digital twin composability"
 #    "draft a thesis chapter on runtime verification for autonomous robots"
-#    "write a tutorial chapter introducing digital twin asset reuse"
+#    "write a textbook chapter introducing digital twin asset reuse"
+#    "write a tutorial that builds a minimal digital twin asset from scratch"
 # The matching skill in .claude/skills/ picks this up automatically,
 # including its own citation_gate -> references -> render_output chain
 
@@ -279,8 +285,9 @@ extension of job 2:
 
 - **Genre layer** (job 2: generative, on-demand, reviewed by you) --
   Claude Code skills in `.claude/skills/`: `survey-writer`,
-  `thesis-chapter-writer`, `tutorial-writer`, and `deep-research` (a
-  heavier, multi-perspective alternative -- see Acknowledgements). Each
+  `thesis-chapter-writer`, `textbook-chapter-writer`, `tutorial-writer`,
+  and `deep-research` (a heavier, multi-perspective alternative -- see
+  Acknowledgements). Each
   reads the content layer above; none of them regenerate it. Optionally
   extended by **the heavy pipeline** (`src/heavy/`,
   `scripts/full_pipeline.py`) -- see ["The heavy pipeline"](#the-heavy-pipeline)

@@ -83,7 +83,8 @@ python3 -m src.ledger
 # 5. In Claude Code, ask for a draft, e.g.:
 #    "write a survey section on digital twin composability"
 #    "draft a thesis chapter on runtime verification for autonomous robots"
-#    "write a tutorial chapter introducing digital twin asset reuse"
+#    "write a textbook chapter introducing digital twin asset reuse"
+#    "write a tutorial that builds a minimal digital twin asset from scratch"
 # The matching skill in .claude/skills/ picks this up automatically,
 # including its own citation_gate -> references -> render_output chain.
 

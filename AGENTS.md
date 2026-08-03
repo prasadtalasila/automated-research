@@ -25,9 +25,10 @@ the bib file, say so in prose -- do not invent a key for it, and do not
 "fix" a gate failure by making up a plausible-looking key instead of
 removing the claim or sourcing a real one.
 
-Every genre skill (`survey-writer`, `thesis-chapter-writer`, `tutorial-writer`
-in `.claude/skills/`) must run `python -m src.citation_gate <file>` on its own
-output and only present the draft once it exits 0. This is a gate, not a
+Every genre skill (`survey-writer`, `thesis-chapter-writer`,
+`textbook-chapter-writer`, `tutorial-writer` in `.claude/skills/`) must run
+`python -m src.citation_gate <file>` on its own output and only present the
+draft once it exits 0. This is a gate, not a
 lint suggestion -- treat a `FAIL` the same way you'd treat a failing test.
 A PostToolUse hook (`.claude/hooks/citation_gate_hook.py`, wired up in
 `.claude/settings.json`) now also enforces this mechanically: any Write/Edit
