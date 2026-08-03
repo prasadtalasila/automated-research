@@ -69,6 +69,12 @@ The headline, in the order it was found:
    on the full corpus -- 528s to 326s at twelve workers. The whole
    501-PDF corpus now parses in **5m26s**, against ~1.6 hours where this
    started.
+6. Per-worker startup (v2.1.0) turned out to be 3.2s of importing torch
+   and docling plus ~5s of loading Docling's models, and only the first
+   is shareable between processes. A forkserver pool with those modules
+   preloaded, started before the bibliography is read, takes a fixed
+   ~1.5-2s off pool startup -- 9.6% of an 8-document run, 2.5% of a
+   60-document one.
 
 The lesson worth carrying: every one of those steps was measured, and two
 of the four intermediate conclusions were wrong until the next
@@ -78,9 +84,10 @@ checked too.
 ## Writing a script that drives the heavy pipeline
 
 `src.heavy.docling_parse.parse_corpus` and `python -m src.sync` both use
-a `"spawn"` worker pool when `[parser].workers` is above 1, so each
-worker re-imports the calling program's `__main__`. Any script of your
-own that calls them must guard its top level:
+a worker pool when `[parser].workers` is above 1, and every start method
+they can pick (`forkserver` or `spawn` -- see `[parser].start_method`)
+re-imports the calling program's `__main__` in each worker. Any script of
+your own that calls them must guard its top level:
 
 ```python
 if __name__ == "__main__":

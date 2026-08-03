@@ -64,7 +64,11 @@ hours to 5m26s**:
 - **Parallel parsing**, opt-in via `[parser].workers`, defaulting to
   serial. The worker count is clamped to what the host can actually
   sustain, counting the CPUs the *process* is allowed rather than the
-  machine's total.
+  machine's total. Workers are forked from a helper process that has
+  already imported torch and docling, started early enough to overlap
+  with reading the bibliography -- a fixed ~1.5-2s off pool startup,
+  which is 9.6% of an eight-document run and under 1% of the full corpus.
+  Measured rather than assumed to be more.
 - **Multi-GPU**, automatically: each worker claims its own CUDA device,
   because Docling would otherwise put every worker on `cuda:0`.
 - **Bounded and interruptible.** Per-document and stalled-run timeouts,

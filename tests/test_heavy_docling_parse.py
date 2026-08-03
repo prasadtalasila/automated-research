@@ -6,6 +6,7 @@ at module top), so these stay fast and don't need real model weights.
 
 import contextlib
 import json
+import multiprocessing
 import re
 import sys
 import types
@@ -825,7 +826,26 @@ class TestParallelHelpers:
         assert captured["max_workers"] == 2
         assert captured["initializer"] is pdf_text.init_worker
         assert captured["initargs"][2] == 4
-        assert captured["mp_context"].get_start_method() == "spawn"
+        # Whichever start method pdf_text picked -- asserted against that
+        # rather than a literal, so this stays one source of truth with
+        # src/sync.py's pool rather than two that can drift apart.
+        assert captured["mp_context"].get_start_method() == pdf_text.start_method()[0]
+
+    def test_a_start_method_complaint_is_printed_not_swallowed(
+        self, monkeypatch, capsys
+    ):
+        """A pool that quietly falls back to spawn looks identical to one
+        that got what was configured, and is ~1.5s slower to start."""
+        monkeypatch.setattr(pdf_text, "gpu_count", lambda: 0)
+        monkeypatch.setattr(
+            pdf_text, "process_pool_context",
+            lambda: (multiprocessing.get_context("spawn"), "  NOTE fell back"))
+        monkeypatch.setattr(docling_parse, "ProcessPoolExecutor",
+                            lambda **kwargs: contextlib.nullcontext())
+        with docling_parse._executor_for(2):
+            pass
+
+        assert "NOTE fell back" in capsys.readouterr().out
 
     def test_accelerator_options_are_left_alone_without_a_budget(
         self, isolated_config, fake_docling, tmp_path

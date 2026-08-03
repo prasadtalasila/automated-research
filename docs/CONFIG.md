@@ -144,6 +144,53 @@ ocr = false
 # 326s across four.
 workers = 1
 
+# How that pool creates its worker processes. Only consulted when
+# workers > 1 and backend = "docling"; nothing else here uses a process
+# pool, so on a default run this setting does nothing at all.
+#
+#   "auto"        the default: "forkserver" where the platform has it
+#                 (Linux, macOS), "spawn" where it doesn't (Windows).
+#   "forkserver"  a helper process imports torch and docling once, and
+#                 every worker is forked from it.
+#   "spawn"       a fresh interpreter per worker, importing everything
+#                 itself. The pre-v2.1.0 behaviour.
+#
+# What this is worth, and it is worth reading the second sentence. A
+# cold docling worker needs ~8.5s before it produces its first page on
+# the A40 host: ~3.2s importing torch and docling, ~5s loading Docling's
+# models. forkserver shares the first of those and cannot share the
+# second. But workers import *concurrently*, so on a host with spare
+# CPUs that import was already overlapped -- measured head to head,
+# forkserver's shared import against spawn's per-worker ones is a wash
+# (22.4s vs 22.9s over 8 documents at 4 workers).
+#
+# The saving is in *when* the import happens: forkserver's preload is
+# started before the bibliography is read, so it runs during the ~2.5s
+# that takes rather than blocking pool construction afterwards.
+#
+# Measured end to end on the real sync, medians of three:
+#
+#   documents  workers   spawn   forkserver
+#   8          4         23.1s   21.8s
+#   8          8         22.9s   20.7s
+#   60         4        103.6s  101.9s
+#   60         12        80.8s   78.8s
+#
+# It is the same ~1.3-2.2s off pool startup every time. What changes is
+# how much of the run that is: 9.6% over 8 documents, 2.5% over 60, and
+# well under 1% over the full 501-PDF corpus. Worth having; not a reason
+# to expect a bulk parse to get faster.
+#
+# "fork" is deliberately not an option. It is no faster than forkserver
+# (measured), and a forked worker inherits this process's open sqlite
+# connections -- the run lock and the ledger -- which SQLite's own
+# documentation says not to do.
+#
+# Both available methods re-import the calling program's __main__ in
+# each worker, so a script driving this must guard its top level with
+# `if __name__ == "__main__":`. See DEVELOPER.md.
+start_method = "auto"
+
 # Give up on a single document after this many seconds. "off" (the
 # default) means no limit.
 #
@@ -239,6 +286,7 @@ environment variable of the same name, without editing the file, e.g.
 | `[parser]` | `backend` | `PARSER` | `pdftotext` | Which backend `sync` uses to extract PDF text -- `pdftotext` or `docling` -- see below |
 | `[parser]` | `ocr` | `PARSER_OCR` | `false` | Whether the `docling` backend runs its OCR stage -- 2.46x slower on, but it is what reads text stored as bitmaps -- see below |
 | `[parser]` | `workers` | `PARSER_WORKERS` | `1` | How many documents `sync` parses at once; a positive integer or `"auto"`, clamped to what the host can sustain -- see below |
+| `[parser]` | `start_method` | `PARSER_START_METHOD` | `"auto"` | How the docling worker pool creates its processes -- `"auto"`, `"forkserver"` or `"spawn"` -- see below |
 | `[parser]` | `document_timeout` | `PARSER_DOCUMENT_TIMEOUT` | `"off"` | Give up on one document after N seconds -- a real kill for `pdftotext`, cooperative for `docling` -- see below |
 | `[parser]` | `stall_timeout` | `PARSER_STALL_TIMEOUT` | `1800` | Give up on a parallel run when *no* document completes for N seconds -- see below |
 | `[parser]` | `long_word_chars` | `PARSE_LONG_WORD_CHARS` | `20` | Word length above which a token counts as "run-together" for the parse-quality guard |
@@ -370,6 +418,59 @@ backend gets the kind of concurrency it can actually use. Ledger writes
 always stay on the main process -- sqlite has a single writer -- and
 output is reported in bibliography order regardless of which worker
 finished first, so two identical runs still print identically.
+
+#### How the pool creates its workers
+
+`[parser].start_method` (or `PARSER_START_METHOD`), default `"auto"`.
+Only consulted when `workers > 1` and the backend is `docling`; nothing
+else here uses a process pool.
+
+| | |
+|---|---|
+| `"auto"` | `forkserver` where the platform has it, `spawn` where it doesn't |
+| `"forkserver"` | one helper process imports torch and docling; every worker is forked from it |
+| `"spawn"` | a fresh interpreter per worker, importing everything itself |
+
+A cold docling worker needs about 8.5s before it produces its first page:
+~3.2s importing torch and docling, ~5s loading Docling's models. Only the
+first is shareable between processes -- Docling's models live on the
+converter instance, in whichever process built it.
+
+**And sharing the import, on its own, is worth nothing.** Workers import
+concurrently, so on a host with spare CPUs that cost was already
+overlapped. Measured head to head over 8 documents at 4 workers:
+
+| | median of 3 |
+|---|---|
+| `spawn` | 22.9s |
+| `forkserver`, preload set when the pool is built | 22.4s |
+
+The saving is in *when* the preload runs. `sync` starts the forkserver
+before it reads the bibliography, so the import happens during the ~2.5s
+that takes instead of blocking pool construction afterwards:
+
+| Documents | Workers | `spawn` | `forkserver` |
+|---|---|---|---|
+| 8 | 4 | 23.1s | **21.8s** |
+| 8 | 8 | 22.9s | **20.7s** |
+| 60 | 4 | 103.6s | **101.9s** |
+| 60 | 12 | 80.8s | **78.8s** |
+
+It is the same ~1.3-2.2s off pool startup every time. What changes is how
+much of the run that is: 9.6% over 8 documents, 2.5% over 60, and well
+under 1% over the full 501-PDF corpus. So this helps the case where
+startup *is* the run -- a handful of documents -- and does not make a
+bulk parse meaningfully faster. Set `"spawn"` to rule the helper process
+out entirely.
+
+`"fork"` is not an accepted value. It measured no faster than
+`forkserver`, and a forked worker would inherit this process's open
+sqlite connections -- the run lock and the ledger -- which SQLite's own
+documentation warns against.
+
+Both available methods re-import the calling program's `__main__` in each
+worker, so a script of your own driving `sync` or `parse_corpus` must
+guard its top level with `if __name__ == "__main__":`.
 
 #### Using more than one GPU
 

@@ -245,3 +245,149 @@ It does mean `content/parsed/` should not be expected to be
 byte-identical across runs at high worker counts -- v1.0.0's
 "byte-identical to serial" observation was measured over 8 documents at 4
 workers, where it holds, and does not generalise to 501 documents at 12.
+
+## Per-worker startup: where the ~10s goes, and how much of it is shareable
+
+Measured 2026-08-03 on the same host. The question this section answers
+is the one the 60-document plateau above raised: workers were spending
+about ten seconds each before producing anything, so what *is* that ten
+seconds, and can a different multiprocessing start method share any of
+it?
+
+### The breakdown
+
+One cold process, timed at each stage, parsing a small PDF twice (docling
+2.117.0, OCR off, `cuda:0`, warm HuggingFace cache):
+
+| Stage | Time |
+|---|---|
+| `import torch` | 1.16s |
+| `import docling` (the 4 modules the converter needs) | 2.08s |
+| `DocumentConverter(...)` construction | 0.13s |
+| First `convert()` -- Docling loads its models here | 5.17s |
+| **Total before the first parsed page** | **8.5s** |
+| Second `convert()` of the same PDF, models warm | 0.33s |
+
+So of the ~8.5s: **3.2s is importing Python modules and ~5.0s is loading
+models.** Only the first is even a candidate for sharing between
+processes -- `initialized_pipelines` lives on the converter instance, in
+whichever process built it.
+
+Two things that looked like they might be in that 5s, and are not:
+
+- **CUDA context creation is almost none of it.** The same first
+  `convert()` on `device="cpu"` takes 6.32s of which 2.24s is the parse
+  itself, i.e. ~4.1s of model load; on `cuda:1` it is 5.24s of which
+  0.42s is the parse, i.e. ~4.8s. The GPU adds ~0.7s over the CPU-side
+  work of reading weights and building modules.
+- **HuggingFace hub lookups are not it either.** `HF_HUB_OFFLINE=1`
+  changed the first convert by 0.24s.
+
+### Does `torch.cuda.device_count()` initialise CUDA in the parent?
+
+**No -- and the code comment that said it did was wrong.** That claim was
+the stated reason `sync` used `spawn`. Checked directly against torch
+2.7.1: after `torch.cuda.device_count()` returns 4,
+`torch.cuda.is_initialized()` is still `False`, and a child forked from
+that parent allocates on `cuda:0` without complaint. torch routes device
+counting through NVML precisely to keep that safe. Only *using* a device
+in the parent breaks the child, and then it breaks loudly:
+
+```
+RuntimeError: Cannot re-initialize CUDA in forked subprocess.
+```
+
+`gpu_count()` now asks `nvidia-smi --list-gpus` instead, falling back to
+torch only when the driver's own tool isn't on PATH. That is not because
+the torch path was unsafe on this host -- it wasn't -- but because it
+made safety depend on an implementation detail of one torch version, and
+because it imported 1.2s and ~200MB of torch into a parent with no other
+use for it. `CUDA_VISIBLE_DEVICES` has to be applied by hand on that
+path: nvidia-smi ignores it, and torch does not.
+
+### fork is still ruled out, for a different reason
+
+Not CUDA -- sqlite. By the time `sync` builds its pool it holds two live
+sqlite connections: the run lock (`BEGIN IMMEDIATE`, deliberately never
+committed) and the ledger. SQLite's own documentation says not to carry
+an open connection across `fork()`, and a forked worker finalising an
+inherited connection on its way out would be rolling back a transaction
+belonging to a process it is not.
+
+Measurement removed the temptation anyway. Wall clock for N processes to
+each build a converter and parse one PDF, charging any parent-side
+prewarm to the total:
+
+| Workers | spawn | fork | fork, parent pre-imports | forkserver | forkserver + preload |
+|---|---|---|---|---|---|
+| 4 | 11.26s | 9.68s | 9.70s | 10.39s | **9.55s** |
+| 12 | 13.96s | 13.25s | 13.00s | 13.41s | **12.61s** |
+
+forkserver with a preload list is the fastest at both sizes *and* is the
+only one that inherits nothing from the parent -- its server is a fresh
+interpreter, launched with `spawnv_passfds`, so workers get the preloaded
+modules and no sqlite connections, no CUDA context, no file descriptors.
+
+### The result that decided the design: a shared import is a wash
+
+The obvious reading of the breakdown is "3.2s x N workers, shared once by
+forkserver". That reading is wrong, and the real `sync` says so:
+
+| 8 documents, 4 workers | median of 3 |
+|---|---|
+| spawn | 22.9s |
+| forkserver, preload set at pool construction | 22.4s |
+
+Workers import **concurrently**. On a host with CPUs to spare their
+imports were already overlapped, so what forkserver takes out of N
+children it puts back into the one parent that runs the preload -- and
+the preload blocks pool construction. Net: nothing.
+
+What *is* serial is the preload itself. Started before the parent reads
+the bibliography rather than when the pool is built, it runs during the
+~2.5s that read takes:
+
+| | 4 live workers ready at |
+|---|---|
+| forkserver started when the pool is built | 6.90s |
+| forkserver started before the bib read | **4.40s** |
+
+`multiprocessing.forkserver.ensure_running()` returns in ~0.02s -- it
+launches the server and does not wait for its imports -- so this costs
+the caller nothing but the ordering.
+
+### End to end, on the real `sync`
+
+Medians of three runs each, fresh `content/` every time so every document
+needs a parse. Rank-stratified subsets of the bib corpus, `docling`, OCR
+off, on the four-A40 host. `workers = 1` takes the serial path, which has
+no pool and therefore no start method.
+
+| Documents | Workers | spawn | forkserver | Saving |
+|---|---|---|---|---|
+| 8 | 1 (serial) | 46.2s | -- | -- |
+| 8 | 4 | 23.1s | **21.8s** | 1.3s (5.6%) |
+| 8 | 8 | 22.9s | **20.7s** | 2.2s (9.6%) |
+| 60 | 1 (serial) | 383.2s | -- | -- |
+| 60 | 4 | 103.6s | **101.9s** | 1.7s (1.6%) |
+| 60 | 12 | 80.8s | **78.8s** | 2.0s (2.5%) |
+
+Run-to-run spread was 0.3-1.0s, so the effect clears the noise at every
+point, and it is the *same* effect at every point: a roughly constant
+1.3-2.2s off pool startup. What changes with corpus size is only how much
+of the total that is -- 9.6% of an 8-document run, 2.5% of a 60-document
+one, and it would be well under 1% of the full 501-PDF corpus.
+
+**So this does not make a bulk parse meaningfully faster, and it was
+never going to.** The startup breakdown said so before any of these runs:
+3.2s per worker, shared once, against a parse measured in minutes. What
+it does help is the case the earlier measurements kept running into --
+a handful of documents, where startup *is* the run.
+
+Correctness was checked rather than assumed: over 8 documents at 4
+workers, `content/parsed/` is byte-identical between the two start
+methods and the ledger rows match. Ctrl+C behaviour is unchanged --
+exit 130, no orphaned processes, and the same
+`resource_tracker: ... leaked semaphore` warning that `spawn` already
+produced (a consequence of `os._exit` skipping interpreter shutdown, not
+of the start method).

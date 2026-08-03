@@ -2,13 +2,14 @@
 ("job 1" -- AGENTS.md). No LLM calls, must be idempotent."""
 
 import contextlib
+import multiprocessing
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from src import config, ledger, pdf_text, sync
+from src import bib_reader, config, ledger, pdf_text, sync
 from tests.conftest import make_reference
 
 
@@ -759,6 +760,28 @@ class TestParallelParsing:
         assert "worker" in captured.err.lower()
 
 
+class TestPoolPrestart:
+    def test_the_forkserver_is_started_before_the_bibliography_is_read(
+        self, basic_corpus, monkeypatch
+    ):
+        """Order is the whole point. Started after the bib read, the
+        forkserver's torch import is 2.5s the parent spends blocked;
+        started before it, that import runs while the bib file is being
+        parsed and the pool is ready 2.5s sooner."""
+        order = []
+        monkeypatch.setattr(pdf_text, "prestart_pool", lambda: order.append("prestart"))
+        real_read = bib_reader.read_library
+
+        def watched_read(*args, **kwargs):
+            order.append("read_library")
+            return real_read(*args, **kwargs)
+
+        monkeypatch.setattr(sync.bib_reader, "read_library", watched_read)
+        sync.run()
+
+        assert order == ["prestart", "read_library"]
+
+
 class TestExecutorChoice:
     def test_docling_gets_processes(self, monkeypatch):
         """docling runs in-process and holds the GIL, so threads would
@@ -848,11 +871,26 @@ class TestGpuAssignment:
         # workers lazily and numbers none of them.
         assert counter.value == 0
 
-    def test_spawn_is_used_so_a_cuda_touching_parent_is_safe(self, monkeypatch):
-        """Counting GPUs initialises CUDA in the parent, and a forked
-        child inherits a broken CUDA context from such a parent. Each
-        worker reloads docling's models anyway, so spawn's extra startup
-        is noise against that."""
+    def test_the_start_method_is_pdf_texts_to_choose(self, monkeypatch):
+        """One decision, in one place: sync and src/heavy/docling_parse
+        build the same kind of pool, and a start method hard-coded in
+        each would be two that can drift apart."""
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(pdf_text, "gpu_count", lambda: 4)
+        monkeypatch.setattr(
+            pdf_text, "process_pool_context",
+            lambda: (multiprocessing.get_context("forkserver"), None))
+        captured = self._capture(monkeypatch)
+
+        with sync._executor_for(2):
+            pass
+
+        assert captured["mp_context"].get_start_method() == "forkserver"
+
+    def test_plain_fork_is_never_used(self, monkeypatch):
+        """Not a style preference: this process holds the run lock and
+        the ledger open as live sqlite connections, and SQLite says not
+        to carry an open connection across fork()."""
         monkeypatch.setattr(config, "PARSER", "docling")
         monkeypatch.setattr(pdf_text, "gpu_count", lambda: 4)
         captured = self._capture(monkeypatch)
@@ -860,7 +898,22 @@ class TestGpuAssignment:
         with sync._executor_for(2):
             pass
 
-        assert captured["mp_context"].get_start_method() == "spawn"
+        assert captured["mp_context"].get_start_method() != "fork"
+
+    def test_a_start_method_complaint_reaches_stderr(self, monkeypatch, capsys):
+        """A pool that quietly fell back to spawn looks exactly like one
+        that got what was configured, and is ~1.5s slower to start."""
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(pdf_text, "gpu_count", lambda: 0)
+        monkeypatch.setattr(
+            pdf_text, "process_pool_context",
+            lambda: (multiprocessing.get_context("spawn"), "  NOTE fell back"))
+        self._capture(monkeypatch)
+
+        with sync._executor_for(2):
+            pass
+
+        assert "NOTE fell back" in capsys.readouterr().err
 
     def test_a_cpu_only_host_still_builds_a_working_pool(self, monkeypatch):
         monkeypatch.setattr(config, "PARSER", "docling")

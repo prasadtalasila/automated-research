@@ -180,6 +180,78 @@ Also fixed alongside: `convert(raises_on_error=True)` raises only on
 written and marked parsed -- a silently incomplete source, on a pipeline
 whose entire purpose is grounding claims in sources.
 
+## v2.1.0 -- taking apart the ten seconds
+
+Every measurement above that came out flat blamed the same thing:
+"per-worker startup dominates". Nobody had measured what that startup
+*was*. It turns out to be:
+
+| | |
+|---|---|
+| `import torch` | 1.16s |
+| `import docling` | 2.08s |
+| build `DocumentConverter` | 0.13s |
+| first `convert()` -- Docling loads its models | 5.17s |
+| **before the first parsed page** | **8.5s** |
+
+**Half the ceiling was gone before starting.** The 5s model load happens
+inside the converter instance, in whichever process owns it, and no
+multiprocessing start method shares that. Only the 3.2s of imports was
+ever available.
+
+So: forkserver, with torch and docling in its preload list, so the
+imports happen once in a server process that every worker is forked
+from. `[parser].start_method`, defaulting to `"auto"`.
+
+**Then the shared import turned out to be worth nothing.** Head to head
+on the real `sync`, 8 documents at 4 workers: spawn 22.9s, forkserver
+22.4s. Workers import *concurrently* -- on a host with spare CPUs that
+cost was already overlapped, so moving it out of N children and into one
+parent nets zero. What is not overlapped is the preload, which blocks
+pool construction.
+
+The fix is ordering, not machinery: start the forkserver *before*
+reading the bibliography, so its imports run during the ~2.5s that takes.
+`ensure_running()` returns in 0.02s without waiting for them. Four live
+workers ready at **4.40s instead of 6.90s**.
+
+End to end on the real `sync`, medians of three:
+
+| Documents | Workers | spawn | forkserver |
+|---|---|---|---|
+| 8 | 4 | 23.1s | **21.8s** |
+| 8 | 8 | 22.9s | **20.7s** |
+| 60 | 4 | 103.6s | **101.9s** |
+| 60 | 12 | 80.8s | **78.8s** |
+
+**Say what this is worth, not what it sounds like.** It is the same
+~1.3-2.2s off pool startup at every point -- 9.6% of the smallest run,
+2.5% of the largest, and it would be under 1% of the full 501-PDF corpus.
+This release does not make a bulk parse faster. It helps the case every
+earlier measurement kept tripping over: a handful of documents, where
+startup *is* the run.
+
+### Two things believed for three releases, both wrong
+
+**"Counting GPUs initialises CUDA in the parent."** This was the stated
+reason `sync` used `spawn`, written into the code as fact. Against torch
+2.7.1 it is not what happens: `torch.cuda.device_count()` goes through
+NVML, `torch.cuda.is_initialized()` stays `False`, and a child forked
+from that parent uses CUDA without complaint. `gpu_count()` now reads
+`nvidia-smi --list-gpus` regardless -- not to fix a bug, but so that a
+safety property stops depending on an implementation detail of one torch
+version, and so the parent stops importing 200MB of torch to answer a
+question the driver's own CLI answers.
+
+**"fork would be safe once that moved."** Also wrong, for a reason nobody
+had raised: by the time the pool is built this process holds two live
+sqlite connections -- the run lock, deliberately parked in an
+uncommitted `BEGIN IMMEDIATE`, and the ledger. SQLite says not to carry
+an open connection across `fork()`. forkserver's server is a fresh
+interpreter launched with `spawnv_passfds`, so it inherits neither. And
+fork measured no faster than forkserver anyway, so ruling it out cost
+nothing.
+
 ## Where the time actually went
 
 | Change | Kind | Full corpus |

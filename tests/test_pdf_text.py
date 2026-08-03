@@ -8,6 +8,8 @@ doesn't need the real package installed.
 """
 
 import importlib.machinery
+import importlib.util
+import multiprocessing
 import shutil
 import signal
 import subprocess
@@ -564,6 +566,22 @@ class TestExtractOne:
         assert isinstance(pickle.loads(pickle.dumps(exc)), pdf_text.ExtractionError)
 
 
+def _fake_nvidia_smi(monkeypatch, n_gpus=None, returncode=0, raises=None, found=True):
+    """Stand in for the real nvidia-smi, which this development host
+    genuinely has -- without this every "no GPUs" case below would count
+    the four A40s in the room and fail."""
+    monkeypatch.setattr(
+        shutil, "which", lambda name: "/usr/bin/nvidia-smi" if found else None)
+
+    def fake_run(cmd, **kwargs):
+        if raises is not None:
+            raise raises
+        lines = "".join(f"GPU {i}: NVIDIA A40 (UUID: GPU-{i})\n" for i in range(n_gpus or 0))
+        return subprocess.CompletedProcess(cmd, returncode, stdout=lines, stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+
 class TestGpuCount:
     def test_zero_when_backend_is_not_docling(self, monkeypatch):
         """pdftotext has no GPU path at all, so there is nothing to
@@ -571,16 +589,59 @@ class TestGpuCount:
         monkeypatch.setattr(config, "PARSER", "pdftotext")
         assert pdf_text.gpu_count() == 0
 
-    def test_counts_visible_cuda_devices(self, monkeypatch):
+    def test_counts_the_gpus_nvidia_smi_lists(self, monkeypatch):
         monkeypatch.setattr(config, "PARSER", "docling")
-        fake_torch = types.SimpleNamespace(cuda=types.SimpleNamespace(device_count=lambda: 4))
-        monkeypatch.setitem(sys.modules, "torch", fake_torch)
+        monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+        _fake_nvidia_smi(monkeypatch, n_gpus=4)
         assert pdf_text.gpu_count() == 4
 
-    def test_zero_when_torch_is_absent(self, monkeypatch):
+    def test_counting_does_not_import_torch(self, monkeypatch):
+        """The point of asking nvidia-smi: a parent that has imported
+        torch pays 1.2s and ~200MB for a question it can answer without
+        either, and a parent that has *initialised CUDA* cannot fork."""
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.delitem(sys.modules, "torch", raising=False)
+        _fake_nvidia_smi(monkeypatch, n_gpus=2)
+
+        pdf_text.gpu_count()
+
+        assert "torch" not in sys.modules
+
+    def test_falls_back_to_torch_when_nvidia_smi_is_absent(self, monkeypatch):
+        """A slim container can pass /dev/nvidia* through without the
+        driver's CLI tools. Returning 0 there would silently put every
+        worker back on cuda:0."""
+        monkeypatch.setattr(config, "PARSER", "docling")
+        _fake_nvidia_smi(monkeypatch, found=False)
+        monkeypatch.setitem(
+            sys.modules, "torch",
+            types.SimpleNamespace(cuda=types.SimpleNamespace(device_count=lambda: 3)))
+        assert pdf_text.gpu_count() == 3
+
+    def test_a_failing_nvidia_smi_falls_back_too(self, monkeypatch):
+        """Present but unhappy -- a driver/library mismatch makes it exit
+        non-zero rather than print an empty list."""
+        monkeypatch.setattr(config, "PARSER", "docling")
+        _fake_nvidia_smi(monkeypatch, n_gpus=0, returncode=9)
+        monkeypatch.setitem(
+            sys.modules, "torch",
+            types.SimpleNamespace(cuda=types.SimpleNamespace(device_count=lambda: 1)))
+        assert pdf_text.gpu_count() == 1
+
+    def test_a_hanging_nvidia_smi_does_not_hang_the_sync(self, monkeypatch):
+        """A wedged driver makes nvidia-smi block forever. That must cost
+        _NVIDIA_SMI_TIMEOUT and a fallback, not the whole run."""
+        monkeypatch.setattr(config, "PARSER", "docling")
+        _fake_nvidia_smi(
+            monkeypatch, raises=subprocess.TimeoutExpired(["nvidia-smi"], 10))
+        monkeypatch.setitem(sys.modules, "torch", None)
+        assert pdf_text.gpu_count() == 0
+
+    def test_zero_when_neither_nvidia_smi_nor_torch_can_answer(self, monkeypatch):
         """The heavy group may be installed without a working torch, and
         a missing GPU is not an error -- it just means one device."""
         monkeypatch.setattr(config, "PARSER", "docling")
+        _fake_nvidia_smi(monkeypatch, found=False)
         monkeypatch.setitem(sys.modules, "torch", None)
         assert pdf_text.gpu_count() == 0
 
@@ -591,11 +652,304 @@ class TestGpuCount:
             raise RuntimeError("CUDA driver version is insufficient")
 
         monkeypatch.setattr(config, "PARSER", "docling")
+        _fake_nvidia_smi(monkeypatch, found=False)
         monkeypatch.setitem(
             sys.modules, "torch",
             types.SimpleNamespace(cuda=types.SimpleNamespace(device_count=explode)),
         )
         assert pdf_text.gpu_count() == 0
+
+
+class TestVisibleDevices:
+    """nvidia-smi ignores CUDA_VISIBLE_DEVICES; every CUDA process obeys
+    it. Counting without applying it would hand worker 3 a `cuda:3` that
+    does not exist in its view -- and README documents that variable as
+    the way to confine a run to one card."""
+
+    def test_unset_means_every_device(self, monkeypatch):
+        monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+        assert pdf_text._visible_devices(4) == 4
+
+    def test_a_single_device_narrows_the_count_to_one(self, monkeypatch):
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2")
+        assert pdf_text._visible_devices(4) == 1
+
+    def test_a_subset_is_counted_not_maxed(self, monkeypatch):
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,2")
+        assert pdf_text._visible_devices(4) == 2
+
+    def test_empty_means_no_devices_at_all(self, monkeypatch):
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "")
+        assert pdf_text._visible_devices(4) == 0
+
+    def test_minus_one_means_no_devices(self, monkeypatch):
+        """The conventional way to say "hide every GPU"."""
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "-1")
+        assert pdf_text._visible_devices(4) == 0
+
+    def test_enumeration_stops_at_the_first_invalid_entry(self, monkeypatch):
+        """CUDA's own documented behaviour, and the reason this is a loop
+        with a break rather than a length."""
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,nonsense,1")
+        assert pdf_text._visible_devices(4) == 1
+
+    def test_an_out_of_range_index_stops_enumeration(self, monkeypatch):
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,9")
+        assert pdf_text._visible_devices(4) == 1
+
+    def test_uuids_are_counted_as_devices(self, monkeypatch):
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "GPU-790508c0,GPU-d720f633")
+        assert pdf_text._visible_devices(4) == 2
+
+    def test_more_uuids_than_cards_is_clamped(self, monkeypatch):
+        """A UUID can't be checked against anything, so the count has to
+        be -- otherwise a worker gets handed a cuda:N with no N."""
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", ",".join(f"GPU-{i}" for i in range(6)))
+        assert pdf_text._visible_devices(4) == 4
+
+    def test_whitespace_around_entries_is_tolerated(self, monkeypatch):
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", " 0 , 1 ")
+        assert pdf_text._visible_devices(4) == 2
+
+
+class TestCudaIsInitialised:
+    def test_false_when_torch_was_never_imported(self, monkeypatch):
+        """Asking the question must never be what makes the answer true,
+        so this reads sys.modules rather than importing torch."""
+        monkeypatch.delitem(sys.modules, "torch", raising=False)
+        assert pdf_text.cuda_is_initialised() is False
+        assert "torch" not in sys.modules
+
+    def test_false_when_torch_is_imported_but_cuda_is_cold(self, monkeypatch):
+        monkeypatch.setitem(
+            sys.modules, "torch",
+            types.SimpleNamespace(cuda=types.SimpleNamespace(is_initialized=lambda: False)))
+        assert pdf_text.cuda_is_initialised() is False
+
+    def test_true_once_something_has_used_a_gpu(self, monkeypatch):
+        """src/heavy/embed_index runs sentence-transformers, and a
+        library caller may have done anything before calling in."""
+        monkeypatch.setitem(
+            sys.modules, "torch",
+            types.SimpleNamespace(cuda=types.SimpleNamespace(is_initialized=lambda: True)))
+        assert pdf_text.cuda_is_initialised() is True
+
+    def test_an_unanswerable_torch_is_assumed_initialised(self, monkeypatch):
+        """Guessing wrong towards "cold" hands every worker a broken CUDA
+        context; guessing wrong towards "hot" costs ~1.5s of startup."""
+        def explode():
+            raise RuntimeError("no CUDA-capable device is detected")
+
+        monkeypatch.setitem(
+            sys.modules, "torch",
+            types.SimpleNamespace(cuda=types.SimpleNamespace(is_initialized=explode)))
+        assert pdf_text.cuda_is_initialised() is True
+
+
+class TestStartMethod:
+    def test_auto_prefers_forkserver(self, monkeypatch):
+        """The whole point: torch and docling are imported once in the
+        forkserver process and inherited, rather than once per worker.
+        Measured at four workers: 9.6s to first parse against spawn's
+        11.3s."""
+        monkeypatch.setattr(config, "PARSER_START_METHOD", "auto")
+        monkeypatch.setattr(
+            multiprocessing, "get_all_start_methods",
+            lambda: ["fork", "spawn", "forkserver"])
+        monkeypatch.setattr(pdf_text, "cuda_is_initialised", lambda: False)
+        assert pdf_text.start_method() == ("forkserver", None)
+
+    def test_auto_falls_back_to_spawn_silently(self, monkeypatch):
+        """Windows has spawn and nothing else, and this project's CI has
+        a windows-latest leg. Picking what the platform has is what
+        "auto" was asked to do, so there is nothing to report."""
+        monkeypatch.setattr(config, "PARSER_START_METHOD", "auto")
+        monkeypatch.setattr(multiprocessing, "get_all_start_methods", lambda: ["spawn"])
+        monkeypatch.setattr(pdf_text, "cuda_is_initialised", lambda: False)
+        assert pdf_text.start_method() == ("spawn", None)
+
+    def test_an_explicit_forkserver_that_cannot_be_honoured_says_so(self, monkeypatch):
+        """Silence here would leave a config key that reads as honoured
+        and isn't."""
+        monkeypatch.setattr(config, "PARSER_START_METHOD", "forkserver")
+        monkeypatch.setattr(multiprocessing, "get_all_start_methods", lambda: ["spawn"])
+        monkeypatch.setattr(pdf_text, "cuda_is_initialised", lambda: False)
+        method, complaint = pdf_text.start_method()
+        assert method == "spawn"
+        assert "not available on this platform" in complaint
+
+    def test_an_initialised_cuda_forces_spawn(self, monkeypatch):
+        """A forkserver started from a process holding a CUDA context
+        hands every worker a broken one."""
+        monkeypatch.setattr(config, "PARSER_START_METHOD", "auto")
+        monkeypatch.setattr(
+            multiprocessing, "get_all_start_methods",
+            lambda: ["fork", "spawn", "forkserver"])
+        monkeypatch.setattr(pdf_text, "cuda_is_initialised", lambda: True)
+        method, complaint = pdf_text.start_method()
+        assert method == "spawn"
+        assert "CUDA is already initialised" in complaint
+
+    def test_an_explicit_spawn_is_honoured_without_complaint(self, monkeypatch):
+        monkeypatch.setattr(config, "PARSER_START_METHOD", "spawn")
+        monkeypatch.setattr(pdf_text, "cuda_is_initialised", lambda: False)
+        assert pdf_text.start_method() == ("spawn", None)
+
+    def test_spawn_does_not_need_the_cuda_check(self, monkeypatch):
+        """Nothing is inherited under spawn, so a hot CUDA context in
+        this process is simply not spawn's problem."""
+        monkeypatch.setattr(config, "PARSER_START_METHOD", "spawn")
+        monkeypatch.setattr(pdf_text, "cuda_is_initialised", lambda: True)
+        assert pdf_text.start_method() == ("spawn", None)
+
+    def test_fork_is_not_a_configurable_value(self):
+        """Not an oversight: this process holds the run lock and the
+        ledger open as live sqlite connections, and SQLite says not to
+        carry an open connection across fork(). It also measured no
+        faster than forkserver, so there is nothing being given up."""
+        assert "fork" not in config.PARSER_START_METHODS
+
+
+class TestPreloadModules:
+    def test_lists_the_modules_a_worker_would_import(self, monkeypatch):
+        monkeypatch.setattr(
+            importlib.util, "find_spec",
+            lambda name: importlib.machinery.ModuleSpec(name, None))
+        assert pdf_text.preload_modules() == list(pdf_text._PRELOAD_MODULES)
+
+    def test_drops_what_this_host_does_not_have(self, monkeypatch):
+        """forkserver.main() swallows ImportError per module but nothing
+        else -- a torch whose native library fails to load raises
+        OSError, and that would take the forkserver down before a single
+        worker existed."""
+        monkeypatch.setattr(
+            importlib.util, "find_spec",
+            lambda name: None if name == "torch"
+            else importlib.machinery.ModuleSpec(name, None))
+        assert "torch" not in pdf_text.preload_modules()
+
+    def test_an_unimportable_parent_package_is_skipped_not_raised(self, monkeypatch):
+        def explode(name):
+            raise ModuleNotFoundError(f"No module named {name!r}")
+
+        monkeypatch.setattr(importlib.util, "find_spec", explode)
+        assert pdf_text.preload_modules() == []
+
+
+@pytest.mark.skipif(
+    "forkserver" not in multiprocessing.get_all_start_methods(),
+    reason="no forkserver to prestart on this platform (Windows has spawn only)",
+)
+class TestPrestartPool:
+    """Starting the forkserver early is where the saving actually is:
+    workers already import torch concurrently, so what forkserver removes
+    from them it adds to pool construction -- unless that import is
+    overlapped with the parent's own pre-pool work."""
+
+    @pytest.fixture
+    def started(self, monkeypatch):
+        """Records whether the forkserver was asked to start."""
+        from multiprocessing import forkserver
+
+        calls = []
+        monkeypatch.setattr(forkserver, "ensure_running", lambda: calls.append("started"))
+        monkeypatch.setattr(
+            multiprocessing, "get_context",
+            lambda method: types.SimpleNamespace(set_forkserver_preload=lambda names: None))
+        return calls
+
+    def test_starts_the_forkserver_when_a_pool_is_coming(self, monkeypatch, started):
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(config, "PARSER_WORKERS", 4)
+        monkeypatch.setattr(pdf_text, "start_method", lambda: ("forkserver", None))
+
+        pdf_text.prestart_pool()
+
+        assert started == ["started"]
+
+    def test_a_default_serial_run_starts_nothing(self, monkeypatch, started):
+        """[parser].workers = 1 takes the serial path, which has no pool
+        -- starting a torch-importing process for it would be pure cost."""
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(config, "PARSER_WORKERS", 1)
+        monkeypatch.setattr(pdf_text, "start_method", lambda: ("forkserver", None))
+
+        pdf_text.prestart_pool()
+
+        assert started == []
+
+    def test_the_pdftotext_backend_starts_nothing(self, monkeypatch, started):
+        """It gets a thread pool, and has no use for torch at all."""
+        monkeypatch.setattr(config, "PARSER", "pdftotext")
+        monkeypatch.setattr(config, "PARSER_WORKERS", 4)
+
+        pdf_text.prestart_pool()
+
+        assert started == []
+
+    def test_nothing_is_started_when_spawn_was_chosen(self, monkeypatch, started):
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(config, "PARSER_WORKERS", 4)
+        monkeypatch.setattr(pdf_text, "start_method", lambda: ("spawn", None))
+
+        pdf_text.prestart_pool()
+
+        assert started == []
+
+    def test_a_failure_to_prestart_is_swallowed(self, monkeypatch):
+        """An optimisation that could not be applied is not a problem to
+        report -- the pool will start its own forkserver a moment later."""
+        from multiprocessing import forkserver
+
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(config, "PARSER_WORKERS", 4)
+        monkeypatch.setattr(pdf_text, "start_method", lambda: ("forkserver", None))
+        monkeypatch.setattr(
+            multiprocessing, "get_context",
+            lambda method: types.SimpleNamespace(set_forkserver_preload=lambda names: None))
+
+        def explode():
+            raise OSError("fork: resource temporarily unavailable")
+
+        monkeypatch.setattr(forkserver, "ensure_running", explode)
+
+        pdf_text.prestart_pool()  # must not raise
+
+
+class TestProcessPoolContext:
+    def test_the_forkserver_is_told_what_to_preload(self, monkeypatch):
+        """The preload list is the entire reason for preferring
+        forkserver, and it has to be set before the first Process is
+        created -- the server is started lazily by that call and imports
+        its list exactly once."""
+        recorded = []
+
+        class FakeContext:
+            def set_forkserver_preload(self, names):
+                recorded.append(names)
+
+        monkeypatch.setattr(pdf_text, "start_method", lambda: ("forkserver", None))
+        monkeypatch.setattr(multiprocessing, "get_context", lambda method: FakeContext())
+        monkeypatch.setattr(pdf_text, "preload_modules", lambda: ["torch"])
+
+        ctx, complaint = pdf_text.process_pool_context()
+
+        assert recorded == [["torch"]]
+        assert complaint is None
+
+    def test_spawn_gets_no_preload_list(self, monkeypatch):
+        """It has nowhere to put one -- spawn's children import
+        everything themselves."""
+        class FakeContext:
+            def set_forkserver_preload(self, names):  # pragma: no cover
+                raise AssertionError("spawn has no forkserver to preload")
+
+        monkeypatch.setattr(pdf_text, "start_method", lambda: ("spawn", "  NOTE why"))
+        monkeypatch.setattr(multiprocessing, "get_context", lambda method: FakeContext())
+
+        ctx, complaint = pdf_text.process_pool_context()
+
+        assert complaint == "  NOTE why"
 
 
 class TestWorkerDevice:
