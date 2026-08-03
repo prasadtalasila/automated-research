@@ -874,18 +874,28 @@ class TestGpuAssignment:
     def test_the_start_method_is_pdf_texts_to_choose(self, monkeypatch):
         """One decision, in one place: sync and src/heavy/docling_parse
         build the same kind of pool, and a start method hard-coded in
-        each would be two that can drift apart."""
+        each would be two that can drift apart.
+
+        Asserted by *identity* on the context object, and built from this
+        platform's own default rather than a named method. Naming
+        "forkserver" here made the test itself unrunnable on Windows --
+        `get_context("forkserver")` raises `ValueError: cannot find
+        context for 'forkserver'` before the assertion is even reached.
+        The contract under test is that sync passes through whatever
+        pdf_text hands it, which does not require any particular method
+        to exist on the machine running the test.
+        """
         monkeypatch.setattr(config, "PARSER", "docling")
         monkeypatch.setattr(pdf_text, "gpu_count", lambda: 4)
+        chosen = multiprocessing.get_context()
         monkeypatch.setattr(
-            pdf_text, "process_pool_context",
-            lambda: (multiprocessing.get_context("forkserver"), None))
+            pdf_text, "process_pool_context", lambda: (chosen, None))
         captured = self._capture(monkeypatch)
 
         with sync._executor_for(2):
             pass
 
-        assert captured["mp_context"].get_start_method() == "forkserver"
+        assert captured["mp_context"] is chosen
 
     def test_plain_fork_is_never_used(self, monkeypatch):
         """Not a style preference: this process holds the run lock and
