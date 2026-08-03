@@ -60,10 +60,10 @@ python3 -m src.references path/to/draft.md --heading "References"    # --heading
 python3 -m src.heavy.render_output path/to/draft.md --format pdf     # also: --documentclass, --fontsize, --margin (--help for all)
 ```
 
-# Venv requirement
+## Venv requirement
 
 Every `python -m src.*` / `python scripts/*.py` command below needs the
-venv from Quickstart step 2 -- **except** three stdlib-only tools, which
+venv from the Quickstart -- **except** these stdlib-only tools, which
 run fine with the bare system `python3`:
 
 - `python -m src.citation_gate <file>` -- only reads `content/ledger.sqlite`

@@ -54,7 +54,7 @@ in one run.
 
 All paths are configurable in `config.toml` (repo root), overridable
 per-run with an env var of the same name, e.g. `BIB_FILE=/path/to/other.bib
-python -m src.sync`. See ["Configuration"](#configuration) below for the
+python -m src.sync`. See [CONFIG.md](CONFIG.md) for the
 full settings reference.
 
 

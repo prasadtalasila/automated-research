@@ -146,3 +146,27 @@ class TestEdges:
         out = capsys.readouterr().out
         assert "retried on the next sync" in out
         assert "need attention" not in out
+
+
+class TestReadOnly:
+    def test_it_does_not_write_to_the_ledger(self, corpus):
+        """connect() runs migrations and commits; this must not. Checked
+        by mtime rather than by inspection, because the failure mode is a
+        write nobody notices."""
+        before = config.LEDGER_PATH.stat().st_mtime_ns
+        assert ledger.main([]) == 0
+        assert config.LEDGER_PATH.stat().st_mtime_ns == before
+
+    def test_a_pre_failure_kind_ledger_still_summarises(
+        self, isolated_config, ledger_con, tmp_path, capsys
+    ):
+        """Read-only means it cannot migrate, so a ledger older than the
+        failure_kind column must degrade rather than crash."""
+        pdf = tmp_path / "a.pdf"
+        pdf.write_bytes(b"%PDF")
+        ledger.upsert_reference(ledger_con, make_reference(pdf_path=str(pdf)))
+        ledger_con.execute("ALTER TABLE items RENAME COLUMN failure_kind TO fk_old")
+        ledger_con.commit()
+
+        assert ledger.main([]) == 0
+        assert "1  found, not yet parsed" in capsys.readouterr().out

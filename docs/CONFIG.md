@@ -224,22 +224,7 @@ docling_images = false
 docling_image_scale = 2.0
 ```
 
-**`config.toml` is not in the repo -- you create it.** The tracked file is
-`config.toml.example`; `config.toml` itself is gitignored, because every
-host edits it (parser backend, paths, worker count) and those edits are
-nobody else's defaults:
-
-```bash
-cp config.toml.example config.toml
-```
-
-`src/config.py` reads it at import time and **fails with that exact
-command** if it's missing, rather than silently falling back to the
-example -- a host quietly running settings its owner never chose is a
-worse failure than one that refuses to start. If you'd rather keep the
-file elsewhere, point `CONFIG_PATH` at it.
-
-That file is the single place every path/URL/timeout/model setting lives.
+`config.toml` is the single place every path/URL/timeout/model setting lives.
 `src/config.py` loads it once at import time via stdlib `tomllib` into
 plain module-level constants (not functions, so they're fixed for the life
 of the process); every setting can also be overridden per-run with an

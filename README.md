@@ -115,9 +115,11 @@ mkdir -p papers && cp /path/to/your/exported-library.bib papers/bibliography.bib
 
 cp config.toml.example config.toml
 
-# 2. Install Python and OS dependencies (pdftotext, TeX Live, Pandoc)
+# 2. Install dependencies. `all` = OS packages (pdftotext, TeX Live,
+#    Pandoc) plus the Python ones; with no stage it installs the Python
+#    ones only.
 pipx install poetry
-bash scripts/install_full_pipeline.sh
+bash scripts/install_full_pipeline.sh all
 
 # 3. Sync the content layer from papers/bibliography.bib. A citekey that
 #    later drops out of the bib file (a paper removed from your reference
@@ -126,7 +128,9 @@ bash scripts/install_full_pipeline.sh
 #    list (see "Removing a paper" below) -- not needed on a first run.
 source .venv-full/bin/activate
 python -m src.sync
-python -m src.sync --remove-stale
+
+# ...and only once you've read the stale list it prints, and agree with it:
+# python -m src.sync --remove-stale
 
 # 4. Inspect what it found. Read-only, takes no lock (so it works while a
 #    sync is running), and needs no venv.

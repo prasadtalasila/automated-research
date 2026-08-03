@@ -390,7 +390,12 @@ def main(argv: "list[str] | None" = None) -> int:
         print("Run `python -m src.sync` to build it from your bib file.")
         return 0
 
-    con = connect()
+    # Opened read-only, NOT via connect(): connect() runs the schema and
+    # migrations and commits, which takes a write lock and can bump
+    # PRAGMA user_version. That would contradict this command's whole
+    # reason for existing -- inspecting without interfering, including
+    # while a sync is mid-run.
+    con = sqlite3.connect(f"file:{config.LEDGER_PATH}?mode=ro", uri=True, timeout=0)
     # connect() leaves rows as tuples; this CLI addresses columns by name
     # so that adding one doesn't silently shift the output.
     con.row_factory = sqlite3.Row
@@ -431,7 +436,12 @@ def main(argv: "list[str] | None" = None) -> int:
             if counts.get(status):
                 print(f"  {counts[status]:>4}  {label}")
 
-        kinds = failure_counts(con)
+        try:
+            kinds = failure_counts(con)
+        except sqlite3.OperationalError:
+            # A ledger written before failure_kind existed. Read-only, so
+            # it cannot be migrated here -- `python -m src.sync` does that.
+            kinds = {"deterministic": 0, "transient": 0}
         if kinds["deterministic"]:
             print(f"\n  {kinds['deterministic']} item(s) need attention -- not retried "
                   "automatically.\n  Fix or remove the PDF, or re-run "
