@@ -1,0 +1,60 @@
+## Exporting your library from Zotero
+
+How to get a `.bib` file and its PDFs into the shape this pipeline
+expects. See [../README.md](../README.md) for the Quickstart that
+refers here.
+
+Step 1 above, in detail, for [Zotero](https://www.zotero.org/) (see its own
+[export documentation](https://www.zotero.org/support/kb/exporting) for the
+general feature):
+
+1. Right-click the collection you want (or use **File -> Export Library**
+   for everything) -> **Export Collection...** / **Export Library...**.
+2. Format: **BibTeX**. Check **Export Files** -- without it you get
+   metadata only and `pdf_text.py` will have nothing to extract.
+3. Save it as `bibliography` directly inside this repo's `papers/`
+   directory. Zotero writes `papers/bibliography.bib` plus a **companion
+   folder** (`papers/bibliography/`, `files/<id>/<name>.pdf` inside) for
+   every attachment -- the exported `.bib`'s `file` field encodes that
+   folder's name as a literal relative path, tied to whatever name you
+   gave the export at save time.
+4. **Don't rename that companion folder afterward.** `src/bib_reader.py`'s
+   `_resolve_pdf_path` resolves each entry's `file` field relative to
+   wherever `bibliography.bib` itself lives (`papers/`) -- if you rename
+   or move the attachments folder, that relative path breaks silently
+   (entries just show up as "without a PDF attachment" after `sync`, not
+   as an error).
+5. Re-run `python -m src.sync`.
+
+This is a **different mechanism from `papers/pdfs/`** (`config.toml`'s
+`[source_pdfs].dir`, Quickstart step 1 above): that directory is for any
+raw PDF you already have but haven't cataloged in Zotero yet (just a file
+you drop there by hand -- this project has no automated fetching from any
+external source) -- see [`src/heavy/corpus.py`](../src/heavy/corpus.py) and
+AGENTS.md's citekey invariant. Zotero's own exported attachments never
+belong there, and this project's only supported way to catalog a paper
+for citing is a Zotero export.
+
+To add more papers later: add the entry in Zotero, re-export the same way
+(re-check **Export Files** so new attachments are included), then re-run
+`python -m src.sync`.
+
+Removing a paper: delete the entry in Zotero, re-export, re-run `sync`.
+By default `sync` only *reports* citekeys that dropped out of the bib file
+(`stale   <citekey> (no longer in bibliography.bib)`, one line per
+citekey, plus a single summary note pointing at `--remove-stale`) -- it
+doesn't delete their `content/ledger.sqlite` row until you re-run with
+`--remove-stale`. This is deliberate: a bib export that comes back short a
+citekey is far more often a botched re-export or `BIB_FILE` pointing at the
+wrong path than an intentional deletion, so the default keeps the ledger
+untouched until a human confirms. `--remove-stale` still refuses (raises)
+if the bib file comes back completely empty against a non-empty ledger,
+for the same reason -- fix the export/path rather than deleting everything
+in one run.
+
+All paths are configurable in `config.toml` (repo root), overridable
+per-run with an env var of the same name, e.g. `BIB_FILE=/path/to/other.bib
+python -m src.sync`. See [CONFIG.md](CONFIG.md) for the
+full settings reference.
+
+

@@ -43,11 +43,22 @@ Scope: this serialises *writers*. Readers are deliberately unaffected,
 which is the point of the separate file.
 """
 
+import json
+import os
+import socket
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 from src import config
 
+
+# A run holding the lock for longer than this is *probably* wedged
+# rather than busy. Deliberately generous -- a full first-time parse of a
+# large corpus is legitimately long -- because this only changes the
+# wording, never the behaviour. It exists so an unattended caller has
+# something to alert on other than exit 2, which is normal.
+_STUCK_AFTER_SECONDS = 6 * 60 * 60
 
 class AlreadyRunning(RuntimeError):
     """Another sync or heavy-pipeline run holds the lock."""
@@ -57,6 +68,52 @@ class AlreadyRunning(RuntimeError):
 # something failed") so an unattended caller can tell a skipped cycle
 # from a real failure without parsing output.
 EXIT_ALREADY_RUNNING = 2
+
+
+def _describe_holder(path) -> "tuple[int, str, str, float] | None":
+    """(pid, host, started_at, age_seconds) for the current holder, or
+    None if that can't be read.
+
+    Never raises: failing to describe the holder must not replace a
+    useful refusal with a traceback. The details can also be stale (a
+    previous holder's, if this one hasn't written yet), which is why the
+    message presents them as advisory and nothing depends on them.
+    """
+    try:
+        data = json.loads(Path(str(path) + ".holder").read_text())
+        started = datetime.fromisoformat(data["started_at"])
+        return (data["pid"], data["host"], data["started_at"],
+                (datetime.now(timezone.utc) - started).total_seconds())
+    except Exception:  # noqa: BLE001 -- see docstring
+        return None
+
+
+def _refusal_message(path) -> str:
+    base = (
+        f"another sync or pipeline run is already running (it holds {path}), so "
+        "this run was skipped. Nothing is lost -- the pipeline is incremental, "
+        "and the next run continues from where this one would have started."
+    )
+    holder = _describe_holder(path)
+    if holder is None:
+        return base
+    pid, host, started_at, age = holder
+    base += f" That run: pid {pid} on {host}, started {started_at} ({age / 60:.0f} min ago)."
+    if age >= _STUCK_AFTER_SECONDS:
+        # A distinct, grep-able phrase: exit 2 alone is normal and says
+        # nothing about duration, so an unattended caller needs a signal
+        # that "skipped" has stopped being benign.
+        base += (
+            " POSSIBLY STUCK: it has held the lock far longer than a run should "
+            "take, and every run since has been skipped. Check that process is "
+            "alive and making progress; the lock frees itself once it exits."
+        )
+    else:
+        base += (
+            " The lock frees itself when that run exits, including on a crash, so "
+            "if you believe none is active then one really is still alive."
+        )
+    return base
 
 
 class pipeline_lock:
@@ -72,6 +129,34 @@ class pipeline_lock:
     def __init__(self, path=None):
         self._path = Path(path) if path is not None else config.PIPELINE_LOCK_PATH
         self._con = None
+
+    def _record_holder(self) -> None:
+        """Note who we are, in a plain file beside the lock.
+
+        Deliberately NOT a row in the lock database. Writing one would
+        mean committing on the lock connection, and a COMMIT *releases*
+        BEGIN IMMEDIATE -- so a commit-then-reacquire sequence opens a
+        window where a second process can take the lock while this one
+        still believes it holds it. Committing before acquiring instead
+        would make a loser read its own details rather than the winner's.
+        A separate file avoids both: it touches the lock's transaction
+        not at all.
+
+        Best-effort. These details are advisory -- they exist for a human
+        deciding whether to go looking for a process -- so failing to
+        write them must never cost the lock we just won.
+        """
+        try:
+            self._holder_path().write_text(json.dumps({
+                "pid": os.getpid(),
+                "host": socket.gethostname(),
+                "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            }))
+        except OSError:
+            pass
+
+    def _holder_path(self):
+        return self._path.with_name(self._path.name + ".holder")
 
     def __enter__(self):
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -98,19 +183,14 @@ class pipeline_lock:
             # that does not exist.
             if getattr(exc, "sqlite_errorcode", None) != sqlite3.SQLITE_BUSY:
                 raise
-            raise AlreadyRunning(
-                f"another sync or pipeline run is already running (it holds "
-                f"{self._path}), so this run was skipped. Nothing is lost -- "
-                "the pipeline is incremental, and the next run continues from "
-                "where this one would have started. The lock is released "
-                "automatically when its holder exits, including on a crash, so "
-                "if you believe no run is active then one really is still "
-                "alive: find and stop it."
-            ) from exc
+            raise AlreadyRunning(_refusal_message(self._path)) from exc
         except Exception:
             self._con.close()
             self._con = None
             raise
+        # Only after the lock is genuinely held: the details describe the
+        # winner, and writing them cannot affect whether we won.
+        self._record_holder()
         return self
 
     def __exit__(self, *exc_info):

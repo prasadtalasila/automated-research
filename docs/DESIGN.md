@@ -121,6 +121,43 @@ Suggested improvement:
 - define small interfaces for text extraction, structured parsing, retrieval, and embedding
 - inject implementations where practical instead of importing concrete tools everywhere
 
+## Concurrency and conflict policy
+
+The rule the rest of this section implements. Every change to how runs
+interact, fail, or refuse each other should be checked against it, in
+this order of precedence:
+
+1. **Corpus integrity outranks availability.** When in doubt, fail
+   visibly and record nothing. A visible failure costs a re-run; a silent
+   wrong entry costs a false citation, which is the failure this whole
+   repository exists to prevent.
+2. **The ledger is the sole authority, and every state in it must be
+   recoverable by re-running.** No failure may require hand-editing the
+   ledger, and none may become permanently invisible: failures caused by
+   the *run* are retried automatically; failures caused by the *document*
+   are not re-parsed, but are reported with a nonzero exit on every run
+   until resolved.
+3. **Every abnormal exit releases the lock, kills its children, and
+   leaves the ledger stating what did not complete.** A run may be
+   refused, fail, or succeed -- never end ambiguously.
+4. **Because writers are serialised, no serial section may be
+   unbounded.** Anything holding the lock must be observably making
+   progress or be subject to a watchdog, and anything that kills work
+   must warn before it acts.
+5. **Exit codes are the API for unattended callers**: `0` corpus in sync;
+   `1` corpus not in sync, human attention needed; `2` cycle skipped, no
+   work lost. Exit 2 must not be able to persist indefinitely without
+   escalation.
+6. **The serial, default-configuration path does not change behaviour in
+   a minor release.** Opt-in features may carry protective sub-defaults;
+   anything else that changes what an existing invocation does is a major
+   release.
+
+Two worked examples of the precedence mattering. A document Docling only
+half-parsed is discarded rather than stored (1 over availability). A
+corrupt PDF is *not* retried, yet still fails the run every time (2:
+never silent, but also never pointlessly expensive).
+
 ## Concurrency and resource design
 
 The parse path is the only part of this repository that is concurrent,
@@ -192,7 +229,7 @@ guarantees it starts all of them.
 
 ### Failure and interruption are part of the design
 
-Four distinct failure modes, each handled where it can be:
+Five distinct failure modes, each handled where it can be:
 
 - **A dead worker.** `BrokenProcessPool` is caught and the unfinished
   documents are reported as failures rather than the run being aborted.
@@ -211,6 +248,13 @@ Four distinct failure modes, each handled where it can be:
 - **A slow document.** `[parser].document_timeout` is honoured by each
   backend's own mechanism, and they are not equally strong: a real kill
   for `pdftotext`, a cooperative between-stages check for `docling`.
+- **A document the backend cannot read.** Distinguished from the four
+  below by *cause*, recorded as such, and deliberately not retried: the
+  backend already read this PDF and could not parse it, so re-reading it
+  every run would spend the same minutes to reach the same answer, and a
+  run that exits nonzero forever trains its reader to ignore that. It
+  stays reported, with a nonzero exit, until fixed or removed --
+  `sync --reparse` is the override.
 - **Ctrl+C.** Handled by an explicit SIGINT handler, because an
   `except KeyboardInterrupt` around `as_completed()` never fires. The
   handler terminates workers -- with a grace period then `kill()`, since

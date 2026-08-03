@@ -107,6 +107,9 @@ docs/                     reference docs that ship in the release zip -- everyth
                           root-level ones above, which stay put because they're what a reader looks
                           for first
   PARALLELISM.md            how the parser got 17x faster across six releases, and what it cost
+  ZOTERO.md                 getting a bib file and its PDFs into the shape this pipeline expects
+  CLI.md                    every command, and which interpreter each one needs
+  CONFIG.md                 every setting, with config.toml.example reproduced in full
   PDF-PARSER.md             parser backend tradeoffs, and why grobid/markitdown were removed
   DESIGN.md                 architecture and design decisions
   CITATION-PROVENANCE.md    what src/citation_provenance.py reports and how to read it
