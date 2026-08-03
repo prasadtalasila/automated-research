@@ -386,6 +386,25 @@ Two caveats worth knowing:
   retrieval tokenises on whitespace, so ranking is unaffected -- but
   don't expect `diff` to come back empty.
 
+#### Interrupting a run
+
+Ctrl+C stops a parallel run in about a second, reports how far it got,
+and terminates its workers rather than waiting for them:
+
+```
+  [204/501] bakirtzis_ontological_2022
+  interrupted -- 204/501 document(s) parsed. Work already finished is kept; re-run to continue.
+```
+
+Nothing is lost. The ledger commits as each document lands, so a re-run
+picks up where the interrupt left off and re-parses only what didn't
+finish.
+
+Progress is printed to stderr as each document completes, so a long run
+over a large corpus is visibly making progress -- which matters because
+docling's own OCR chatter can otherwise fill the terminal for half an
+hour with no sign of whether anything is happening.
+
 #### Parse-quality guard
 
 `sync` checks each freshly extracted document and warns when an
@@ -471,8 +490,10 @@ onnxruntime), so the GPU buys far less than its presence suggests, and
 three of this host's four GPUs are never addressed at all: docling's
 `AcceleratorDevice.AUTO` resolves to `cuda:0` for every process.
 
-`bench/PARALLELISM-PLAN.md`, also developer-only, is the plan that
-follows from this -- CPU-level document parallelism first, GPU
+[docs/PARALLELISM.md](docs/PARALLELISM.md) tells the whole story --
+six releases, what each was worth, and the four conclusions that turned
+out wrong. `bench/PARALLELISM-PLAN.md`, developer-only, is the plan that
+followed from this -- CPU-level document parallelism first, GPU
 assignment second, in that order because that is where the measurement
 says the wall clock is.
 

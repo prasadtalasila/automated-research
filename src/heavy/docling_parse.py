@@ -533,11 +533,27 @@ def parse_corpus(docs: list[CorpusDoc]) -> dict[str, str]:
                 status[doc.doc_id] = f"ok: {parse_doc(doc, cache=cache)}"
             except Exception as exc:  # noqa: BLE001 -- as below
                 status[doc.doc_id] = f"error: {exc}"
-        with _executor_for(workers) as executor:
+        # Explicit shutdown rather than `with`, for the reason src/sync.py
+        # gives: the context manager waits for every queued job, so
+        # Ctrl+C would drain the whole corpus before exiting.
+        executor = _executor_for(workers)
+        done = 0
+        try:
             for doc_id, doc_status, fingerprint in executor.map(parse_one, jobs):
                 status[doc_id] = doc_status
                 if fingerprint is not None:
                     cache[doc_id] = fingerprint
+                done += 1
+                print(f"  [{done}/{len(jobs)}] {doc_id}")
+        except KeyboardInterrupt:
+            executor.shutdown(wait=False, cancel_futures=True)
+            pdf_text.terminate_workers(executor)
+            print(f"\n  interrupted after {done}/{len(jobs)} document(s) -- "
+                  "parsed output is kept; re-run to continue.")
+            _save_cache(cache)
+            raise
+        finally:
+            executor.shutdown(wait=False)
     else:
         converter = _LazyConverter()
         for doc in docs:

@@ -180,13 +180,17 @@ class TestRun:
         assert rc == 0
         assert "0 parsed, 2 unchanged, 1 without a PDF attachment, 0 failed" in out
 
-    def test_previously_failed_parse_is_not_retried_while_pdf_unchanged(
+    def test_previously_failed_parse_is_retried_on_the_next_run(
         self, basic_corpus, monkeypatch, capsys
     ):
-        # Documents current (if perhaps surprising) behavior: pdf_hash is
-        # recorded on the *first* attempt regardless of parse outcome, so
-        # a second run with the same PDF content sees needs_parse=False
-        # and never retries -- only a change to the PDF's bytes does.
+        # Was the opposite until v1.2.0, and the test that asserted it
+        # called the behaviour "perhaps surprising" -- pdf_hash is
+        # recorded on the *first* attempt regardless of outcome, so a
+        # failed document was skipped forever unless its bytes changed.
+        # Harmless while failures were per-document and permanent; not
+        # harmless once one dead pool worker can mark every in-flight
+        # document parse_failed, because an unattended run would then
+        # drop them from the corpus for good.
         monkeypatch.setattr(
             pdf_text, "extract_text", fake_extract_text_factory(fail_citekeys={"doe_broken_2023"})
         )
@@ -195,14 +199,34 @@ class TestRun:
 
         rc = sync.run()
         out = capsys.readouterr().out
-        assert rc == 0
-        assert "0 parsed, 2 unchanged, 1 without a PDF attachment, 0 failed" in out
+        assert rc == 1  # retried, failed again, and said so
+        assert "0 parsed, 1 unchanged, 1 without a PDF attachment, 1 failed" in out
         con = ledger.connect()
         try:
             row = {r["citekey"]: r for r in ledger.all_items(con)}["doe_broken_2023"]
         finally:
             con.close()
         assert row["status"] == "parse_failed"
+
+    def test_a_retried_parse_that_succeeds_recovers_the_document(
+        self, basic_corpus, monkeypatch, capsys
+    ):
+        """The point of retrying: a transient failure (a dead worker, an
+        OOM) must not cost the document permanently."""
+        monkeypatch.setattr(
+            pdf_text, "extract_text", fake_extract_text_factory(fail_citekeys={"doe_broken_2023"})
+        )
+        sync.run()
+        capsys.readouterr()
+
+        monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
+        assert sync.run() == 0
+        con = ledger.connect()
+        try:
+            row = {r["citekey"]: r for r in ledger.all_items(con)}["doe_broken_2023"]
+        finally:
+            con.close()
+        assert row["status"] == "parsed"
 
     def test_changed_pdf_bytes_triggers_reparse(self, basic_corpus, monkeypatch, capsys):
         monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
@@ -699,14 +723,11 @@ class TestParallelParsing:
         from concurrent.futures.process import BrokenProcessPool
 
         class DeadExecutor:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *exc_info):
-                return False
-
             def submit(self, *args, **kwargs):
                 raise BrokenProcessPool("pool was already dead")
+
+            def shutdown(self, *args, **kwargs):
+                pass
 
         monkeypatch.setattr(sync, "_executor_for", lambda workers: DeadExecutor())
         rc = sync.run()
@@ -853,3 +874,94 @@ class TestGpuAssignment:
         monkeypatch.setattr(config, "PARSER", "pdftotext")
         with sync._executor_for(2) as ex:
             assert isinstance(ex, ThreadPoolExecutor)
+
+
+class TestInterrupt:
+    """Ctrl+C during a parallel run.
+
+    Reported from real use on 501 documents: the run "took forever to
+    exit" and emitted docling teardown tracebacks. Cause: every job is
+    submitted up front, and `with executor` calls shutdown(wait=True) on
+    the way out -- so an interrupt drained the entire remaining queue
+    instead of stopping.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _pool(self, monkeypatch):
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(config, "PARSER_WORKERS", 4)
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 48)
+        monkeypatch.setattr(sync, "_executor_for", _thread_executor)
+
+    def test_pending_work_is_cancelled_not_drained(self, many_corpus, monkeypatch, capsys):
+        """The bug: `with executor` shuts down with wait=True, draining
+        every queued document before exiting.
+
+        Asserted on the shutdown call rather than on how many documents
+        happened to start: with fast workers the race is real, and the
+        contract -- cancel what has not begun, don't block on what has --
+        is the thing that actually fixes the reported symptom.
+        """
+        recorded = []
+
+        def recording_executor(workers):
+            inner = _thread_executor(workers)
+            real_shutdown = inner.shutdown
+
+            def shutdown(*args, **kwargs):
+                recorded.append(kwargs)
+                return real_shutdown(*args, **kwargs)
+
+            inner.shutdown = shutdown
+            return inner
+
+        monkeypatch.setattr(sync, "_executor_for", recording_executor)
+        monkeypatch.setattr(
+            pdf_text, "extract_one", lambda job: (_ for _ in ()).throw(KeyboardInterrupt)
+        )
+        with pytest.raises(KeyboardInterrupt):
+            sync.run()
+
+        assert any(k.get("cancel_futures") for k in recorded), recorded
+        assert all(k.get("wait") is False for k in recorded), recorded
+
+    def test_interrupt_says_what_it_did(self, many_corpus, monkeypatch, capsys):
+        def interrupt_immediately(job):
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(pdf_text, "extract_one", interrupt_immediately)
+        with pytest.raises(KeyboardInterrupt):
+            sync.run()
+        assert "interrupted" in capsys.readouterr().err.lower()
+
+
+class TestProgressReporting:
+    """A parallel run reported nothing until every document finished.
+
+    Over a 501-PDF corpus that is half an hour of apparent silence --
+    the user-visible symptom being pages of docling's own OCR chatter and
+    no indication anything was progressing.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _pool(self, monkeypatch):
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(config, "PARSER_WORKERS", 4)
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 48)
+        monkeypatch.setattr(sync, "_executor_for", _thread_executor)
+
+    def test_each_completion_is_reported_as_it_lands(self, many_corpus, monkeypatch, capsys):
+        monkeypatch.setattr(pdf_text, "extract_one", fake_extract_one_factory())
+        sync.run()
+        err = capsys.readouterr().err
+        # A counter, so the reader can see both rate and remaining work.
+        assert "[1/6]" in err and "[6/6]" in err
+
+    def test_stdout_stays_in_bibliography_order(self, many_corpus, monkeypatch, capsys):
+        """Live progress goes to stderr precisely so stdout can stay
+        deterministic and diffable between runs."""
+        monkeypatch.setattr(pdf_text, "extract_one", fake_extract_one_factory())
+        sync.run()
+        printed = [ln.split()[-1] for ln in capsys.readouterr().out.splitlines()
+                   if ln.startswith("  parsed  ")]
+        assert printed == [f"doc_{i}_2024" for i in range(6)]

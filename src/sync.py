@@ -119,8 +119,19 @@ def _parse_parallel(refs, workers: int, threads: int | None):
     # documents as failures. as_completed records each result at the
     # moment it lands, so a broken pool costs only what was actually in
     # flight.
+    # Not `with _executor_for(...)`: the context manager's __exit__ calls
+    # shutdown(wait=True), and every job is submitted up front, so a
+    # KeyboardInterrupt would drain the *entire* remaining queue before
+    # exiting. Reported from real use on a 501-document corpus -- Ctrl+C
+    # "took forever to exit" and emitted docling teardown tracebacks from
+    # workers still being fed. Shutdown is therefore explicit below, with
+    # cancel_futures on the interrupt path.
+    executor = _executor_for(workers)
+    done = 0
     try:
-        with _executor_for(workers) as executor:
+        with pdf_text.interrupt_guard(
+            executor, lambda: f"{done}/{len(jobs)} document(s) parsed"
+        ):
             futures = [executor.submit(pdf_text.extract_one, job) for job in jobs]
             for future in as_completed(futures):
                 try:
@@ -129,9 +140,29 @@ def _parse_parallel(refs, workers: int, threads: int | None):
                     broken = pool_exc
                     continue
                 results[citekey] = (out_path, exc)
+                done += 1
+                # Live progress, on stderr so stdout stays in
+                # bibliography order and diffable between runs. Without
+                # it a parallel run over a real corpus prints nothing for
+                # tens of minutes, which is indistinguishable from being
+                # stuck -- especially under docling's own OCR chatter.
+                print(f"  [{done}/{len(jobs)}] {citekey}", file=sys.stderr)
     except BrokenProcessPool as pool_exc:
         # submit() itself raises once the pool is already known-broken.
         broken = pool_exc
+    except KeyboardInterrupt:
+        # cancel_futures drops everything not yet started; wait=False
+        # means we don't block on the handful still running. Whatever
+        # finished is still recorded by the caller, so an interrupted run
+        # keeps its work rather than discarding it.
+        executor.shutdown(wait=False, cancel_futures=True)
+        pdf_text.terminate_workers(executor)
+        print(f"\n  interrupted after {done}/{len(jobs)} document(s) -- "
+              "work already finished is kept; re-run to continue.",
+              file=sys.stderr)
+        raise
+    finally:
+        executor.shutdown(wait=False)
     if broken is not None:
         # A worker killed outright (the OOM killer is the realistic
         # cause) takes the whole pool with it, and every future still in
