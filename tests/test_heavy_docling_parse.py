@@ -1019,3 +1019,65 @@ class TestParseCorpusInterrupt:
         docling_parse.parse_corpus(self._docs(tmp_path))
         out = capsys.readouterr().out
         assert "[1/6]" in out and "[6/6]" in out
+
+
+class TestHeavyPartialSuccess:
+    """The heavy stage had the same silent-truncation hole src/pdf_text.py
+    closed in v1.2.0: convert(raises_on_error=True) raises only on
+    FAILURE, so a PARTIAL_SUCCESS returned a document that stops early
+    and parse_doc wrote it to content/docling/<doc>.md as if complete.
+
+    That output feeds embeddings, topic modelling and citation
+    provenance, so a truncated .md is a source a claim can be checked
+    against and silently pass.
+    """
+
+    def _doc(self, tmp_path):
+        pdf = tmp_path / "a.pdf"
+        pdf.write_bytes(b"%PDF")
+        return CorpusDoc(doc_id="a", citekey="a", source="bib", title="t",
+                         pdf_path=str(pdf))
+
+    def test_partial_success_is_rejected(self, isolated_config, fake_docling, monkeypatch, tmp_path):
+        monkeypatch.setattr(
+            FakeDocumentConverter, "convert",
+            lambda self, p: _PartialResult("PARTIAL_SUCCESS", ["timeout after 10s"]),
+        )
+        with pytest.raises(RuntimeError, match="PARTIAL_SUCCESS"):
+            docling_parse.parse_doc(self._doc(tmp_path))
+
+    def test_no_markdown_is_written_for_a_partial_parse(
+        self, isolated_config, fake_docling, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(
+            FakeDocumentConverter, "convert",
+            lambda self, p: _PartialResult("PARTIAL_SUCCESS", []),
+        )
+        with pytest.raises(RuntimeError):
+            docling_parse.parse_doc(self._doc(tmp_path))
+        assert not (isolated_config.DOCLING_DIR / "a.md").exists()
+
+    def test_a_partial_parse_is_reported_and_not_cached_by_parse_corpus(
+        self, isolated_config, fake_docling, monkeypatch, tmp_path
+    ):
+        """It must come back for retry on the next run, not be recorded
+        as done."""
+        monkeypatch.setattr(
+            FakeDocumentConverter, "convert",
+            lambda self, p: _PartialResult("PARTIAL_SUCCESS", ["bad page 3"]),
+        )
+        status = docling_parse.parse_corpus([self._doc(tmp_path)])
+        assert status["a"].startswith("error:")
+        cache = json.loads(isolated_config.DOCLING_CACHE_PATH.read_text())
+        assert "a" not in cache["items"]
+
+    def test_success_still_parses(self, isolated_config, fake_docling, tmp_path):
+        out = docling_parse.parse_doc(self._doc(tmp_path))
+        assert out.exists()
+
+
+class _PartialResult:
+    def __init__(self, status_name, messages):
+        self.status = types.SimpleNamespace(name=status_name)
+        self.errors = [types.SimpleNamespace(error_message=m) for m in messages]
+        self.document = FakeDocument("# partial")
