@@ -20,6 +20,7 @@ incremental durability for the mutex.
 """
 
 import multiprocessing
+import os
 import sqlite3
 import time
 
@@ -198,3 +199,79 @@ class TestCleanup:
         with pytest.raises(sqlite3.OperationalError, match="disk I/O"):
             with runlock.pipeline_lock(tmp_path / "pipeline.lock.db"):
                 pass
+
+
+class TestHolderVisibility:
+    """Exit 2 is the one code that carries no information about how long
+    it has been true. The lock message says "nothing is lost -- the next
+    run continues", which is reassuring and wrong if a run has been
+    wedged for a week: every cycle exits 2 and the pipeline silently
+    stops making progress.
+    """
+
+    def test_the_refusal_reports_how_long_the_holder_has_been_running(
+        self, tmp_path, monkeypatch
+    ):
+        path = tmp_path / "pipeline.lock.db"
+        with runlock.pipeline_lock(path):
+            with pytest.raises(runlock.AlreadyRunning) as excinfo:
+                with runlock.pipeline_lock(path):
+                    pass
+        message = str(excinfo.value)
+        assert "started" in message.lower()
+        assert "pid" in message.lower()
+
+    def test_a_long_held_lock_escalates_the_wording(self, tmp_path, monkeypatch):
+        """A grep-able marker, so an unattended caller can alert on it
+        rather than on exit 2 alone -- which is normal."""
+        path = tmp_path / "pipeline.lock.db"
+        with runlock.pipeline_lock(path):
+            monkeypatch.setattr(runlock, "_STUCK_AFTER_SECONDS", 0.0)
+            with pytest.raises(runlock.AlreadyRunning) as excinfo:
+                with runlock.pipeline_lock(path):
+                    pass
+        assert "POSSIBLY STUCK" in str(excinfo.value)
+
+    def test_holder_details_are_recorded_before_the_lock_is_taken(self, tmp_path):
+        """They have to be committed *before* BEGIN IMMEDIATE: a write
+        made while holding it is invisible to the process that loses the
+        race, which is the only one that needs to read it."""
+        path = tmp_path / "pipeline.lock.db"
+        with runlock.pipeline_lock(path):
+            reader = sqlite3.connect(path, timeout=1)
+            row = reader.execute("SELECT pid, started_at FROM holder").fetchone()
+            reader.close()
+        assert row is not None and row[0] == os.getpid()
+
+    def test_a_missing_holder_row_does_not_break_the_refusal(self, tmp_path, monkeypatch):
+        """Defensive: an older lock file has no holder table, and failing
+        to describe the holder must not replace a useful refusal with a
+        crash."""
+        path = tmp_path / "pipeline.lock.db"
+        with runlock.pipeline_lock(path):
+            monkeypatch.setattr(runlock, "_describe_holder", lambda _p: None)
+            with pytest.raises(runlock.AlreadyRunning) as excinfo:
+                with runlock.pipeline_lock(path):
+                    pass
+        assert "already running" in str(excinfo.value).lower()
+
+    def test_an_empty_holder_table_is_handled(self, tmp_path):
+        """A lock file created by a version without the holder table, or
+        one whose row was cleared: describe nothing rather than crash."""
+        path = tmp_path / "pipeline.lock.db"
+        con = sqlite3.connect(path)
+        con.execute(runlock._HOLDER_SCHEMA)
+        con.commit()
+        con.close()
+        assert runlock._describe_holder(path) is None
+
+    def test_an_unreadable_lock_file_is_handled(self, tmp_path):
+        path = tmp_path / "pipeline.lock.db"
+        path.write_text("not a sqlite database at all")
+        assert runlock._describe_holder(path) is None
+
+    def test_the_refusal_survives_an_undescribable_holder(self, tmp_path):
+        """_refusal_message must still say the useful part."""
+        message = runlock._refusal_message(tmp_path / "never-created.db")
+        assert "already running" in message.lower()
+        assert "nothing is lost" in message.lower()
