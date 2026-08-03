@@ -43,6 +43,7 @@ Scope: this serialises *writers*. Readers are deliberately unaffected,
 which is the point of the separate file.
 """
 
+import json
 import os
 import socket
 import sqlite3
@@ -59,16 +60,6 @@ from src import config
 # something to alert on other than exit 2, which is normal.
 _STUCK_AFTER_SECONDS = 6 * 60 * 60
 
-_HOLDER_SCHEMA = """
-CREATE TABLE IF NOT EXISTS holder (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    pid INTEGER,
-    host TEXT,
-    started_at TEXT
-);
-"""
-
-
 class AlreadyRunning(RuntimeError):
     """Another sync or heavy-pipeline run holds the lock."""
 
@@ -81,18 +72,18 @@ EXIT_ALREADY_RUNNING = 2
 
 def _describe_holder(path) -> "tuple[int, str, str, float] | None":
     """(pid, host, started_at, age_seconds) for the current holder, or
-    None if that can't be read. Never raises: failing to describe the
-    holder must not replace a useful refusal with a traceback."""
+    None if that can't be read.
+
+    Never raises: failing to describe the holder must not replace a
+    useful refusal with a traceback. The details can also be stale (a
+    previous holder's, if this one hasn't written yet), which is why the
+    message presents them as advisory and nothing depends on them.
+    """
     try:
-        con = sqlite3.connect(path, timeout=0)
-        try:
-            row = con.execute("SELECT pid, host, started_at FROM holder WHERE id = 1").fetchone()
-        finally:
-            con.close()
-        if row is None:
-            return None
-        started = datetime.fromisoformat(row[2])
-        return row[0], row[1], row[2], (datetime.now(timezone.utc) - started).total_seconds()
+        data = json.loads(Path(str(path) + ".holder").read_text())
+        started = datetime.fromisoformat(data["started_at"])
+        return (data["pid"], data["host"], data["started_at"],
+                (datetime.now(timezone.utc) - started).total_seconds())
     except Exception:  # noqa: BLE001 -- see docstring
         return None
 
@@ -139,25 +130,33 @@ class pipeline_lock:
         self._path = Path(path) if path is not None else config.PIPELINE_LOCK_PATH
         self._con = None
 
-    def _record_holder(self, con) -> None:
-        """Write who we are, and COMMIT, *before* taking the lock.
+    def _record_holder(self) -> None:
+        """Note who we are, in a plain file beside the lock.
 
-        It has to be committed first: a write made while holding
-        BEGIN IMMEDIATE is invisible to the process that loses the race,
-        and that process is the only one who needs to read it. The small
-        race this leaves -- a loser reading a previous holder's row -- is
-        why the message calls the details advisory. Nothing depends on
-        them; they are for a human deciding whether to go looking.
+        Deliberately NOT a row in the lock database. Writing one would
+        mean committing on the lock connection, and a COMMIT *releases*
+        BEGIN IMMEDIATE -- so a commit-then-reacquire sequence opens a
+        window where a second process can take the lock while this one
+        still believes it holds it. Committing before acquiring instead
+        would make a loser read its own details rather than the winner's.
+        A separate file avoids both: it touches the lock's transaction
+        not at all.
+
+        Best-effort. These details are advisory -- they exist for a human
+        deciding whether to go looking for a process -- so failing to
+        write them must never cost the lock we just won.
         """
-        con.execute(_HOLDER_SCHEMA)
-        con.execute(
-            "INSERT INTO holder (id, pid, host, started_at) VALUES (1, ?, ?, ?) "
-            "ON CONFLICT(id) DO UPDATE SET pid = excluded.pid, host = excluded.host, "
-            "started_at = excluded.started_at",
-            (os.getpid(), socket.gethostname(),
-             datetime.now(timezone.utc).isoformat(timespec="seconds")),
-        )
-        con.execute("COMMIT")
+        try:
+            self._holder_path().write_text(json.dumps({
+                "pid": os.getpid(),
+                "host": socket.gethostname(),
+                "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            }))
+        except OSError:
+            pass
+
+    def _holder_path(self):
+        return self._path.with_name(self._path.name + ".holder")
 
     def __enter__(self):
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -174,8 +173,6 @@ class pipeline_lock:
         self._con = sqlite3.connect(self._path, timeout=0, isolation_level=None)
         try:
             self._con.execute("BEGIN IMMEDIATE")
-            self._record_holder(self._con)
-            self._con.execute("BEGIN IMMEDIATE")
         except sqlite3.OperationalError as exc:
             self._con.close()
             self._con = None
@@ -191,6 +188,9 @@ class pipeline_lock:
             self._con.close()
             self._con = None
             raise
+        # Only after the lock is genuinely held: the details describe the
+        # winner, and writing them cannot affect whether we won.
+        self._record_holder()
         return self
 
     def __exit__(self, *exc_info):

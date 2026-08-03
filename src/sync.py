@@ -124,8 +124,8 @@ def _as_they_land(futures, executor, stalled):
         done, pending = wait(pending, timeout=half, return_when=FIRST_COMPLETED)
         if not done and not warned and half is not None:
             warned = True
-            print(f"  WARNING no completions in {half:.0f}s; giving up at "
-                  f"{config.PARSER_STALL_TIMEOUT:.0f}s ([parser].stall_timeout). "
+            print(f"  WARNING no completions in {half:g}s; giving up at "
+                  f"{config.PARSER_STALL_TIMEOUT:g}s ([parser].stall_timeout). "
                   f"{len(pending)} document(s) still running -- if this host is "
                   "simply slow (CPU-only, OCR on, large scans), raise or disable "
                   "that setting rather than letting the run be abandoned.",

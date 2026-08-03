@@ -19,8 +19,10 @@ separate points: wrapping a run in one transaction would trade
 incremental durability for the mutex.
 """
 
+import json
 import multiprocessing
 import os
+import pathlib
 import sqlite3
 import time
 
@@ -232,16 +234,31 @@ class TestHolderVisibility:
                     pass
         assert "POSSIBLY STUCK" in str(excinfo.value)
 
-    def test_holder_details_are_recorded_before_the_lock_is_taken(self, tmp_path):
-        """They have to be committed *before* BEGIN IMMEDIATE: a write
-        made while holding it is invisible to the process that loses the
-        race, which is the only one that needs to read it."""
+    def test_holder_details_live_beside_the_lock_not_inside_it(self, tmp_path):
+        """They must not be a row in the lock database. Writing one means
+        committing on the lock connection, and a COMMIT *releases*
+        BEGIN IMMEDIATE -- so commit-then-reacquire opens a window where
+        a second process can take the lock while this one still believes
+        it holds it. A sidecar touches the transaction not at all."""
         path = tmp_path / "pipeline.lock.db"
         with runlock.pipeline_lock(path):
-            reader = sqlite3.connect(path, timeout=1)
-            row = reader.execute("SELECT pid, started_at FROM holder").fetchone()
-            reader.close()
-        assert row is not None and row[0] == os.getpid()
+            data = json.loads((tmp_path / "pipeline.lock.db.holder").read_text())
+        assert data["pid"] == os.getpid()
+
+    def test_recording_the_holder_never_costs_the_lock(self, tmp_path, monkeypatch):
+        """The details are advisory. If the sidecar cannot be written,
+        the lock we just won must still be held."""
+        path = tmp_path / "pipeline.lock.db"
+
+        def refuse(*_a, **_k):
+            raise OSError("read-only filesystem")
+
+        monkeypatch.setattr(pathlib.Path, "write_text", refuse)
+        with runlock.pipeline_lock(path):
+            monkeypatch.undo()
+            with pytest.raises(runlock.AlreadyRunning):
+                with runlock.pipeline_lock(path):
+                    pass
 
     def test_a_missing_holder_row_does_not_break_the_refusal(self, tmp_path, monkeypatch):
         """Defensive: an older lock file has no holder table, and failing
@@ -255,19 +272,16 @@ class TestHolderVisibility:
                     pass
         assert "already running" in str(excinfo.value).lower()
 
-    def test_an_empty_holder_table_is_handled(self, tmp_path):
-        """A lock file created by a version without the holder table, or
-        one whose row was cleared: describe nothing rather than crash."""
+    def test_a_missing_sidecar_is_handled(self, tmp_path):
+        """A lock file from a version that didn't write one: describe
+        nothing rather than crash."""
         path = tmp_path / "pipeline.lock.db"
-        con = sqlite3.connect(path)
-        con.execute(runlock._HOLDER_SCHEMA)
-        con.commit()
-        con.close()
+        path.write_bytes(b"")
         assert runlock._describe_holder(path) is None
 
-    def test_an_unreadable_lock_file_is_handled(self, tmp_path):
+    def test_a_corrupt_sidecar_is_handled(self, tmp_path):
         path = tmp_path / "pipeline.lock.db"
-        path.write_text("not a sqlite database at all")
+        (tmp_path / "pipeline.lock.db.holder").write_text("{not json")
         assert runlock._describe_holder(path) is None
 
     def test_the_refusal_survives_an_undescribable_holder(self, tmp_path):
