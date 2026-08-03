@@ -23,10 +23,11 @@ below follows from that one rule.
 - **Enforced mechanically, not by good intentions.** A PostToolUse hook
   runs the gate on every write under `content/drafts/`, so a draft cannot
   be saved with an unverifiable citation even if someone forgets.
-- **Provenance you can read.** `citation_provenance` reports what in each
-  cited source actually supports the claim citing it, quoting a real
-  passage; `verbatim_check` finds verbatim overlap and locates it by page.
-  Both are review aids, deliberately not gates.
+- **Provenance you can read.** `python -m src.citation_provenance` reports
+  what in each cited source actually supports the claim citing it,
+  quoting a real passage; `python scripts/verbatim_check.py` finds
+  verbatim overlap and locates it by page. Both are review aids,
+  deliberately not gates.
 
 ### Writing
 
