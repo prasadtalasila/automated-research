@@ -162,6 +162,21 @@ def upsert_reference(con: sqlite3.Connection, ref: Reference) -> bool:
         if pdf_hash != old_hash:
             needs_parse = pdf_hash is not None
             new_status = "discovered" if pdf_hash else "no_pdf"
+        elif old_status == "parse_failed" and pdf_hash is not None:
+            # Retry a failed parse even though the PDF is byte-identical.
+            # Without this, needs_parse was true only for a new or
+            # changed document, so a failure stuck until the file itself
+            # changed -- which for a corrupt PDF is never. That was
+            # tolerable while failures were per-document and permanent;
+            # it stopped being tolerable once a worker pool could mark
+            # every in-flight document parse_failed on one worker's
+            # death. Unattended, that silently drops those documents from
+            # the corpus for good: each later run counts them "unchanged"
+            # and exits 0. A retry costs one re-parse of a genuinely bad
+            # PDF per run, which is visible and bounded; the alternative
+            # is invisible and permanent.
+            needs_parse = True
+            new_status = "discovered"
         else:
             new_status = old_status
         con.execute(

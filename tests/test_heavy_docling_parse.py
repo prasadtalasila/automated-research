@@ -968,3 +968,54 @@ class TestWorkerConverterReuse:
         monkeypatch.setattr(isolated_config, "DOCLING_IMAGES", True)
         docling_parse.parse_one((self._doc(tmp_path, "b"), 4))
         assert FakeDocumentConverter.build_count == 2
+
+
+class TestParseCorpusInterrupt:
+    """Same fix as src/sync.py's: `with executor` waits for every queued
+    job, so Ctrl+C over a real corpus drained the whole backlog first."""
+
+    @pytest.fixture(autouse=True)
+    def _pool(self, isolated_config, monkeypatch):
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(config, "PARSER_WORKERS", 4)
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 48)
+        monkeypatch.setattr(docling_parse, "_executor_for", _thread_executor)
+
+    def _docs(self, tmp_path, n=6):
+        docs = []
+        for i in range(n):
+            pdf = tmp_path / f"p{i}.pdf"
+            pdf.write_bytes(b"%PDF" + b"x" * (50 * i))
+            docs.append(CorpusDoc(doc_id=f"d{i}", citekey=f"d{i}", source="bib",
+                                  title="t", pdf_path=str(pdf)))
+        return docs
+
+    def test_interrupt_keeps_finished_work_and_says_so(
+        self, isolated_config, fake_docling, monkeypatch, tmp_path, capsys
+    ):
+        seen = []
+        real = docling_parse.parse_one
+
+        def interrupt_after_two(job):
+            seen.append(job[0].doc_id)
+            if len(seen) == 3:
+                raise KeyboardInterrupt
+            return real(job)
+
+        monkeypatch.setattr(docling_parse, "parse_one", interrupt_after_two)
+        with pytest.raises(KeyboardInterrupt):
+            docling_parse.parse_corpus(self._docs(tmp_path))
+
+        out = capsys.readouterr().out
+        assert "interrupted after" in out
+        # The cache is persisted on the way out, so the documents that did
+        # finish are not re-parsed on the next run.
+        cache = json.loads(isolated_config.DOCLING_CACHE_PATH.read_text())
+        assert len(cache["items"]) >= 1
+
+    def test_progress_is_reported_as_documents_land(
+        self, isolated_config, fake_docling, tmp_path, capsys
+    ):
+        docling_parse.parse_corpus(self._docs(tmp_path))
+        out = capsys.readouterr().out
+        assert "[1/6]" in out and "[6/6]" in out

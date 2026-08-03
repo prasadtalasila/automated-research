@@ -9,6 +9,7 @@ doesn't need the real package installed.
 
 import importlib.machinery
 import shutil
+import signal
 import subprocess
 import sys
 import types
@@ -659,3 +660,154 @@ class _FakeLock:
 
     def __exit__(self, *exc_info):
         return False
+
+
+class TestDoclingPartialSuccess:
+    """docling's convert(raises_on_error=True) raises only on FAILURE.
+    PARTIAL_SUCCESS returns quietly with a document that stops early --
+    a bad page, or document_timeout expiring. Writing that to
+    content/parsed/<citekey>.txt and marking it parsed would hand the
+    citation gate a source that silently ends at page k of n."""
+
+    def test_partial_success_is_rejected(self, isolated_config, fake_docling, monkeypatch, tmp_path):
+        monkeypatch.setattr(
+            fake_docling, "convert",
+            lambda self, p: _FakeResult("PARTIAL_SUCCESS", ["timeout after 10s"]),
+            raising=False,
+        )
+        with pytest.raises(pdf_text.ExtractionError, match="PARTIAL_SUCCESS"):
+            pdf_text.extract_text(str(tmp_path / "a.pdf"), "a")
+
+    def test_the_reason_docling_gave_is_carried_through(
+        self, isolated_config, fake_docling, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(
+            fake_docling, "convert",
+            lambda self, p: _FakeResult("PARTIAL_SUCCESS", ["Document processing timeout"]),
+            raising=False,
+        )
+        with pytest.raises(pdf_text.ExtractionError, match="timeout"):
+            pdf_text.extract_text(str(tmp_path / "a.pdf"), "a")
+
+    def test_no_file_is_written_for_a_partial_parse(
+        self, isolated_config, fake_docling, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(
+            fake_docling, "convert",
+            lambda self, p: _FakeResult("PARTIAL_SUCCESS", []), raising=False,
+        )
+        with pytest.raises(pdf_text.ExtractionError):
+            pdf_text.extract_text(str(tmp_path / "a.pdf"), "a")
+        assert not (isolated_config.PARSED_DIR / "a.txt").exists()
+
+    def test_success_passes_through(self, isolated_config, fake_docling, tmp_path):
+        out = pdf_text.extract_text(str(tmp_path / "a.pdf"), "a")
+        assert out.read_text().startswith("# Parsed content")
+
+    def test_a_backend_without_a_status_attribute_is_not_rejected(self):
+        """Defensive: don't make the check itself a new failure mode if a
+        docling version stops exposing status."""
+        pdf_text._check_docling_status(types.SimpleNamespace())
+
+
+class _FakeResult:
+    def __init__(self, status_name, messages):
+        self.status = types.SimpleNamespace(name=status_name)
+        self.errors = [types.SimpleNamespace(error_message=m) for m in messages]
+        self.document = FakeDoclingDocument("# partial")
+
+
+class _FakeProcess:
+    def __init__(self, alive_after_terminate=False, raises=None):
+        self.terminated = False
+        self.killed = False
+        self.joined = None
+        self._alive = alive_after_terminate
+        self._raises = raises
+
+    def terminate(self):
+        if self._raises:
+            raise self._raises
+        self.terminated = True
+
+    def join(self, timeout=None):
+        self.joined = timeout
+
+    def is_alive(self):
+        return self._alive
+
+    def kill(self):
+        self.killed = True
+        self._alive = False
+
+
+class TestTerminateWorkers:
+    """Ctrl+C has to leave nothing behind holding a GPU."""
+
+    def test_workers_are_asked_to_stop(self):
+        procs = {0: _FakeProcess(), 1: _FakeProcess()}
+        pdf_text.terminate_workers(types.SimpleNamespace(_processes=procs))
+        assert all(p.terminated for p in procs.values())
+        assert not any(p.killed for p in procs.values())
+
+    def test_a_worker_ignoring_sigterm_is_killed(self):
+        """Measured for real: 21 processes survived terminate() alone,
+        because onnxruntime/torch native code doesn't honour it promptly."""
+        stubborn = _FakeProcess(alive_after_terminate=True)
+        pdf_text.terminate_workers(types.SimpleNamespace(_processes={0: stubborn}))
+        assert stubborn.terminated and stubborn.killed
+        assert stubborn.joined == pdf_text._TERMINATE_GRACE_SECONDS
+
+    def test_an_already_reaped_worker_is_not_an_error(self):
+        gone = _FakeProcess(raises=ProcessLookupError("no such process"))
+        pdf_text.terminate_workers(types.SimpleNamespace(_processes={0: gone}))
+
+    def test_a_worker_that_dies_between_terminate_and_join_is_not_an_error(self):
+        """The race this guards: the process exits on its own between the
+        two loops, so join/kill find nothing. Ctrl+C must not turn into a
+        traceback because a worker was helpful."""
+        class VanishingProcess(_FakeProcess):
+            def join(self, timeout=None):
+                raise ProcessLookupError("reaped between terminate and join")
+
+        vanishing = VanishingProcess()
+        pdf_text.terminate_workers(types.SimpleNamespace(_processes={0: vanishing}))
+        assert vanishing.terminated
+
+    def test_a_thread_pool_has_nothing_to_terminate(self):
+        """The pdftotext backend uses threads; there are no processes."""
+        pdf_text.terminate_workers(types.SimpleNamespace())
+
+
+class TestInterruptGuard:
+    def test_it_installs_and_restores_the_handler(self):
+        before = signal.getsignal(signal.SIGINT)
+        with pdf_text.interrupt_guard(types.SimpleNamespace(), lambda: "0/0"):
+            assert signal.getsignal(signal.SIGINT) is not before
+        assert signal.getsignal(signal.SIGINT) is before
+
+    def test_off_the_main_thread_it_degrades_instead_of_raising(self, monkeypatch):
+        """signal.signal raises ValueError off the main thread. The pool
+        still works there; it just can't catch Ctrl+C."""
+        def refuse(*args):
+            raise ValueError("signal only works in main thread")
+
+        monkeypatch.setattr(pdf_text.signal, "signal", refuse)
+        with pdf_text.interrupt_guard(types.SimpleNamespace(), lambda: "0/0") as guard:
+            assert guard._previous is None
+
+    def test_the_handler_reports_progress_terminates_and_exits(self, monkeypatch, capsys):
+        procs = {0: _FakeProcess()}
+        exits = []
+        monkeypatch.setattr(pdf_text.os, "_exit", lambda code: exits.append(code))
+
+        guard = pdf_text.interrupt_guard(
+            types.SimpleNamespace(_processes=procs), lambda: "7/24 document(s) parsed"
+        )
+        guard._on_sigint(signal.SIGINT, None)
+
+        err = capsys.readouterr().err
+        assert "7/24" in err and "re-run to continue" in err
+        assert procs[0].terminated
+        # 130 = 128 + SIGINT, the conventional shell exit code.
+        assert exits == [130]

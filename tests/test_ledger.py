@@ -435,3 +435,59 @@ class TestPruneMissing:
         # paired with a genuinely empty bib file is a normal, un-suspicious
         # state, not a signal of corruption.
         assert ledger.prune_missing(ledger_con, seen_citekeys=set()) == []
+
+
+class TestFailedParseIsRetried:
+    """A parse that failed must be retried on the next sync.
+
+    Before this, needs_parse was true only for a new row or a changed
+    pdf_hash, so a `parse_failed` document was skipped forever unless its
+    PDF *bytes* changed. Harmless when failures were per-document and
+    permanent (a corrupt PDF); not harmless once a worker pool exists,
+    because a single dead worker marks every in-flight document
+    parse_failed. Under an unattended cron that silently removes those
+    documents from the corpus for good: every later run counts them
+    "unchanged" and exits 0.
+    """
+
+    def test_parse_failed_is_retried_while_the_pdf_is_unchanged(
+        self, isolated_config, ledger_con, tmp_path
+    ):
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"%PDF-1.4 content")
+        ref = make_reference(pdf_path=str(pdf))
+
+        assert ledger.upsert_reference(ledger_con, ref) is True
+        ledger.mark_parse_failed(ledger_con, ref.citekey, "worker died")
+
+        # Same bytes, same mtime -- and it must still come back for retry.
+        assert ledger.upsert_reference(ledger_con, ref) is True
+
+    def test_a_successful_parse_is_still_not_redone(
+        self, isolated_config, ledger_con, tmp_path
+    ):
+        """The incremental skip is the whole point of the ledger; only
+        the failed state is retried."""
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"%PDF-1.4 content")
+        ref = make_reference(pdf_path=str(pdf))
+
+        ledger.upsert_reference(ledger_con, ref)
+        ledger.mark_parsed(ledger_con, ref.citekey, tmp_path / "out.txt")
+
+        assert ledger.upsert_reference(ledger_con, ref) is False
+
+    def test_retrying_resets_the_status_so_it_is_not_reported_as_failed(
+        self, isolated_config, ledger_con, tmp_path
+    ):
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"%PDF-1.4 content")
+        ref = make_reference(pdf_path=str(pdf))
+        ledger.upsert_reference(ledger_con, ref)
+        ledger.mark_parse_failed(ledger_con, ref.citekey, "worker died")
+
+        ledger.upsert_reference(ledger_con, ref)
+        row = ledger_con.execute(
+            "SELECT status FROM items WHERE citekey = ?", (ref.citekey,)
+        ).fetchone()
+        assert row[0] == "discovered"

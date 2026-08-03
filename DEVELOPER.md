@@ -46,6 +46,8 @@ hours, needs real PDFs and a GPU, and answers a "how long / what's the
 bottleneck" question rather than a pass/fail one. It is excluded from the
 release zip for the same reason `tests/` is.
 
+- [docs/PARALLELISM.md](docs/PARALLELISM.md) -- the whole story across six
+  releases, including the four conclusions that turned out wrong
 - [bench/README.md](bench/README.md) -- how to run it, and what each
   switch measures
 - [bench/RESULTS.md](bench/RESULTS.md) -- the 2026-08-02 baseline, with
@@ -104,6 +106,7 @@ DOCKER.md                 running this repo in a container (docker/Dockerfile)
 docs/                     reference docs that ship in the release zip -- everything except the four
                           root-level ones above, which stay put because they're what a reader looks
                           for first
+  PARALLELISM.md            how the parser got 17x faster across six releases, and what it cost
   PDF-PARSER.md             parser backend tradeoffs, and why grobid/markitdown were removed
   DESIGN.md                 architecture and design decisions
   CITATION-PROVENANCE.md    what src/citation_provenance.py reports and how to read it
