@@ -41,13 +41,15 @@ aren't on `PATH`.
 ## Benchmarking the parser
 
 `bench/` measures what a full `docling` parse of the bib corpus costs on
-this host, and is deliberately kept out of `tests/`: it takes a couple of
+a given machine, and is deliberately kept out of `tests/`: it takes a couple of
 hours, needs real PDFs and a GPU, and answers a "how long / what's the
 bottleneck" question rather than a pass/fail one. It is excluded from the
 release zip for the same reason `tests/` is.
 
-- [docs/PARALLELISM.md](docs/PARALLELISM.md) -- the whole story across six
-  releases, including the four conclusions that turned out wrong
+- [docs/PERFORMANCE.md](docs/PERFORMANCE.md) -- what each setting costs,
+  organised by setting. Ships in the release archive, unlike `bench/`
+- [docs/PARALLELISM.md](docs/PARALLELISM.md) -- the whole story across
+  seven releases, including the six conclusions that turned out wrong
 - [bench/README.md](bench/README.md) -- how to run it, and what each
   switch measures
 - [bench/RESULTS.md](bench/RESULTS.md) -- the 2026-08-02 baseline, with
@@ -76,9 +78,9 @@ The headline, in the order it was found:
    ~1.5-2s off pool startup -- 9.6% of an 8-document run, 2.5% of a
    60-document one.
 
-The lesson worth carrying: every one of those steps was measured, and two
-of the four intermediate conclusions were wrong until the next
-measurement corrected them. `bench/` exists so that the next one is
+The lesson worth carrying: every one of those steps was measured, and six
+intermediate conclusions were wrong until the next measurement corrected
+them -- including two that sat in the code as stated fact. `bench/` exists so that the next one is
 checked too.
 
 ## Writing a script that drives the heavy pipeline
@@ -113,7 +115,9 @@ DOCKER.md                 running this repo in a container (docker/Dockerfile)
 docs/                     reference docs that ship in the release zip -- everything except the four
                           root-level ones above, which stay put because they're what a reader looks
                           for first
-  PARALLELISM.md            how the parser got 17x faster across six releases, and what it cost
+  PARALLELISM.md            how the parser got 17x faster across seven releases, and what it cost
+  PERFORMANCE.md            what each config setting costs, measured -- the lookup-oriented companion
+                            to PARALLELISM.md's narrative
   ZOTERO.md                 getting a bib file and its PDFs into the shape this pipeline expects
   CLI.md                    every command, and which interpreter each one needs
   CONFIG.md                 every setting, with config.toml.example reproduced in full

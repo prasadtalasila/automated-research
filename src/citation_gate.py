@@ -223,8 +223,27 @@ def run(paths: list[str]) -> int:
     return 0 if all_ok else 1
 
 
+USAGE = """usage: python -m src.citation_gate <file> [<file> ...]
+
+Fail if a draft cites a citekey the ledger doesn't hold. Exit 0 = every
+citation verified, 1 = at least one unresolved citekey, 2 = bad usage.
+
+Takes no options: every argument is a file to check. Reads only
+content/ledger.sqlite via stdlib sqlite3, so it runs under a bare
+python3 with no venv."""
+
+
 if __name__ == "__main__":
+    # Deliberately not argparse: this takes no options, and the whole
+    # tool is a stdlib-only gate that several callers invoke on a list of
+    # paths. But -h/--help still has to be answered, because a tool this
+    # central is the first thing someone tries it on -- without this it
+    # treated "--help" as a filename and died with a FileNotFoundError
+    # traceback.
     if len(sys.argv) < 2:
-        print("usage: python -m src.citation_gate <file> [<file> ...]", file=sys.stderr)
+        print(USAGE, file=sys.stderr)
         raise SystemExit(2)
+    if sys.argv[1] in ("-h", "--help"):
+        print(USAGE)
+        raise SystemExit(0)
     raise SystemExit(run(sys.argv[1:]))

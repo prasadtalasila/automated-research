@@ -88,24 +88,52 @@ attached to it is *right*.
 
 ## Table of contents
 
-- [About](#about)
+- [Documentation](#documentation)
 - [Quickstart](#quickstart)
 - [Hardware requirements](#hardware-requirements)
 - [Architecture](#architecture)
 - [The heavy pipeline](#the-heavy-pipeline)
 - [Acknowledgements](#acknowledgements)
 
-Reference material lives in `docs/`:
-[ZOTERO.md](docs/ZOTERO.md) (getting your library in),
-[CLI.md](docs/CLI.md) (every command, and which interpreter it needs),
-[CONFIG.md](docs/CONFIG.md) (every setting),
-[PDF-PARSER.md](docs/PDF-PARSER.md) (backend tradeoffs),
-[PARALLELISM.md](docs/PARALLELISM.md) (how the parser got 17x faster),
-[DESIGN.md](docs/DESIGN.md) (architecture and the conflict policy),
-[CITATION-PROVENANCE.md](docs/CITATION-PROVENANCE.md).
+## Documentation
 
-See also: [DEVELOPER.md](DEVELOPER.md) (tests, repo layout, open
-questions) and [DOCKER.md](DOCKER.md) (running this repo in a container).
+This file is the overview: what the pipeline is, how to get it running,
+and what it needs. Everything else lives in one document per question.
+
+**Getting started**
+
+| Document | Answers |
+|---|---|
+| [docs/ZOTERO.md](docs/ZOTERO.md) | How do I get my library and its PDFs into the shape this expects? Includes the attachment-path trap that silently leaves every entry without a PDF |
+| [docs/CLI.md](docs/CLI.md) | What commands are there, what flags does each take, and which interpreter does it need? |
+| [docs/CONFIG.md](docs/CONFIG.md) | What settings exist, what values does each accept, and what is the default? Starts with a minimal `config.toml` |
+
+**Choosing settings**
+
+| Document | Answers |
+|---|---|
+| [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | What does each setting *cost*? Every measured figure in one place, organised by setting |
+| [docs/PDF-PARSER.md](docs/PDF-PARSER.md) | Which PDF backend should I use, and why were two others dropped? |
+
+**Understanding the output**
+
+| Document | Answers |
+|---|---|
+| [docs/CITATION-PROVENANCE.md](docs/CITATION-PROVENANCE.md) | What does the provenance report say, and how do I read it? |
+| [docs/DESIGN.md](docs/DESIGN.md) | How is this put together, and what happens when two runs collide? |
+| [docs/PARALLELISM.md](docs/PARALLELISM.md) | How did the parse get 17x faster, and which conclusions along the way turned out to be wrong? |
+
+**Working on the repository itself**
+
+| Document | Answers |
+|---|---|
+| [DEVELOPER.md](DEVELOPER.md) | How do I run the tests, where does everything live, and what is unbuilt? |
+| [DOCKER.md](DOCKER.md) | How do I run this in a container? |
+| [AGENTS.md](AGENTS.md) | The rules a coding agent working here must follow -- above all, never fabricate a citekey |
+
+`bench/` (measurement harness and raw timings) is in the repository but
+excluded from the release archive, along with `tests/` and the two files
+above it in that table.
 
 ## Quickstart
 
@@ -172,22 +200,28 @@ deleting everything in one run.
 
 ## Hardware requirements
 
-Originally observed on a small CPU-only host (4 cores, 9.7GB RAM, ~3GB
-actually free once other processes were accounted for); GPU behavior
-below was separately verified on an NVIDIA A40 host (96 cores, 251GB RAM,
-driver 555.42.02) on 2026-07-30:
+The table below is what the pipeline needs, not what it was developed
+on. The specific observations behind it come from two reference
+machines, named here because [docs/PERFORMANCE.md](docs/PERFORMANCE.md)
+refers back to them -- **treat every measured figure as that machine's,
+and expect yours to differ**:
+
+- **the small machine** -- 4 cores, 9.7GB RAM (~3GB actually free), no GPU.
+- **the multi-GPU machine** -- 4x NVIDIA A40 46GB, 96 cores (48 available
+  to the process), 251GB RAM, driver 555.42.02, verified 2026-07-30.
+
 
 | Resource | Minimum (core pipeline only) | Recommended (`src/heavy/` in regular use) |
 |---|---|---|
 | Disk | ~1GB (bibtexparser + content/) | **10-20GB+** -- the full venv alone is **6.0GB** (torch pulled in twice over via sentence-transformers/docling, plus docling's own layout/OCR models); TeX Live adds several GB more on top |
 | RAM | ~1-2GB (sync, citation_gate, keyword retrieval are all lightweight) | **8GB minimum, 16GB+ better**. At ~3GB free, Docling parsing a 17-page PDF pushed the process to 3.6GB RSS and the host swapped 6.3GB -- it still finished, just slowly. Bigger PDFs or a bigger corpus will make this worse |
 | CPU | 1-2 cores | **4+ cores** without a GPU -- Docling's layout inference and BERTopic's UMAP/HDBSCAN are CPU-bound if there's no GPU to offload to; more cores directly reduces wall-clock time |
-| GPU | none needed | **none required**, but if present, `scripts/install_full_pipeline.sh`'s `ensure_gpu_torch` detects the NVIDIA driver's supported CUDA ceiling (`nvidia-smi`) and automatically reinstalls torch from a matching CUDA-tagged wheel index -- verified end-to-end on an A40 (driver capped at CUDA 12.5; the default pip/Poetry-resolved torch wheel needed CUDA 13 and silently ran CPU-only until this ran). sentence-transformers/Docling/BERTopic all then use the GPU automatically |
+| GPU | none needed | **none required**, but if present, `scripts/install_full_pipeline.sh`'s `ensure_gpu_torch` detects the NVIDIA driver's supported CUDA ceiling (`nvidia-smi`) and automatically reinstalls torch from a matching CUDA-tagged wheel index -- verified end-to-end on the multi-GPU machine (driver capped at CUDA 12.5; the default pip/Poetry-resolved torch wheel needed CUDA 13 and silently ran CPU-only until this ran). sentence-transformers/Docling/BERTopic all then use the GPU automatically |
 | Network | needed once, for `poetry install` | also needed for first-run model downloads (the embedding model, Docling's layout/OCR models) |
 
 Tips:
 - **No GPU, disk tight**: `pip`/Poetry's default torch wheel pulls a full
-  set of `nvidia-*` CUDA packages even on a CPU-only machine (several GB,
+  set of `nvidia-*` CUDA packages even with no GPU present (several GB,
   unused). Install torch from the CPU-only wheel index first (`pip
   install torch --index-url https://download.pytorch.org/whl/cpu`, inside
   the venv) before running `scripts/install_full_pipeline.sh` if disk is
@@ -295,15 +329,19 @@ is a separate, ad-hoc review aid (not part of this automatic chain) for
 spot-checking a draft against its sources for verbatim overlap or
 page-locating a quoted phrase.
 
-### What works on this host
+### What each capability requires
+
+The pipeline probes for what it needs and reports what is missing, so a
+machine with only some of these still works -- it just reports the rest
+as unavailable rather than failing.
 
 | Capability | What it needs |
 |---|---|
 | Parse bib file, track citekeys + PDF paths | `bibtexparser` (venv, main Poetry group) |
-| Extract PDF text | `pdftotext` (poppler-utils, `os-deps` stage) by default -- `docling` is an opt-in alternative, see ["Choosing a parser backend"](docs/CONFIG.md#choosing-a-parser-backend) |
+| Extract PDF text | `pdftotext` (poppler-utils, `os-deps` stage) by default -- `docling` is an opt-in alternative, see [CONFIG.md](docs/CONFIG.md#backend-pdftotext-or-docling) |
 | Track parse status incrementally | stdlib `sqlite3` |
 | BM25-ranked retrieval | stdlib only |
-| Citation verification gate, auto References section, standalone tex/pdf render | stdlib only, no venv needed (see "Venv requirement" above) |
+| Citation verification gate, auto References section, standalone tex/pdf render | stdlib only, no venv needed (see [CLI.md](docs/CLI.md#which-interpreter)) |
 | Docling layout-aware parsing, embeddings/Chroma, BERTopic | venv, `heavy` Poetry group (`src/heavy/`) |
 | Compiling generated `.tex` chapters to PDF (Pandoc/TeX Live) | `pandoc`, `pdflatex`, `latexmk` (`os-deps` stage) |
 

@@ -1,9 +1,14 @@
 # How the parser got 17x faster, and what it cost
 
-A record of six releases of parallelism work on the Docling parse path,
-written for someone who wasn't there. It is as much about the wrong turns
-as the right ones, because four of the intermediate conclusions were
-wrong and only the next measurement showed it.
+A record of seven releases of parallelism work on the Docling parse
+path, written for someone who wasn't there. It is as much about the wrong
+turns as the right ones, because **six** of the intermediate conclusions
+were wrong and only the next measurement showed it.
+
+Every figure here is one machine's -- read them as ratios, not as times
+to plan against. [PERFORMANCE.md](PERFORMANCE.md) is the
+lookup-oriented version of the same measurements, organised by config
+setting; this is the narrative.
 
 The short version: a full parse of this project's 501-PDF bibliography
 went from **~1.6 hours to 5m26s**. Almost none of that came from the
@@ -260,9 +265,13 @@ nothing.
 | OCR off + converter reuse | not parallelism | ~39 min |
 | 12 CPU workers | CPU | ~8.8 min |
 | four GPUs | GPU | **5m26s** |
+| forkserver pool startup | startup | 5m26s -- under 1% at this size |
 
 The GPU work -- the thing that looked like the answer at the start -- is
-the smallest contribution. The largest is a boolean.
+the smallest contribution but one. The largest is a boolean. And the last
+release bought nothing measurable here at all, which was the honest
+result rather than a disappointment: it targets small runs, where a fixed
+1.3-2.2s of pool startup is most of the wall clock.
 
 ## What to take from this
 
@@ -272,13 +281,22 @@ the smallest contribution. The largest is a boolean.
    until parallelism made them binding. The 12-worker plateau was GPU
    contention, until a bigger sample showed it was startup cost.
 3. **Sample size decides which effect you see.** 8 documents, 16, 60 and
-   501 gave four different answers, and only the largest was the one
-   users experience.
-4. **Parallelism's cost lands in operability, not correctness.** The
+   501 gave four different answers, and no one of them is *the* answer --
+   a bulk first sync and a three-paper top-up are different workloads,
+   and the last release exists for the second one.
+4. **A comment stating a reason is a claim, and claims rot.** "Counting
+   GPUs initialises CUDA in the parent" sat in the code as fact for three
+   releases and was never true of the torch version in use. Nothing
+   failed, because the conclusion it justified happened to be right for
+   an unrelated reason.
+5. **Parallelism's cost lands in operability, not correctness.** The
    parse output stayed right. What broke was Ctrl+C, progress reporting,
    and failure recovery -- none of which a unit test was watching, and
    all of which a user hit within one run.
 
-The harness that produced every number here is in `bench/`; the raw
+The harness that produced most of these numbers is in `bench/`; the raw
 per-PDF timings are in `bench/results/`, and `bench/RESULTS.md` is the
-long-form measurement record.
+long-form measurement record. The pool-level A/Bs -- worker counts, GPU
+assignment, start method -- were measured with the real
+`python -m src.sync` rather than that harness; `bench/README.md` has the
+recipe.

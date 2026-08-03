@@ -1,215 +1,187 @@
 # Central configuration for the research pipeline.
-# Any value here can be overridden with an environment variable of the
-# same name as the corresponding setting below (e.g.
-# BIB_FILE=/path/to/other.bib python -m src.sync), for container/CI
-# flexibility without editing this file.
+#
+# Copy this to config.toml (gitignored, per-host) before running anything:
+#     cp config.toml.example config.toml
+#
+# Every key below is OPTIONAL -- anything you delete falls back to the
+# default noted beside it, so the smallest valid file is an empty one.
+#
+# Any value can be overridden per-run by an environment variable of the
+# same name, without editing this file:
+#     BIB_FILE=/path/to/other.bib python -m src.sync
+#
+# Full reference -- accepted values, defaults, and how each value is
+# parsed:                                         docs/CONFIG.md
+# What each setting costs, measured:              docs/PERFORMANCE.md
 
 [bib]
-# The BibTeX-exported .bib file -- source of truth for citekeys and
-# bibliographic metadata (decision: 2026-07-28). This is a manual,
-# point-in-time export from your reference manager, not continuously
-# auto-synced -- re-export after adding papers, then re-run
-# `python -m src.sync`. Lives under papers/ and is gitignored (personal,
-# per-host data, not shippable source -- decision: 2026-07-31); see
-# AGENTS.md.
-# Relative to the repo root.
+# The BibTeX export -- the source of truth for citekeys and bibliographic
+# metadata. A manual, point-in-time export from your reference manager,
+# not continuously auto-synced: re-export after adding papers, then
+# re-run `python -m src.sync`. Gitignored, per-host data.
+# Relative to the repo root, or absolute.  Default: papers/bibliography.bib
 path = "papers/bibliography.bib"
 
 [content]
-# Where sync/heavy-pipeline outputs are written. Relative to the repo root.
+# Where sync and the heavy pipeline write: ledger.sqlite, parsed/,
+# provenance/, rendered/, and the heavy stages' docling/, chroma/,
+# topics.json.
+# Relative to the repo root, or absolute.  Default: content
 dir = "content"
 
 [source_pdfs]
-# Raw PDFs gathered outside the bib file (no citekey -- see src/heavy/corpus.py).
-# Relative to the repo root. Changed 2026-07-31 to live under papers/,
-# alongside the bib file; this repo's older source-pdfs/ location was
-# migrated here the same day and is now retired.
+# Raw PDFs with no bibliography entry, for the heavy pipeline's topic
+# modelling and embeddings. NEVER citable -- a PDF here has no citekey,
+# so add it to your reference manager, re-export, and re-run sync before
+# citing it.
+# Relative to the repo root, or absolute.  Default: papers/pdfs
 dir = "papers/pdfs"
 
 [parser]
 # Which backend `python -m src.sync` uses to turn a PDF into
-# content/parsed/<citekey>.txt: "pdftotext" (default -- fast, needs
-# poppler-utils on PATH, no Python dependency) or "docling" (best
-# structural fidelity, needs the "heavy" Poetry group -- see
-# docs/PDF-PARSER.md for the full tradeoff comparison). Two consequences
-# worth knowing before switching off the default:
-#   - docling is far slower than pdftotext -- ~42x on the same 5 real
-#     bib PDFs measured in total (60.8s vs 1.4s), individual PDFs
-#     ranging roughly 18x-102x -- a first-time sync over a large,
-#     unparsed corpus will take hours, not minutes, and that loop still
-#     runs serially (see src/sync.py's own comment on why).
-#   - only pdftotext's output has page boundaries (form-feed characters
-#     between pages). docling produces one continuous
-#     document with no page markers, so scripts/verbatim_check.py's
-#     "pdf p.N" locating degrades to reporting everything as page 1 for
-#     citekeys parsed with that backend.
+# content/parsed/<citekey>.txt.
+#
+#   "pdftotext"  default -- fast, needs poppler-utils on PATH, no Python
+#                dependency, and the only backend whose output keeps page
+#                boundaries (form feeds between pages).
+#   "docling"    best structural fidelity (reading order, sections,
+#                tables), needs the "heavy" dependency group.
+#
+# Two things to know before switching:
+#   - docling is roughly 42x slower than pdftotext, so a first sync over
+#     a large unparsed corpus is measured in tens of minutes, not
+#     seconds. Raise `workers` below to spread that across cores.
+#   - docling produces one continuous document with no page markers, so
+#     scripts/verbatim_check.py's page locating reports everything as
+#     page 1 for citekeys parsed with it.
+#
+# docs/PDF-PARSER.md compares them properly; docs/PERFORMANCE.md has the
+# timings.                                              Default: pdftotext
 backend = "pdftotext"
 
-# Whether the docling backend runs its OCR stage. Docling's own default
-# is on; this project's default is off. That is a speed/completeness
-# trade-off made deliberately, not a free win, so it is worth
-# understanding before trusting either setting.
+# Whether the docling backend runs its OCR stage. docling's own default
+# is on; this project's is off. Ignored by the pdftotext backend.
 #
-# What it buys. OCR runs on the CPU (RapidOCR on onnxruntime) and is a
-# large part of why the docling path is CPU-bound rather than GPU-bound.
-# Measured over 16 real bib PDFs (943 pages) on the A40 host: turning it
-# off makes the parse 2.46x faster, taking a full-corpus parse from
-# ~1.6 hours to ~0.65 hours. The full write-up is in bench/RESULTS.md in
-# the repository -- developer-only, so it is not in the release zip;
-# README's "OCR: off by default" section carries the same figures and is.
+# That is a trade, not a free win. OCR runs on the CPU and roughly halves
+# throughput -- but it is what reads text stored in the PDF as a *bitmap*
+# rather than as characters. Turning it off changed the extracted text of
+# 8 of 16 sampled documents: mostly publisher furniture and figure
+# sub-captions, but one lost 10.1% of its characters including two whole
+# tables embedded as images.
 #
-# What it costs, and this is the part to read twice. OCR only runs on
-# *bitmap* regions -- so what it recovers is text that exists in the PDF
-# as an image rather than as characters. Turning it off changed the
-# extracted text of 8 of those 16 documents. Most of what disappears is
-# publisher furniture ("IEEEAccess", "DTU Library") and figure
-# sub-captions, but not all of it: one document lost 10.1% of its
-# characters, including two complete tables (a comparison matrix and an
-# abbreviations list) that were embedded as images, and another lost a
-# paragraph of real body prose set in a graphical text box.
-#
-# So: `false` is right for a corpus of born-digital papers where you care
-# more about a fast re-parse than about text baked into figures. Set it
-# to `true` if your PDFs are scans (with OCR off, docling will extract
-# almost nothing from a scan), or if tables and figure text matter to you
-# more than parse time. The parse-quality guard below will NOT catch a
-# bad choice here -- it looks for run-together words, not for content
-# that never arrived.
+# So: false suits born-digital papers. Set true for scans (with OCR off,
+# docling extracts almost nothing from a scan) or where tables-as-images
+# matter more than parse time. The parse-quality guard below will NOT
+# catch a wrong choice -- it looks for run-together words, not for
+# content that never arrived. Figures: docs/PERFORMANCE.md.
+#                                                          Default: false
 ocr = false
 
 # How many documents `python -m src.sync` parses at once.
 #
-#   1        the default, and the historical behaviour: one document at a
+#   1        default, and the historical behaviour: one document at a
 #            time, no pool, no subprocesses. Nothing about a run changes
 #            unless you raise this.
 #   <int>    that many workers, clamped -- see below.
-#   "auto"   as many as this host can actually sustain.
+#   "auto"   as many as this machine can sustain.
 #
-# Only the number of *documents* in flight; each worker is itself
-# multi-threaded when the backend is docling, which is why the ceiling
-# below is not simply "one worker per CPU".
+# Counts *documents* in flight; each docling worker is itself
+# multi-threaded, which is why the ceiling is not "one worker per CPU".
 #
-# The resolved count is min(what you asked for, what the host allows, how
-# many documents actually need parsing), never below 1. "What the host
-# allows" is the CPUs this *process* may run on -- not the machine's
-# total, which on a shared or containerised host can be far larger (on
-# the machine this was developed on: 96 CPUs exist, 48 are permitted) --
-# divided by 4 for the docling backend, because one docling worker uses
-# about 4 CPUs of its own. So:
+# The resolved count is min(what you asked for, what the machine allows,
+# how many documents actually need parsing), never below 1. "What the
+# machine allows" is the CPUs this *process* may run on -- not the
+# machine's total, which on a shared or containerised machine can be far
+# larger -- divided by 4 for docling, since one docling worker uses about
+# 4 CPUs of its own:
 #
-#   allowed CPUs   4    8    16   48
-#   "auto"         1    2    4    12
+#   CPUs available to the process   4    8    16   48
+#   "auto" resolves to              1    2    4    12
 #
-# A four-core, eight-thread desktop therefore resolves to 2, and asking
-# for 15 there still gets you 2. An over-large request is clamped and
-# said out loud rather than silently obeyed (which thrashes) or silently
-# ignored. Docling's own internal thread count is divided down to match,
-# so workers x threads still fits the host.
+# So a four-core desktop resolves to 2, and asking for 15 there still
+# gets 2 -- clamped and said out loud on stderr, rather than silently
+# obeyed (which thrashes) or silently ignored.
 #
 # Two things this cannot see: a cgroup CPU *quota* (`docker --cpus=2`)
 # throttles without changing which CPUs are permitted, and RAM is not
-# considered at all. On either, set an explicit number.
+# considered at all. Set an explicit number on either.
 #
-# With the docling backend, each worker also claims one CUDA device
-# round-robin, so a multi-GPU host uses all of its cards rather than
-# stacking every worker on cuda:0 (which is what docling's own AUTO
-# device resolution does in every process). Restrict that with
-# CUDA_VISIBLE_DEVICES; there is no separate setting for it. Measured
-# over this project's 501-PDF corpus at 12 workers: 528s on one A40,
-# 326s across four.
+# With docling, each worker also claims one CUDA device round-robin, so a
+# multi-GPU machine uses all its cards instead of stacking every worker
+# on cuda:0 (which is what docling's own AUTO resolution does in every
+# process). Restrict that with CUDA_VISIBLE_DEVICES; there is no separate
+# setting for it.                                              Default: 1
 workers = 1
 
-# How that pool creates its worker processes. Only consulted when
-# workers > 1 and backend = "docling"; nothing else here uses a process
-# pool, so on a default run this setting does nothing at all.
+# How that pool creates its worker processes. Consulted only when
+# workers > 1 AND backend = "docling"; nothing else uses a process pool,
+# so on a default run this setting does nothing at all.
 #
-#   "auto"        the default: "forkserver" where the platform has it
+#   "auto"        default: "forkserver" where the platform has it
 #                 (Linux, macOS), "spawn" where it doesn't (Windows).
-#   "forkserver"  a helper process imports torch and docling once, and
-#                 every worker is forked from it.
+#   "forkserver"  one helper process imports torch and docling; every
+#                 worker is forked from it.
 #   "spawn"       a fresh interpreter per worker, importing everything
-#                 itself. The pre-v2.1.0 behaviour.
+#                 itself.
 #
-# What this is worth, and it is worth reading the second sentence. A
-# cold docling worker needs ~8.5s before it produces its first page on
-# the A40 host: ~3.2s importing torch and docling, ~5s loading Docling's
-# models. forkserver shares the first of those and cannot share the
-# second. But workers import *concurrently*, so on a host with spare
-# CPUs that import was already overlapped -- measured head to head,
-# forkserver's shared import against spawn's per-worker ones is a wash
-# (22.4s vs 22.9s over 8 documents at 4 workers).
+# Worth a fixed 1-2s off pool startup, which is most of a run when there
+# are a handful of documents and nothing when there are hundreds. It does
+# not make a bulk parse faster -- the numbers, and why, are in
+# docs/PERFORMANCE.md.
 #
-# The saving is in *when* the import happens: forkserver's preload is
-# started before the bibliography is read, so it runs during the ~2.5s
-# that takes rather than blocking pool construction afterwards.
-#
-# Measured end to end on the real sync, medians of three:
-#
-#   documents  workers   spawn   forkserver
-#   8          4         23.1s   21.8s
-#   8          8         22.9s   20.7s
-#   60         4        103.6s  101.9s
-#   60         12        80.8s   78.8s
-#
-# It is the same ~1.3-2.2s off pool startup every time. What changes is
-# how much of the run that is: 9.6% over 8 documents, 2.5% over 60, and
-# well under 1% over the full 501-PDF corpus. Worth having; not a reason
-# to expect a bulk parse to get faster.
-#
-# "fork" is deliberately not an option. It is no faster than forkserver
-# (measured), and a forked worker inherits this process's open sqlite
-# connections -- the run lock and the ledger -- which SQLite's own
+# "fork" is deliberately not an option: it is no faster than forkserver,
+# and a forked worker would inherit this process's open sqlite
+# connections (the run lock and the ledger), which SQLite's own
 # documentation says not to do.
 #
-# Both available methods re-import the calling program's __main__ in
-# each worker, so a script driving this must guard its top level with
-# `if __name__ == "__main__":`. See DEVELOPER.md.
+# Both available methods re-import the calling program's __main__ in each
+# worker, so a script driving this must guard its top level with
+# `if __name__ == "__main__":`. See DEVELOPER.md.          Default: "auto"
 start_method = "auto"
 
-# Give up on a single document after this many seconds. "off" (the
-# default) means no limit.
+# Give up on a single document after this many seconds.
+# A positive number, or "off" (also "none", "false", or empty) for no
+# limit. 0 and negative numbers are rejected rather than read as "off".
 #
-# Applies to both backends, by the mechanism each one has, and those
-# mechanisms are not equally strong:
-#   - pdftotext: a subprocess timeout, i.e. a real kill. This is the one
-#     backend where a wedged parse can actually be stopped.
-#   - docling: its own PdfPipelineOptions.document_timeout, checked
-#     *between* pipeline stages. It bounds a pathologically slow
-#     document; it will not interrupt a hang inside a single stage.
+# Applies to both backends, by the mechanism each has -- and those are
+# not equally strong:
+#   - pdftotext: a subprocess timeout, i.e. a real kill. The one backend
+#     where a wedged parse can actually be stopped.
+#   - docling: its own check *between* pipeline stages. Bounds a
+#     pathologically slow document; will not interrupt a hang inside one
+#     stage.
 #
-# Any value has to clear the slowest document you legitimately have. In
-# this project's corpus that is a 675-page book which takes 246s on its
-# own, so a threshold that is safe here may not be safe on another
-# corpus -- measure before setting it. A document that times out is
-# reported as a failure, not silently truncated, and is retried on the
-# next run.
+# Any value has to clear the slowest document you legitimately have --
+# in this project's own corpus that is a 675-page book taking 246s on its
+# own, so measure before setting it. A timed-out document is reported as
+# a failure, not silently truncated, and is retried next run.
+#                                                          Default: "off"
 document_timeout = "off"
 
 # Give up on a *parallel* run when no document at all has completed for
-# this many seconds. "off" means wait forever.
+# this many seconds. Same accepted values as document_timeout.
 #
-# Not a per-document deadline, and the difference is the point: with
-# several workers, completions arrive constantly, so total silence
-# across the whole pool separates a hung worker from a merely slow
-# document far better than any per-document number could -- which
-# matters precisely because the slowest legitimate document here takes
-# 246s.
+# Not a per-document deadline, and that difference is the point: with
+# several workers completions arrive constantly, so total silence across
+# the whole pool separates a hung worker from a merely slow document far
+# better than any per-document number could.
 #
 # On by default, unlike most safety valves here, because the failure it
 # catches is one a user actually hit: a run that never finishes. The
-# default is loose on purpose (7x that slowest document), and a false
-# positive is cheap -- the outstanding documents are marked failed and
-# retried next run, not lost. Only applies when [parser].workers > 1;
-# a serial run has no pool to go silent.
+# default is loose on purpose, a warning is printed at half the budget,
+# and a false positive is cheap -- outstanding documents are marked
+# failed and retried next run, not lost. Only applies when workers > 1.
+#                                                           Default: 1800
 stall_timeout = 1800
 
-# Parse-quality guard. `sync` warns when an extracted document has more
-# than `long_word_ratio` of its words longer than `long_word_chars`,
-# which is what a backend losing the spaces between words looks like --
-# retrieval tokenizes on whitespace, so fused words stop matching
-# queries entirely. Documents shorter than `min_tokens` words are
-# skipped as too noisy to judge. A warning, never a failure: the text is
-# still usable, and an unusual corpus could trip it legitimately.
+# Parse-quality guard. `sync` warns when more than `long_word_ratio` of a
+# document's words are longer than `long_word_chars` -- what a backend
+# losing the spaces between words looks like. Retrieval tokenizes on
+# whitespace, so fused words stop matching queries entirely. Documents
+# shorter than `min_tokens` words are skipped as too noisy to judge.
+#
+# A warning, never a failure: the text is still usable, and an unusual
+# corpus could trip it legitimately.       Defaults: 20 / 0.01 / 200
 long_word_chars = 20
 long_word_ratio = 0.01
 min_tokens = 200
@@ -218,29 +190,51 @@ min_tokens = 200
 # src/citation_provenance.py bands the fraction of a citing sentence's
 # distinctive words found in the best-matching source passage. Below
 # weak_score a finding reads "no support found", which means "go look at
-# this one first" -- never "this citation is wrong". The report is a
-# reading order for a human, not a pass/fail line, which is why these are
-# round numbers rather than tuned ones.
+# this one first" -- never "this citation is wrong". At or above
+# good_score it is banded "supported".
+#
+# Round numbers rather than tuned ones, because the report sets a reading
+# order for a human, not a pass/fail line.  Defaults: 0.20 / 0.50
 weak_score = 0.20
 good_score = 0.50
 
 [heavy]
-# Only used by src/heavy/* (pyproject.toml's "heavy" Poetry group), not
-# by the core sync/citation_gate pipeline.
+# Used only by src/heavy/* (the "heavy" dependency group), never by sync
+# or the citation gate.
+
+# Which sentence-transformers model backs semantic search.
+#
+# NOTE the default below is not the code's fallback. If this key is
+# absent entirely you get all-MiniLM-L6-v2 (smaller, faster, less
+# nuanced); this file ships all-mpnet-base-v2 (larger, more accurate,
+# ~4-5x the compute). Both are genuine drop-ins.
+#
+# Not every model is: the bge-* and e5-* families expect "query: " /
+# "passage: " prefixes that this code does not add, so they would run
+# without error and silently underperform. docs/CONFIG.md's "Choosing an
+# embedding model" lists what works and what needs a code change first.
+#
+# Changing this does not re-embed the existing index -- rebuild it with
+# `python scripts/full_pipeline.py --stages embed`.
+#                       Default if absent: sentence-transformers/all-MiniLM-L6-v2
 embedding_model = "sentence-transformers/all-mpnet-base-v2"
+
 # Whether the docling stage also extracts figure bitmaps, into
 # content/docling/<doc>_artifacts/, plus a <doc>.figures.json giving each
-# figure's page, caption, and the exact string to cite it by. The images
-# are a *reading aid* for checking a draft against its sources -- they
-# are never inserted into content/drafts/, since a figure's copyright is
+# figure's page, caption, and the exact string to cite it by.
+#
+# Those images are a *reading aid* for checking a draft against its
+# sources. They are never inserted into a draft: a figure's copyright is
 # not the paper's citekey to grant (see DEVELOPER.md's "Figures and
-# copyright"). Off by default; two costs to know before turning it on:
-#   - it invalidates the whole Docling cache when changed, so the next
-#     run re-parses every PDF from scratch (~42x pdftotext, per above).
-#     That re-parse is the point, not a bug -- the existing .md files
-#     genuinely don't have the figure references in them yet.
-#   - the PNGs are real disk: a 17-page paper produced 13 of them
+# copyright"). Two costs before turning it on:
+#   - it invalidates the whole docling cache, so the next run re-parses
+#     every PDF from scratch. That re-parse is the point, not a bug --
+#     the existing .md files genuinely have no figure references yet.
+#   - the PNGs are real disk: a 17-page paper produced 13 of them.
+#                                                          Default: false
 docling_images = false
+
 # Render scale for those bitmaps -- 2.0 is roughly 144 DPI, enough to
 # read a figure back without storing print-resolution files.
+#                                                            Default: 2.0
 docling_image_scale = 2.0
