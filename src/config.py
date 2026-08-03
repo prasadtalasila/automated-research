@@ -6,6 +6,7 @@ BIB_FILE=/path/to/other.bib python -m src.sync) without editing the file.
 tomllib is stdlib since Python 3.11, so this adds no dependency.
 """
 
+import math
 import os
 import tomllib
 from pathlib import Path
@@ -107,7 +108,7 @@ def _get_optional_float(env_var: str, *toml_path: str, default: "float | None" =
             f"{'/'.join(toml_path)} (or {env_var}) must be a positive number of "
             f'seconds, or "off", not {raw!r}.'
         ) from None
-    if seconds <= 0:
+    if not math.isfinite(seconds) or seconds <= 0:
         raise ValueError(
             f"{'/'.join(toml_path)} (or {env_var}) must be a positive number of "
             f'seconds, or "off", not {raw!r}.'

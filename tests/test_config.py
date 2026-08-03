@@ -289,3 +289,12 @@ class TestGetOptionalFloat:
         off -- which is exactly what [parser].stall_timeout needs."""
         monkeypatch.setenv("T", "off")
         assert config._get_optional_float("T", "parser", "t", default=1800.0) is None
+
+    @pytest.mark.parametrize("raw", ["nan", "inf", "-inf", "Infinity"])
+    def test_non_finite_durations_are_rejected(self, monkeypatch, raw):
+        """float() accepts these and `seconds <= 0` doesn't catch NaN, so
+        they would reach wait()/subprocess.run(timeout=...) and misbehave
+        there instead of being reported here."""
+        monkeypatch.setenv("T", raw)
+        with pytest.raises(ValueError, match="positive number"):
+            config._get_optional_float("T", "parser", "t")

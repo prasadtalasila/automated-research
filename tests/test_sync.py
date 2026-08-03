@@ -1023,3 +1023,39 @@ class TestStallWatchdog:
         monkeypatch.setattr(config, "PARSER_STALL_TIMEOUT", None)
         monkeypatch.setattr(pdf_text, "extract_one", fake_extract_one_factory())
         assert sync.run() == 0
+
+    def test_a_stall_terminates_the_workers(self, many_corpus, monkeypatch, capsys):
+        """Not merely abandoned: in-flight jobs would otherwise keep
+        running and write content/parsed/<citekey>.txt for documents this
+        run has already reported as failed -- a file on disk
+        contradicting the ledger."""
+        import threading
+
+        blocked = threading.Event()
+        killed = []
+        monkeypatch.setattr(config, "PARSER_STALL_TIMEOUT", 0.3)
+        monkeypatch.setattr(pdf_text, "terminate_workers", lambda ex: killed.append(ex))
+        monkeypatch.setattr(pdf_text, "extract_one", lambda job: blocked.wait(30))
+        try:
+            sync.run()
+        finally:
+            blocked.set()
+        assert killed, "workers were left running after the stall"
+
+    def test_a_stalled_document_is_not_blamed_on_a_dead_worker(
+        self, many_corpus, monkeypatch, capsys
+    ):
+        """The two failure modes are different and the message has to
+        say which one happened."""
+        import threading
+
+        blocked = threading.Event()
+        monkeypatch.setattr(config, "PARSER_STALL_TIMEOUT", 0.3)
+        monkeypatch.setattr(pdf_text, "extract_one", lambda job: blocked.wait(30))
+        try:
+            sync.run()
+        finally:
+            blocked.set()
+        err = capsys.readouterr().err
+        assert "gave up waiting" in err
+        assert "worker died" not in err

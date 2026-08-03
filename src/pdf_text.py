@@ -448,14 +448,15 @@ def check_docling_status(result) -> None:
     # "document timeout exceeded" in a single line. The distinct reasons
     # are the diagnostic; the repetition is noise that buries the summary
     # line after it.
-    seen = []
+    seen, ordered = set(), []
     for error in getattr(result, "errors", []):
         message = str(getattr(error, "error_message", error))
         if message not in seen:
-            seen.append(message)
-    errors = "; ".join(seen[:_MAX_DOCLING_ERRORS])
-    if len(seen) > _MAX_DOCLING_ERRORS:
-        errors += f"; (+{len(seen) - _MAX_DOCLING_ERRORS} more)"
+            seen.add(message)
+            ordered.append(message)
+    errors = "; ".join(ordered[:_MAX_DOCLING_ERRORS])
+    if len(ordered) > _MAX_DOCLING_ERRORS:
+        errors += f"; (+{len(ordered) - _MAX_DOCLING_ERRORS} more)"
     raise ExtractionError(
         f"docling returned {name} rather than SUCCESS -- the extracted text would "
         f"be incomplete{': ' + errors if errors else ''}"
