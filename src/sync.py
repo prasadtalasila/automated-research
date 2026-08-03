@@ -30,7 +30,7 @@ from concurrent.futures import (FIRST_COMPLETED, ProcessPoolExecutor,
 from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 
-from src import bib_reader, config, dedup, ledger, pdf_text
+from src import bib_reader, config, dedup, ledger, pdf_text, runlock
 
 
 def _executor_for(workers: int):
@@ -431,4 +431,12 @@ if __name__ == "__main__":
         help="Delete ledger rows for citekeys no longer in the bib file (default: report only, don't delete)",
     )
     args = parser.parse_args()
-    raise SystemExit(run(remove_stale=args.remove_stale))
+    # Held for the whole run, and only at the entrypoint: run() itself
+    # stays callable in-process (the tests do that) without fighting a
+    # lock, and only an actual invocation contends for it.
+    try:
+        with runlock.pipeline_lock():
+            raise SystemExit(run(remove_stale=args.remove_stale))
+    except runlock.AlreadyRunning as exc:
+        print(f"  {exc}", file=sys.stderr)
+        raise SystemExit(runlock.EXIT_ALREADY_RUNNING) from None

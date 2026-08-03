@@ -407,6 +407,35 @@ over a large corpus is visibly making progress -- which matters because
 docling's own OCR chatter can otherwise fill the terminal for half an
 hour with no sign of whether anything is happening.
 
+#### Only one run at a time
+
+`python -m src.sync` and `scripts/full_pipeline.py` both take a lock
+before writing anything under `content/`. A second run exits immediately
+with **exit code 2** (distinct from `1`, "ran and something failed", so a
+cron job can tell a skipped cycle from a real problem):
+
+```
+  another sync or pipeline run is already running (it holds
+  content/pipeline.lock.db), so this run was skipped. Nothing is lost --
+  the pipeline is incremental, and the next run continues from where this
+  one would have started.
+```
+
+Nothing is configurable here, and nothing needs cleaning up. **The lock is
+released by the operating system when its holder exits, including on a
+crash or `kill -9`** -- so there is no stale lock to clear by hand, and no
+`--force` flag to reach for. If you see this message, a run really is
+still alive.
+
+One lock covers both entry points rather than one each, because the
+unsafe overlap is any-writer-against-any-writer: `sync` writes
+`content/parsed/*.txt` non-atomically, and the heavy pipeline reads those
+same files.
+
+**Readers are deliberately unaffected.** `citation_gate`, retrieval and
+the drafting skills keep working while a run holds the lock -- it is a
+separate file from the ledger precisely so that stays true.
+
 #### Timeouts
 
 Two independent limits, both off the critical path of a healthy run.

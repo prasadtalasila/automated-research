@@ -130,6 +130,9 @@ poetry.toml               project-local Poetry config: virtualenvs.create = fals
 poetry.lock               resolved dependency versions -- regenerate with `poetry lock` after editing pyproject.toml
 src/                      core pipeline (needs bibtexparser; citation_gate/references need nothing)
   config.py                 loads config.toml, env var overrides
+  runlock.py                one-writer-at-a-time lock over content/, held by both entrypoints;
+                          a dedicated sqlite file, so a killed holder releases it with no
+                          staleness check and readers are never blocked
   bib_reader.py             parses bibliography.bib -- the only citekey source
   ledger.py                 per-citekey status tracking (content/ledger.sqlite); find_stale/prune_missing
                           detect/remove rows for citekeys no longer in the bib file
@@ -261,8 +264,11 @@ the following tasks need to be completed in priority order:
    timer. Given `sync` is already cheap and idempotent, a stateless cron
    entry polling every N minutes is the right shape (survives reboots
    without supervision) rather than a long-running watchdog daemon.
-4. **No lock file.** If a run takes longer than the cron interval, two
-   overlapping `sync` invocations aren't currently prevented.
+4. ~~**No lock file.**~~ **Done.** `src/runlock.py` holds a
+   one-writer-at-a-time lock over `content/` for the whole of `sync` and
+   `full_pipeline`; a second run exits 2 immediately. It is a dedicated
+   sqlite file rather than a PID file, so a killed holder releases it
+   with no staleness heuristic, and readers are never blocked.
 5. **No log file / failure surfacing.** `sync` prints to stdout/stderr;
    unattended it needs redirecting to a log (with rotation) and a way to
    notice repeated failures, since cron's default "mail root" often goes
