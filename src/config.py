@@ -60,6 +60,61 @@ def _get_float(env_var: str, *toml_path: str, default: float) -> float:
     return default
 
 
+def _get_optional_float(env_var: str, *toml_path: str, default: "float | None" = None) -> "float | None":
+    """A positive duration in seconds, or None for "no limit".
+
+    _get_float can't express this: it requires a float default, and
+    spelling "off" as 0 in a config file reads as "zero seconds", which
+    is the opposite of what it means. The off switch is therefore an
+    explicit word -- an empty value, "off", "none" or "false" -- and 0 is
+    rejected outright rather than quietly reinterpreted.
+
+    `default` applies when the setting is absent entirely. An explicit
+    "off" still means off -- the two cases have to stay distinguishable,
+    or a setting with a non-None default could never be switched off.
+
+    Validated at load, like _get_workers, so a bad value is reported
+    where it was written rather than as a strange timeout much later.
+    """
+    if env_var in os.environ:
+        raw = os.environ[env_var]
+    else:
+        node = _toml
+        for key in toml_path:
+            if not isinstance(node, dict):
+                node = None
+                break
+            node = node.get(key)
+        raw = node
+    if raw is None:
+        return default
+    # Checked for both sources, not just the environment: the shipped
+    # config.toml.example writes `document_timeout = "off"`, so the TOML
+    # path is the one every new user actually takes.
+    if isinstance(raw, str):
+        raw = raw.strip()
+        if raw.lower() in ("", "off", "none", "false"):
+            return None  # explicitly off, regardless of `default`
+    if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+        raise ValueError(
+            f"{'/'.join(toml_path)} (or {env_var}) must be a positive number of "
+            f'seconds, or "off", not {raw!r}.'
+        )
+    try:
+        seconds = float(raw)
+    except ValueError:
+        raise ValueError(
+            f"{'/'.join(toml_path)} (or {env_var}) must be a positive number of "
+            f'seconds, or "off", not {raw!r}.'
+        ) from None
+    if seconds <= 0:
+        raise ValueError(
+            f"{'/'.join(toml_path)} (or {env_var}) must be a positive number of "
+            f'seconds, or "off", not {raw!r}.'
+        )
+    return seconds
+
+
 def _get_bool(env_var: str, *toml_path: str, default: bool) -> bool:
     """Env vars arrive as strings, so "false"/"0"/"no" have to be read as
     False -- bool("false") is True, which would make every documented way
@@ -160,6 +215,32 @@ def _get_workers(env_var: str, *toml_path: str, default: int) -> "int | str":
 # requested value is clamped against what the host can actually sustain,
 # and src/pdf_text.resolve_workers for the arithmetic.
 PARSER_WORKERS = _get_workers("PARSER_WORKERS", "parser", "workers", default=1)
+
+# Give up on a single document after this many seconds, or None for no
+# limit. Applies to both backends, by the mechanism each one has:
+# docling's own PdfPipelineOptions.document_timeout, and a subprocess
+# timeout for pdftotext. Off by default -- any value has to clear the
+# slowest legitimate document in the corpus, and this project's is a
+# 675-page book that took 246s on its own, so a number that is safe here
+# is not necessarily safe elsewhere.
+PARSER_DOCUMENT_TIMEOUT = _get_optional_float(
+    "PARSER_DOCUMENT_TIMEOUT", "parser", "document_timeout")
+
+# Give up on a parallel run when *no* document at all has completed for
+# this long, or None to wait forever. Not a per-document deadline: with
+# several workers on a real corpus completions arrive constantly, so
+# total silence discriminates a hung worker from a merely slow document
+# far better than any per-document number could -- which matters because
+# the slowest legitimate document here takes 246s.
+#
+# On by default, unlike most safety valves in this file, because the
+# failure it catches is one a user actually hit: a wedged run that never
+# finishes and cannot be interrupted. The default is deliberately loose
+# (7x that slowest document), and the cost of a false positive is now
+# small -- since v1.2.0 the affected documents are marked failed and
+# retried on the next run, rather than lost.
+PARSER_STALL_TIMEOUT = _get_optional_float(
+    "PARSER_STALL_TIMEOUT", "parser", "stall_timeout", default=1800.0)
 
 # Parse-quality guard (src/pdf_text.quality_warning): a PDF extractor
 # that sets its glyph-spacing tolerance too coarse fuses adjacent words

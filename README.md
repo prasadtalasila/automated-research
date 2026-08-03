@@ -224,6 +224,8 @@ environment variable of the same name, without editing the file, e.g.
 | `[parser]` | `backend` | `PARSER` | `pdftotext` | Which backend `sync` uses to extract PDF text -- `pdftotext` or `docling` -- see below |
 | `[parser]` | `ocr` | `PARSER_OCR` | `false` | Whether the `docling` backend runs its OCR stage -- 2.46x slower on, but it is what reads text stored as bitmaps -- see below |
 | `[parser]` | `workers` | `PARSER_WORKERS` | `1` | How many documents `sync` parses at once; a positive integer or `"auto"`, clamped to what the host can sustain -- see below |
+| `[parser]` | `document_timeout` | `PARSER_DOCUMENT_TIMEOUT` | `"off"` | Give up on one document after N seconds -- a real kill for `pdftotext`, cooperative for `docling` -- see below |
+| `[parser]` | `stall_timeout` | `PARSER_STALL_TIMEOUT` | `1800` | Give up on a parallel run when *no* document completes for N seconds -- see below |
 | `[parser]` | `long_word_chars` | `PARSE_LONG_WORD_CHARS` | `20` | Word length above which a token counts as "run-together" for the parse-quality guard |
 | `[parser]` | `long_word_ratio` | `PARSE_LONG_WORD_RATIO` | `0.01` | Share of such words above which `sync` warns that the parser is losing word boundaries |
 | `[parser]` | `min_tokens` | `PARSE_MIN_TOKENS` | `200` | Documents shorter than this are too noisy to judge, and are skipped by the guard |
@@ -404,6 +406,29 @@ Progress is printed to stderr as each document completes, so a long run
 over a large corpus is visibly making progress -- which matters because
 docling's own OCR chatter can otherwise fill the terminal for half an
 hour with no sign of whether anything is happening.
+
+#### Timeouts
+
+Two independent limits, both off the critical path of a healthy run.
+
+**`[parser].document_timeout`** bounds a single document. It is `"off"` by
+default, because any value has to clear the slowest document you
+legitimately have -- in this corpus a 675-page book that takes 246s on
+its own. The two backends honour it by different mechanisms, and they are
+not equally strong: for `pdftotext` it is a subprocess timeout, i.e. a
+real kill; for `docling` it is that library's own check *between*
+pipeline stages, which bounds a pathologically slow document but will not
+interrupt a hang inside one stage. A document that times out is reported
+as a failure, never silently truncated.
+
+**`[parser].stall_timeout`** bounds a *parallel* run, and defaults to 30
+minutes. It fires when no document at all has completed for that long --
+deliberately not a per-document deadline, because with several workers
+completions arrive constantly, so total silence is what distinguishes a
+hung worker from a slow document. It is on by default because the failure
+it catches is one a user actually hit; a false positive costs one re-run,
+since the outstanding documents are marked failed and retried rather than
+lost.
 
 #### Parse-quality guard
 

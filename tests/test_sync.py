@@ -965,3 +965,61 @@ class TestProgressReporting:
         printed = [ln.split()[-1] for ln in capsys.readouterr().out.splitlines()
                    if ln.startswith("  parsed  ")]
         assert printed == [f"doc_{i}_2024" for i in range(6)]
+
+
+class TestStallWatchdog:
+    """Bounds a parallel run's worst case.
+
+    Deliberately NOT a per-document deadline: the slowest legitimate
+    document in this corpus takes 246s, so any per-document threshold
+    generous enough to spare it is a poor hang detector. With several
+    workers, completions arrive constantly, so total silence across the
+    whole pool is the signal that separates hung from slow.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _pool(self, monkeypatch):
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(config, "PARSER_WORKERS", 4)
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 48)
+        monkeypatch.setattr(sync, "_executor_for", _thread_executor)
+
+    def test_a_stalled_pool_is_abandoned_and_its_documents_reported(
+        self, many_corpus, monkeypatch, capsys
+    ):
+        import threading
+
+        blocked = threading.Event()
+        monkeypatch.setattr(config, "PARSER_STALL_TIMEOUT", 0.3)
+        monkeypatch.setattr(
+            pdf_text, "extract_one", lambda job: blocked.wait(30) or fake_extract_one_factory()(job)
+        )
+        try:
+            rc = sync.run()
+        finally:
+            blocked.set()
+
+        captured = capsys.readouterr()
+        assert rc == 1
+        assert "6 failed" in captured.out
+        assert "no document finished" in captured.err.lower()
+
+    def test_progress_resets_the_clock(self, many_corpus, monkeypatch, capsys):
+        """A slow-but-moving run must never be killed: the timeout is
+        between completions, not for the run as a whole."""
+        import time
+
+        monkeypatch.setattr(config, "PARSER_STALL_TIMEOUT", 0.5)
+
+        def slow_but_steady(job):
+            time.sleep(0.2)
+            return fake_extract_one_factory()(job)
+
+        monkeypatch.setattr(pdf_text, "extract_one", slow_but_steady)
+        assert sync.run() == 0
+        assert "6 parsed" in capsys.readouterr().out
+
+    def test_it_can_be_switched_off(self, many_corpus, monkeypatch, capsys):
+        monkeypatch.setattr(config, "PARSER_STALL_TIMEOUT", None)
+        monkeypatch.setattr(pdf_text, "extract_one", fake_extract_one_factory())
+        assert sync.run() == 0
