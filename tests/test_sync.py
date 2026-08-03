@@ -1135,3 +1135,60 @@ class TestFailureReporting:
         out = capsys.readouterr().out
         assert "1 failed" in out
         assert "needs attention" in out
+
+
+class TestStallWarning:
+    """The watchdog kills work, so it must warn before it acts.
+
+    The schedule makes this necessary rather than merely polite:
+    submission is biggest-file-first, so at pool start every worker is
+    simultaneously on the largest documents in the corpus. On a CPU-only
+    host with OCR on, a long first gap is the schedule working, not a
+    hang -- and because stall-killed documents are retried identically,
+    a kill without warning can repeat every run forever.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _pool(self, monkeypatch):
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(config, "PARSER_WORKERS", 4)
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 48)
+        monkeypatch.setattr(sync, "_executor_for", _thread_executor)
+
+    def test_it_warns_at_half_time_before_killing(self, many_corpus, monkeypatch, capsys):
+        import threading
+
+        blocked = threading.Event()
+        monkeypatch.setattr(config, "PARSER_STALL_TIMEOUT", 0.4)
+        monkeypatch.setattr(pdf_text, "extract_one", lambda job: blocked.wait(30))
+        try:
+            sync.run()
+        finally:
+            blocked.set()
+        err = capsys.readouterr().err
+        assert "no completions in" in err.lower()
+        # The warning has to be actionable, not just early.
+        assert "stall_timeout" in err
+        assert err.index("no completions in") < err.index("giving up on the")
+
+    def test_a_run_that_finishes_between_warning_and_kill_is_not_killed(
+        self, many_corpus, monkeypatch, capsys
+    ):
+        """Slow but moving must survive: the warning is a warning."""
+        import time
+
+        monkeypatch.setattr(config, "PARSER_STALL_TIMEOUT", 0.6)
+
+        def slow(job):
+            time.sleep(0.4)
+            return fake_extract_one_factory()(job)
+
+        monkeypatch.setattr(pdf_text, "extract_one", slow)
+        assert sync.run() == 0
+        assert "6 parsed" in capsys.readouterr().out
+
+    def test_no_warning_when_nothing_stalls(self, many_corpus, monkeypatch, capsys):
+        monkeypatch.setattr(config, "PARSER_STALL_TIMEOUT", 30.0)
+        monkeypatch.setattr(pdf_text, "extract_one", fake_extract_one_factory())
+        sync.run()
+        assert "no completions in" not in capsys.readouterr().err.lower()

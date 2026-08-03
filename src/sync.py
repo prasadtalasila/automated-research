@@ -110,10 +110,29 @@ def _as_they_land(futures, executor, stalled):
     unfinished documents as failures, and since v1.2.0 a failed document
     is retried on the next run rather than dropped.
     """
+    # Half the budget, twice: a warning at the midpoint, then the kill.
+    # The warning matters because the schedule invites a long first gap
+    # -- submission is biggest-file-first, so at pool start every worker
+    # is on the largest documents at once. On a slow host that gap is the
+    # schedule working, not a hang, and a kill without warning would
+    # repeat every run (stall-killed documents are retried identically),
+    # leaving a legitimate configuration unable to ever finish.
     pending = set(futures)
+    half = config.PARSER_STALL_TIMEOUT / 2 if config.PARSER_STALL_TIMEOUT else None
+    warned = False
     while pending:
-        done, pending = wait(pending, timeout=config.PARSER_STALL_TIMEOUT,
-                             return_when=FIRST_COMPLETED)
+        done, pending = wait(pending, timeout=half, return_when=FIRST_COMPLETED)
+        if not done and not warned and half is not None:
+            warned = True
+            print(f"  WARNING no completions in {half:.0f}s; giving up at "
+                  f"{config.PARSER_STALL_TIMEOUT:.0f}s ([parser].stall_timeout). "
+                  f"{len(pending)} document(s) still running -- if this host is "
+                  "simply slow (CPU-only, OCR on, large scans), raise or disable "
+                  "that setting rather than letting the run be abandoned.",
+                  file=sys.stderr)
+            continue
+        if done:
+            warned = False
         if not done:
             stalled.append(True)
             pdf_text.terminate_workers(executor)

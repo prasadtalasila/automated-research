@@ -43,10 +43,30 @@ Scope: this serialises *writers*. Readers are deliberately unaffected,
 which is the point of the separate file.
 """
 
+import os
+import socket
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 from src import config
+
+
+# A run holding the lock for longer than this is *probably* wedged
+# rather than busy. Deliberately generous -- a full first-time parse of a
+# large corpus is legitimately long -- because this only changes the
+# wording, never the behaviour. It exists so an unattended caller has
+# something to alert on other than exit 2, which is normal.
+_STUCK_AFTER_SECONDS = 6 * 60 * 60
+
+_HOLDER_SCHEMA = """
+CREATE TABLE IF NOT EXISTS holder (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    pid INTEGER,
+    host TEXT,
+    started_at TEXT
+);
+"""
 
 
 class AlreadyRunning(RuntimeError):
@@ -57,6 +77,52 @@ class AlreadyRunning(RuntimeError):
 # something failed") so an unattended caller can tell a skipped cycle
 # from a real failure without parsing output.
 EXIT_ALREADY_RUNNING = 2
+
+
+def _describe_holder(path) -> "tuple[int, str, str, float] | None":
+    """(pid, host, started_at, age_seconds) for the current holder, or
+    None if that can't be read. Never raises: failing to describe the
+    holder must not replace a useful refusal with a traceback."""
+    try:
+        con = sqlite3.connect(path, timeout=0)
+        try:
+            row = con.execute("SELECT pid, host, started_at FROM holder WHERE id = 1").fetchone()
+        finally:
+            con.close()
+        if row is None:
+            return None
+        started = datetime.fromisoformat(row[2])
+        return row[0], row[1], row[2], (datetime.now(timezone.utc) - started).total_seconds()
+    except Exception:  # noqa: BLE001 -- see docstring
+        return None
+
+
+def _refusal_message(path) -> str:
+    base = (
+        f"another sync or pipeline run is already running (it holds {path}), so "
+        "this run was skipped. Nothing is lost -- the pipeline is incremental, "
+        "and the next run continues from where this one would have started."
+    )
+    holder = _describe_holder(path)
+    if holder is None:
+        return base
+    pid, host, started_at, age = holder
+    base += f" That run: pid {pid} on {host}, started {started_at} ({age / 60:.0f} min ago)."
+    if age >= _STUCK_AFTER_SECONDS:
+        # A distinct, grep-able phrase: exit 2 alone is normal and says
+        # nothing about duration, so an unattended caller needs a signal
+        # that "skipped" has stopped being benign.
+        base += (
+            " POSSIBLY STUCK: it has held the lock far longer than a run should "
+            "take, and every run since has been skipped. Check that process is "
+            "alive and making progress; the lock frees itself once it exits."
+        )
+    else:
+        base += (
+            " The lock frees itself when that run exits, including on a crash, so "
+            "if you believe none is active then one really is still alive."
+        )
+    return base
 
 
 class pipeline_lock:
@@ -73,6 +139,26 @@ class pipeline_lock:
         self._path = Path(path) if path is not None else config.PIPELINE_LOCK_PATH
         self._con = None
 
+    def _record_holder(self, con) -> None:
+        """Write who we are, and COMMIT, *before* taking the lock.
+
+        It has to be committed first: a write made while holding
+        BEGIN IMMEDIATE is invisible to the process that loses the race,
+        and that process is the only one who needs to read it. The small
+        race this leaves -- a loser reading a previous holder's row -- is
+        why the message calls the details advisory. Nothing depends on
+        them; they are for a human deciding whether to go looking.
+        """
+        con.execute(_HOLDER_SCHEMA)
+        con.execute(
+            "INSERT INTO holder (id, pid, host, started_at) VALUES (1, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET pid = excluded.pid, host = excluded.host, "
+            "started_at = excluded.started_at",
+            (os.getpid(), socket.gethostname(),
+             datetime.now(timezone.utc).isoformat(timespec="seconds")),
+        )
+        con.execute("COMMIT")
+
     def __enter__(self):
         self._path.parent.mkdir(parents=True, exist_ok=True)
         # timeout=0: fail immediately rather than sitting for sqlite's
@@ -88,6 +174,8 @@ class pipeline_lock:
         self._con = sqlite3.connect(self._path, timeout=0, isolation_level=None)
         try:
             self._con.execute("BEGIN IMMEDIATE")
+            self._record_holder(self._con)
+            self._con.execute("BEGIN IMMEDIATE")
         except sqlite3.OperationalError as exc:
             self._con.close()
             self._con = None
@@ -98,15 +186,7 @@ class pipeline_lock:
             # that does not exist.
             if getattr(exc, "sqlite_errorcode", None) != sqlite3.SQLITE_BUSY:
                 raise
-            raise AlreadyRunning(
-                f"another sync or pipeline run is already running (it holds "
-                f"{self._path}), so this run was skipped. Nothing is lost -- "
-                "the pipeline is incremental, and the next run continues from "
-                "where this one would have started. The lock is released "
-                "automatically when its holder exits, including on a crash, so "
-                "if you believe no run is active then one really is still "
-                "alive: find and stop it."
-            ) from exc
+            raise AlreadyRunning(_refusal_message(self._path)) from exc
         except Exception:
             self._con.close()
             self._con = None
