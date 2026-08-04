@@ -153,10 +153,14 @@ candidate for the chapter.
     ```
     python -m src.references content/drafts/<slug>.md
     ```
-    Stdlib-only, like the citation gate -- bare `python3`, no venv. Lists
-    each citekey next to its title/year pulled straight from
-    `content/ledger.sqlite`, so a reader can trace every `[@citekey]` marker
-    in the body back to a labeled entry by that same key. If this chapter's
+    Stdlib-only, like the citation gate -- bare `python3`, no venv. Writes
+    numbered IEEE-style entries from `content/ledger.sqlite`, ordered by
+    first appearance so the numbers match the rendered PDF's, each keeping
+    its citekey in a trailing code span so a reader can trace every
+    `[@citekey]` marker in the body back to an entry by that same key.
+    Leave the body's inline citations as `[@citekey]` -- do **not**
+    hand-number them to `[1]`; pandoc assigns the numbers at render time,
+    and the literal key is what the gate verifies. If this chapter's
     other section headings are manually numbered (e.g. `## 6. Challenges and
     Open Issues`), pass `--heading "N. References"` with the next number so
     the new section matches the draft's own numbering instead of the bare

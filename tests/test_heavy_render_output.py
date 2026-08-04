@@ -21,10 +21,104 @@ pandoc_available = shutil.which("pandoc") is not None
 pdflatex_available = shutil.which("pdflatex") is not None
 
 
+class TestCollapsedCsl:
+    def test_adds_the_collapse_attribute_to_a_temp_copy(self, tmp_path):
+        csl = tmp_path / "style.csl"
+        csl.write_text('<style>\n  <citation>\n    <layout/>\n  </citation>\n</style>\n')
+        out_dir = tmp_path / "render-tmp"
+        out_dir.mkdir()
+        out = render_output._collapsed_csl(csl, out_dir)
+
+        assert out != csl, "must not edit the vendored style in place"
+        assert '<citation collapse="citation-number">' in out.read_text()
+        assert 'collapse=' not in csl.read_text(), "original left untouched"
+
+    def test_keeps_existing_attributes_on_the_citation_tag(self, tmp_path):
+        csl = tmp_path / "style.csl"
+        csl.write_text('<style><citation et-al-min="3"><layout/></citation></style>')
+        text = render_output._collapsed_csl(csl, tmp_path).read_text()
+        assert 'collapse="citation-number"' in text and 'et-al-min="3"' in text
+
+    def test_a_style_that_already_collapses_is_returned_unchanged(self, tmp_path):
+        csl = tmp_path / "style.csl"
+        csl.write_text('<style><citation collapse="year"><layout/></citation></style>')
+        # Overriding the style author's own choice would silently change
+        # how someone's style renders.
+        assert render_output._collapsed_csl(csl, tmp_path) == csl
+
+    def test_a_style_with_no_citation_element_is_returned_unchanged(self, tmp_path):
+        csl = tmp_path / "style.csl"
+        csl.write_text("<style><bibliography><layout/></bibliography></style>")
+        assert render_output._collapsed_csl(csl, tmp_path) == csl
+
+
+class TestVendoredIeeeStyle:
+    def test_is_present_and_is_the_configured_default(self):
+        from src import config
+
+        style = Path(__file__).resolve().parent.parent / "assets" / "csl" / "ieee.csl"
+        assert style.is_file()
+        assert config.CSL_STYLE_PATH.name == "ieee.csl"
+
+    def test_is_unmodified_upstream(self):
+        # assets/csl/README.md promises this file is byte-identical to the
+        # CSL project's own ieee.csl, so it can be re-fetched and diffed.
+        # The one deviation this project needs lives in _collapsed_csl, so
+        # an edit here would mean that promise had quietly been broken.
+        style = Path(__file__).resolve().parent.parent / "assets" / "csl" / "ieee.csl"
+        assert 'collapse=' not in style.read_text()
+
+
+class TestSwapManualRefsForCiteproc:
+    def test_keeps_the_heading_and_swaps_the_entries_for_the_anchor(self):
+        text = "# Title\n\nA claim [@k].\n\n## References\n\n[1] A Paper, 2024. `k`\n"
+        assert render_output._swap_manual_refs_for_citeproc(text) == (
+            "# Title\n\nA claim [@k].\n\n## References\n\n::: {#refs}\n:::\n"
+        )
+
+    def test_preserves_a_draft_s_own_numbered_heading(self):
+        # textbook-chapter-writer passes --heading "6. References" to match
+        # its other headings; citeproc emits no heading of its own, so
+        # dropping this one left the rendered bibliography untitled.
+        text = "A claim [@k].\n\n## 6. References\n\n[1] A Paper, 2024. `k`\n"
+        assert "## 6. References" in render_output._swap_manual_refs_for_citeproc(text)
+
+    def test_preserves_the_heading_level(self):
+        text = "A claim [@k].\n\n#### References\n\n[1] A Paper, 2024. `k`\n"
+        assert "#### References" in render_output._swap_manual_refs_for_citeproc(text)
+
+    def test_handles_a_heading_on_the_final_line_without_a_newline(self):
+        text = "A claim [@k].\n\n## References"
+        out = render_output._swap_manual_refs_for_citeproc(text)
+        assert out.endswith("## References\n\n::: {#refs}\n:::\n")
+
+    def test_leaves_a_draft_without_one_alone(self):
+        text = "# Title\n\nA claim [@k].\n"
+        assert render_output._swap_manual_refs_for_citeproc(text) == text
+
+    def test_leaves_a_latex_fragment_alone(self):
+        # thesis-chapter-writer's .tex fragment has no Markdown heading and
+        # defers to the user's own thesis-wide bibliography.
+        text = "A claim \\citep{k}.\n\n\\section{References}\n"
+        assert render_output._swap_manual_refs_for_citeproc(text) == text
+
+
 class TestAliasFor:
     def test_replaces_double_hyphen(self):
         assert render_output._alias_for("zech_digital-twins-as--service_2024") == \
             "zech_digital-twins-as-x2d-service_2024"
+
+    @pytest.mark.parametrize("citekey", [
+        "zech_digital-twins-as--service_2024",
+        # This project's own corpus has a 3-hyphen key. A single
+        # replace("--", "-x2d-") leaves "state-x2d--art" -- still
+        # truncating, so the citation resolves to nothing and the source
+        # silently disappears from the rendered bibliography.
+        "tygesen_state---art_2019",
+        "a----b",
+    ])
+    def test_alias_never_leaves_a_double_hyphen_behind(self, citekey):
+        assert "--" not in render_output._alias_for(citekey)
 
     def test_no_double_hyphen_unchanged_value(self):
         # _alias_for always transforms; callers only invoke it for keys
@@ -167,22 +261,118 @@ class TestRenderReal:
         assert out_path.exists()
         assert out_path == isolated_config.RENDERED_DIR / "draft.pdf"
 
-    def test_renders_to_tex_and_suppresses_bibliography_with_manual_refs(self, isolated_config, tmp_path):
+    def test_renders_to_tex_replacing_a_manual_refs_section_with_citeprocs(self, isolated_config, tmp_path):
         con = ledger.connect()
         ledger.upsert_reference(con, make_reference(citekey="smith_2024", title="An Example Paper", year="2024"))
         con.close()
         isolated_config.BIB_FILE_PATH.write_text(
-            "@article{smith_2024,\n  title={An Example Paper},\n  year={2024},\n}\n"
+            "@article{smith_2024,\n  author={Smith, Jane},\n  title={An Example Paper},\n"
+            "  journal={J. Examples},\n  year={2024},\n}\n"
         )
 
         draft = tmp_path / "draft.md"
         draft.write_text(
             "# Title\n\nSome claim [@smith_2024].\n\n"
-            "## References\n\n- **smith_2024** -- An Example Paper (2024).\n"
+            "## References\n\n[1] J. Smith, \"An Example Paper,\" *J. Examples*, 2024. `smith_2024`\n"
         )
         out_path = render_output.render(str(draft), output_format="tex")
         tex = out_path.read_text()
+
         assert "documentclass" in tex or "article" in tex
+        # The draft's own section is stripped and citeproc's numbered one
+        # takes its place: exactly one bibliography, with the author and
+        # journal in it, and no citekey label reaching the reader (the
+        # draft's `smith_2024` code span would come through as \texttt).
+        # Case-insensitively: IEEE style sentence-cases titles, so
+        # citeproc's own entry reads "An example paper".
+        assert tex.lower().count("an example paper") == 1, "exactly one bibliography, not two"
+        assert "J. Smith" in " ".join(tex.split())
+        assert "J. Examples" in " ".join(tex.split())
+        assert "\\texttt" not in tex
+        # The draft's own heading survives, and citeproc's bibliography
+        # lands under it rather than at the end of an untitled document.
+        assert "References" in tex
+        assert tex.index("References") < tex.index("CSLReferences}{")
+
+    def test_the_drafts_own_reference_heading_titles_the_rendered_bibliography(
+        self, isolated_config, tmp_path
+    ):
+        con = ledger.connect()
+        ledger.upsert_reference(con, make_reference(citekey="smith_2024", title="An Example Paper", year="2024"))
+        con.close()
+        isolated_config.BIB_FILE_PATH.write_text(
+            "@article{smith_2024,\n  author={Smith, Jane},\n  title={An Example Paper},\n"
+            "  journal={J. Examples},\n  year={2024},\n}\n"
+        )
+
+        draft = tmp_path / "draft.md"
+        draft.write_text(
+            "# Title\n\nSome claim [@smith_2024].\n\n"
+            "## 6. References\n\n[1] J. Smith, \"An Example Paper,\" 2024. `smith_2024`\n"
+        )
+        out_path = render_output.render(str(draft), output_format="html")
+        text = " ".join(out_path.read_text().split())
+
+        # The numbered heading a genre skill chose, not a generic one
+        # pandoc invented, and the entries sit under it. Anchored on the
+        # entry's own div id rather than "csl-entry", which also appears
+        # in the standalone template's stylesheet up in <head>.
+        assert "6. References" in text
+        assert text.index("6. References") < text.index('id="ref-smith_2024"')
+
+    def test_ieee_numbering_and_collapsed_runs_reach_the_output(self, isolated_config, tmp_path):
+        con = ledger.connect()
+        keys = [f"k{i}_2024" for i in range(1, 6)]
+        for key in keys:
+            ledger.upsert_reference(con, make_reference(citekey=key, title=f"Paper {key}", year="2024"))
+        con.close()
+        isolated_config.BIB_FILE_PATH.write_text("\n".join(
+            f"@article{{{key},\n  author={{Doe, Jane}},\n  title={{Paper {key}}},\n"
+            f"  journal={{J. Examples}},\n  year={{2024}},\n}}" for key in keys
+        ))
+
+        draft = tmp_path / "draft.md"
+        draft.write_text(
+            "# Title\n\nOne [@k1_2024]. Another [@k2_2024].\n\n"
+            "A run of four [@k2_2024; @k3_2024; @k4_2024; @k5_2024].\n"
+        )
+        # html rather than tex/pdf so the assertions can read the markers
+        # as a reader sees them, without LaTeX's {[}1{]} escaping in the way.
+        out_path = render_output.render(str(draft), output_format="html")
+        # Pandoc hard-wraps its output, so a name can arrive split across
+        # two lines ("J.\nDoe") -- collapse whitespace before matching.
+        text = " ".join(out_path.read_text().split())
+
+        # Numbered by first appearance, not by citekey order.
+        assert 'data-cites="k1_2024">[1]</span>' in text
+        assert 'data-cites="k2_2024">[2]</span>' in text
+        # The collapsed form is the whole reason _collapsed_csl exists:
+        # upstream ieee.csl alone renders this run as "[2], [3], [4], [5]".
+        assert "[2]–[5]" in text
+        assert "J. Doe" in text and "J. Examples" in text
+
+    def test_no_collapse_leaves_the_style_as_published(self, isolated_config, tmp_path):
+        con = ledger.connect()
+        keys = [f"k{i}_2024" for i in range(1, 4)]
+        for key in keys:
+            ledger.upsert_reference(con, make_reference(citekey=key, title=f"Paper {key}", year="2024"))
+        con.close()
+        isolated_config.BIB_FILE_PATH.write_text("\n".join(
+            f"@article{{{key},\n  author={{Doe, Jane}},\n  title={{Paper {key}}},\n"
+            f"  journal={{J. Examples}},\n  year={{2024}},\n}}" for key in keys
+        ))
+
+        draft = tmp_path / "draft.md"
+        draft.write_text("# Title\n\nA run [@k1_2024; @k2_2024; @k3_2024].\n")
+        out_path = render_output.render(str(draft), output_format="html", collapse_citations=False)
+
+        assert "[1], [2], [3]" in out_path.read_text()
+
+    def test_missing_csl_style_is_reported_not_passed_to_pandoc(self, isolated_config, tmp_path):
+        draft = tmp_path / "draft.md"
+        draft.write_text("# Title\n\nNo citations here.\n")
+        with pytest.raises(render_output.MissingBinary, match="CSL style not found"):
+            render_output.render(str(draft), output_format="tex", csl=str(tmp_path / "nope.csl"))
 
     def test_double_hyphen_citekey_survives_render(self, isolated_config, tmp_path):
         con = ledger.connect()

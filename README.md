@@ -39,8 +39,9 @@ lesson the reader follows at a keyboard to a working result), and **deep
 research** (multi-perspective, corpus-grounded). The two teaching genres
 are deliberately separate: a textbook chapter explains, a tutorial is
 verified to run.
-Drafts render to PDF or LaTeX through Pandoc/TeX Live, with a
-`## References` section generated from the citekeys actually cited.
+Drafts render to PDF or LaTeX through Pandoc/TeX Live, in IEEE citation
+style -- numeric `[1]` markers, `[3]-[6]` for a consecutive run, over a
+numbered bibliography generated from the citekeys actually cited.
 
 ### The content layer
 

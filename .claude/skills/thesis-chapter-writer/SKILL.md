@@ -123,6 +123,13 @@ job -- see `docs/WRITING-STANDARDS.md` §5.
    preview still gets a real bibliography for free: `--citeproc` resolves
    `\citep`/`\citet` against `bibliography.bib` and appends one
    automatically, same as before this feature existed.
+
+   Note the preview renders that bibliography in IEEE style, with numeric
+   `[1]` markers, because that is what `render_output` now passes
+   `--csl`. That styles the *preview only* -- the `.tex` fragment is
+   unchanged, and the real thesis renders it in whatever style its own
+   document class and `\bibliographystyle` specify. Don't rewrite
+   `\citep`/`\citet` to match the preview.
 10. **Read it once as the examiner** (`docs/WRITING-STANDARDS.md` §6, in its
     adversarial form). Check specifically for: a conclusion stated more
     strongly than its cited evidence supports, a section that summarizes

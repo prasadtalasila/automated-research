@@ -164,6 +164,21 @@ python3 -m src.citation_gate content/drafts/survey.md
 Append or replace a `References` section built from a draft's own cited
 citekeys.
 
+Entries are IEEE-style and numbered by first appearance in the draft --
+the order pandoc's citeproc numbers citations in, so this list and the
+rendered PDF's bibliography agree on which source is `[1]`. Each entry
+ends with its citekey in a code span, because the draft's own inline
+markers are still `[@citekey]`:
+
+```
+[1] J. Doe and R. Roe, "A Paper," *IEEE Trans. Testing*, vol. 3, pp. 1–9, 2024. `doe_paper_2024`
+```
+
+Authors, venue, volume and pages come from the ledger's `bib_fields`
+column, which `sync` populates from the bib file. A row synced before
+that column existed has no fields to format, so its entry degrades to
+title and year until the next `python -m src.sync`.
+
 | Flag | Default | What it does |
 |---|---|---|
 | `-h`, `--help` | -- | Show help and exit |
@@ -217,6 +232,14 @@ python3 -m src.citation_provenance content/drafts/survey.md
 Render a Pandoc-Markdown or LaTeX draft. Needs `pandoc` (and `pdflatex`
 for PDF) on `PATH`, but no Python package from the heavy group.
 
+Citations render IEEE-style -- `[1]`, and `[3]-[6]` for a consecutive run
+-- over a numbered bibliography of complete entries, via the CSL style
+vendored at `assets/csl/ieee.csl`. The draft's own `## References` section
+(if `python -m src.references` added one) is stripped from the copy handed
+to pandoc, so the output carries exactly one bibliography: citeproc's,
+which is the one that can be numbered consistently with the inline
+markers. The draft file itself is never modified.
+
 | Flag | Default | What it does |
 |---|---|---|
 | `-h`, `--help` | -- | Show help and exit |
@@ -226,6 +249,8 @@ for PDF) on `PATH`, but no Python package from the heavy group.
 | `--fontsize SIZE` | `12pt` | LaTeX font size |
 | `--papersize SIZE` | `a4` | LaTeX paper size, **without** the `paper` suffix pandoc appends itself -- so `a4`, `letter` |
 | `--margin MARGIN` | `1in` | Page margin, passed to the `geometry` package |
+| `--csl PATH` | `assets/csl/ieee.csl` | CSL style for citations and the bibliography |
+| `--no-collapse-citations` | off | Render a run as `[3], [4], [5], [6]` instead of `[3]-[6]`, i.e. leave the style exactly as it is on disk |
 
 ```bash
 python3 -m src.heavy.render_output content/drafts/survey.md --format pdf

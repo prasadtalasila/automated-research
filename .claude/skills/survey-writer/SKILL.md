@@ -133,10 +133,17 @@ collapse them for the sake of a cleaner narrative.
     ```
     python -m src.references content/drafts/<slug>.md
     ```
-    Stdlib-only, like the citation gate — bare `python3`, no venv. Lists
-    each citekey next to its title/year pulled straight from
-    `content/ledger.sqlite`, so a reader can trace every `[@citekey]`
-    marker in the body back to a labeled entry by that same key.
+    Stdlib-only, like the citation gate — bare `python3`, no venv. Writes
+    numbered IEEE-style entries (`[1] J. Doe and R. Roe, "A Paper," *IEEE
+    Trans. Testing*, vol. 3, pp. 1–9, 2024. \`doe_paper_2024\``) from
+    `content/ledger.sqlite`, ordered by first appearance so the numbers
+    match the rendered PDF's. Each entry keeps its citekey in a trailing
+    code span, so a reader can trace every `[@citekey]` marker in the body
+    back to an entry by that same key.
+
+    Leave the body's inline citations as `[@citekey]` — do **not**
+    hand-number them to `[1]`. The literal key is what the gate and the
+    hook verify; pandoc assigns the numbers at render time.
 11. **Render tex and pdf.** Once the gate passes and the references section
     is built, also render the other two formats:
     ```

@@ -11,6 +11,7 @@ this document can stay a reference rather than an argument.
 - [A minimal config.toml](#a-minimal-configtoml)
 - [Every setting](#every-setting)
   - [Paths](#paths)
+  - [`[render]` -- citation style](#render----citation-style)
   - [`[parser]` -- PDF text extraction](#parser----pdf-text-extraction)
   - [`[provenance]` -- citation-support bands](#provenance----citation-support-bands)
   - [`[heavy]` -- the optional heavy pipeline](#heavy----the-optional-heavy-pipeline)
@@ -98,6 +99,33 @@ used as given.
   heavy pipeline's topic modelling and embeddings. **Never citable**: a
   PDF here has no citekey, so add it to your reference manager,
   re-export, and re-run `sync` before citing it.
+
+### `[render]` -- citation style
+
+Used only by `src/heavy/render_output.py`, never by `sync` or the
+citation gate.
+
+| Key | Env var | Accepts | Default |
+|---|---|---|---|
+| `csl` | `CSL_STYLE` | path | `assets/csl/ieee.csl` |
+| `collapse_citations` | `RENDER_COLLAPSE_CITATIONS` | boolean | `true` |
+
+- **`csl`** -- the CSL style pandoc's `--citeproc` formats citations and
+  the bibliography with. The IEEE style ships with this repo (vendored,
+  not fetched: rendering has to work with no network, and a style that
+  changed underneath a draft would renumber one already reviewed). Point
+  it at any other `.csl` file to use a different style;
+  [the CSL project](https://github.com/citation-style-language/styles)
+  publishes several thousand. Without this, pandoc falls back to Chicago
+  author-date.
+- **`collapse_citations`** -- whether a run of consecutive numbers
+  collapses: `[3]-[6]` rather than `[3], [4], [5], [6]`. The IEEE
+  Reference Guide's own examples use the collapsed form, but upstream
+  `ieee.csl` does not produce it, so `render_output.py` injects the one
+  CSL attribute that does (`collapse="citation-number"`) into a temp copy
+  of the style. Set `false` to render whatever the style on disk says,
+  unmodified. A style that already sets `collapse` itself is never
+  overridden. See `assets/csl/README.md`.
 
 ### `[parser]` -- PDF text extraction
 

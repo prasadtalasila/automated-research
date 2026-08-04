@@ -1,5 +1,6 @@
 """src/ledger.py: the sqlite state that makes `sync` incremental."""
 
+import json
 import os
 import sqlite3
 from pathlib import Path
@@ -133,6 +134,61 @@ class TestSchemaMigration:
             assert version == len(ledger._MIGRATIONS)
         finally:
             con.close()
+
+
+class TestBibFields:
+    """The bib_fields column (_MIGRATIONS version 3) -- what src/references.py
+    formats a full bibliography entry from, since it may not read the bib
+    file itself."""
+
+    def test_kept_fields_round_trip_as_json(self, ledger_con):
+        ref = make_reference(citekey="doe2024", fields={
+            "author": "Doe, Jane", "journal": "J. Things", "pages": "1--9",
+        })
+        ledger.upsert_reference(ledger_con, ref)
+        (stored,) = ledger_con.execute(
+            "SELECT bib_fields FROM items WHERE citekey = 'doe2024'"
+        ).fetchone()
+        assert json.loads(stored) == {"author": "Doe, Jane", "journal": "J. Things", "pages": "1--9"}
+
+    def test_export_noise_is_dropped(self, ledger_con):
+        # A reference manager's export carries per-host and per-run junk
+        # that no entry formats and that would churn this column on every
+        # re-export.
+        ref = make_reference(citekey="noisy2024", fields={
+            "author": "Doe, Jane",
+            "file": "/home/someone/Zotero/storage/ABC/paper.pdf",
+            "abstract": "...", "keywords": "a, b", "urldate": "2026-01-01",
+        })
+        ledger.upsert_reference(ledger_con, ref)
+        (stored,) = ledger_con.execute(
+            "SELECT bib_fields FROM items WHERE citekey = 'noisy2024'"
+        ).fetchone()
+        assert json.loads(stored) == {"author": "Doe, Jane"}
+
+    def test_empty_values_and_no_kept_fields_store_null(self, ledger_con):
+        # NULL means the same thing to references.py as "row predates this
+        # column": fall back to title/year rather than fail.
+        ledger.upsert_reference(ledger_con, make_reference(citekey="bare2024", fields={"author": "  "}))
+        (stored,) = ledger_con.execute(
+            "SELECT bib_fields FROM items WHERE citekey = 'bare2024'"
+        ).fetchone()
+        assert stored is None
+
+    def test_update_path_refreshes_the_column(self, ledger_con):
+        ledger.upsert_reference(ledger_con, make_reference(citekey="doe2024", fields={"author": "Doe, Jane"}))
+        ledger.upsert_reference(ledger_con, make_reference(citekey="doe2024", fields={"author": "Roe, Richard"}))
+        (stored,) = ledger_con.execute(
+            "SELECT bib_fields FROM items WHERE citekey = 'doe2024'"
+        ).fetchone()
+        assert json.loads(stored) == {"author": "Roe, Richard"}
+
+    def test_re_sync_of_an_unchanged_entry_writes_an_identical_value(self, ledger_con):
+        # sort_keys, so a dict-order change in the export doesn't show up
+        # as a ledger change.
+        a = make_reference(citekey="doe2024", fields={"author": "Doe, Jane", "journal": "J"})
+        b = make_reference(citekey="doe2024", fields={"journal": "J", "author": "Doe, Jane"})
+        assert ledger._bib_fields_json(a) == ledger._bib_fields_json(b)
 
 
 class TestUpsertReference:

@@ -110,6 +110,14 @@ class TestRealConfigToml:
     def test_embedding_model_default(self):
         assert config.EMBEDDING_MODEL == "sentence-transformers/all-mpnet-base-v2"
 
+    def test_csl_style_defaults_to_the_vendored_ieee_style(self):
+        assert config.CSL_STYLE_PATH == config.REPO_ROOT / "assets" / "csl" / "ieee.csl"
+        # Vendored, not fetched: rendering has to work with no network.
+        assert config.CSL_STYLE_PATH.is_file()
+
+    def test_citations_collapse_by_default(self):
+        assert config.RENDER_COLLAPSE_CITATIONS is True
+
 
 class TestGetWorkers:
     """[parser].workers is the one setting that isn't a plain str/float/

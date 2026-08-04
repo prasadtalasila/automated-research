@@ -13,6 +13,7 @@ on every no-op run would dominate the run's wall-clock time.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -89,6 +90,26 @@ _MIGRATIONS: list[tuple[tuple[str, str], ...]] = [
         # reason.
         ("failure_kind", "ALTER TABLE items ADD COLUMN failure_kind TEXT"),
     ),
+    (
+        # version 3: the entry's own BibTeX fields, verbatim, as a JSON
+        # object -- authors, journal/booktitle, volume, pages, publisher,
+        # everything the title/year/doi columns above don't keep.
+        #
+        # src/references.py needs them to write a real bibliography entry
+        # rather than just "citekey -- Title (Year)", and it may not read
+        # bibliography.bib to get them: src/bib_reader.py is the only
+        # module allowed to (AGENTS.md), and it needs bibtexparser, while
+        # references.py runs under bare python3. One opaque JSON column
+        # rather than a column per field because nothing here queries or
+        # indexes them -- they are only ever read back whole, for one
+        # citekey at a time, to format an entry.
+        #
+        # NULL means "synced before this column existed". references.py
+        # falls back to the title/year columns for those rather than
+        # failing, so an existing ledger keeps working until the next
+        # `python -m src.sync` backfills it.
+        ("bib_fields", "ALTER TABLE items ADD COLUMN bib_fields TEXT"),
+    ),
 ]
 
 
@@ -127,6 +148,38 @@ def _hash_pdf(path: str) -> str:
 def _stat_pdf(path: str) -> tuple[int, int]:
     st = os.stat(path)
     return st.st_size, st.st_mtime_ns
+
+
+# Fields carried over verbatim from the BibTeX entry into the bib_fields
+# column (_MIGRATIONS version 3), for src/references.py to format a full
+# bibliography entry from. Deliberately a fixed allowlist rather than the
+# whole entry dict: a reference manager's export carries per-host noise
+# (`file` paths, `abstract`, `keywords`, timestamps, arbitrary `note`
+# fields) that nothing formats and that would churn the ledger on every
+# re-export. `title`/`year`/`doi` are omitted -- they have real columns.
+_BIB_FIELDS_KEPT = (
+    "author", "editor", "journal", "journaltitle", "booktitle", "series",
+    "volume", "number", "pages", "publisher", "institution", "school",
+    "address", "location", "edition", "howpublished", "organization",
+    "eprint", "eprinttype", "archiveprefix", "primaryclass",
+)
+
+
+def _bib_fields_json(ref: Reference) -> str | None:
+    """`ref`'s formatting-relevant BibTeX fields as a JSON object.
+
+    Returns None (SQL NULL) when the entry has none of them, so "this
+    entry genuinely carries no author or venue" and "this row predates
+    the column" read the same to references.py -- both fall back to the
+    title/year columns, which is the same output either way.
+    """
+    kept = {
+        key: value for key, value in ref.fields.items()
+        if key.lower() in _BIB_FIELDS_KEPT and str(value).strip()
+    }
+    # sort_keys so a re-sync of an unchanged entry writes a byte-identical
+    # value rather than reordering it with the export's dict order.
+    return json.dumps(kept, sort_keys=True) if kept else None
 
 
 def upsert_reference(con: sqlite3.Connection, ref: Reference, force: bool = False) -> bool:
@@ -174,11 +227,12 @@ def upsert_reference(con: sqlite3.Connection, ref: Reference, force: bool = Fals
             """
             INSERT INTO items
                 (citekey, item_type, title, year, doi, url,
-                 pdf_path, pdf_hash, pdf_size, pdf_mtime_ns, status, last_synced)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 pdf_path, pdf_hash, pdf_size, pdf_mtime_ns, status, last_synced, bib_fields)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (ref.citekey, ref.item_type, ref.title, ref.year,
-             ref.doi, ref.url, ref.pdf_path, pdf_hash, pdf_size, pdf_mtime_ns, status, now),
+             ref.doi, ref.url, ref.pdf_path, pdf_hash, pdf_size, pdf_mtime_ns, status, now,
+             _bib_fields_json(ref)),
         )
     else:
         old_hash, _old_size, _old_mtime_ns, old_status, old_kind = row
@@ -218,11 +272,12 @@ def upsert_reference(con: sqlite3.Connection, ref: Reference, force: bool = Fals
             UPDATE items SET
                 item_type = ?, title = ?, year = ?, doi = ?,
                 url = ?, pdf_path = ?, pdf_hash = ?, pdf_size = ?, pdf_mtime_ns = ?,
-                status = ?, last_synced = ?
+                status = ?, last_synced = ?, bib_fields = ?
             WHERE citekey = ?
             """,
             (ref.item_type, ref.title, ref.year, ref.doi,
-             ref.url, ref.pdf_path, pdf_hash, pdf_size, pdf_mtime_ns, new_status, now, ref.citekey),
+             ref.url, ref.pdf_path, pdf_hash, pdf_size, pdf_mtime_ns, new_status, now,
+             _bib_fields_json(ref), ref.citekey),
         )
     con.commit()
     return needs_parse

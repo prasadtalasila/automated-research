@@ -143,8 +143,11 @@ grade, no panel verdicts row.>
 ## References
 <Leave this heading bare -- `python -m src.references` (SKILL.md Phase 7d)
 fills it in automatically from exactly the citekeys cited above, as
-"citekey -- Title (Year)", pulled from content/ledger.sqlite. Don't
-hand-assemble this list.>
+numbered IEEE entries ("[1] J. Doe and R. Roe, "A Paper," *IEEE Trans.
+Testing*, vol. 3, pp. 1-9, 2024. `doe_paper_2024`"), pulled from
+content/ledger.sqlite. Don't hand-assemble this list, and don't
+hand-number the inline `[@citekey]` markers above to match it -- pandoc
+assigns those numbers when the draft is rendered.>
 ```
 
 Save as `content/drafts/deep-research-<kebab-topic>.md` (canonical format),

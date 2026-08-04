@@ -9,7 +9,7 @@
 [tool.poetry]
 package-mode = false
 name = "automated-research"
-version = "2.2.0"
+version = "2.3.0"
 description = "Bib-sync, citation-gate, and genre-writing pipeline for a research corpus."
 authors = ["Prasad Talasila"]
 license = "MIT"
