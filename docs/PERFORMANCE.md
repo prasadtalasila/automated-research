@@ -170,11 +170,13 @@ CPUs. It does not. Measured CPU busy, against the 48 available:
 | Run | CPUs busy | of the 48 allowed |
 |---|---|---|
 | 16 workers | 18.7 | 39% |
-| 32 workers | 34.0 | 71% |
+| 32 workers | ~34 | ~70% |
 | 24 workers, OCR on | 44.6 | **93%** |
 
-At 32 workers -- past the point the code will go -- the CPU is still only
-71% busy. With OCR off a worker uses closer to one CPU than four.
+At 32 workers -- well past the point the code will go -- the CPU is still
+only ~70% busy. With OCR off a worker uses closer to one CPU than four.
+(The 32-worker figure landed at 71% in one sweep and 70% in another; a
+run-to-run point is worth about a percentage point, not a decimal.)
 
 ### What flattens the curve past ~24 workers
 
@@ -190,7 +192,7 @@ Timing each run's phases separates the candidates:
   own ~8.5s model load, so standing the pool up costs more the bigger the
   pool: 7.9% of the run at 24 workers, 12.7% at 48.
 - **The CPU is heading for saturation**, 56% to 78% across the same
-  range. Read alone, "71% busy at 32" suggests headroom; read against 56%
+  range. Read alone, "70% busy at 32" suggests headroom; read against 56%
   at 24 and 78% at 48, it is clearly *becoming* the limit.
 - **The long-document tail is not the story** — 5-8s throughout, under 4%.
 

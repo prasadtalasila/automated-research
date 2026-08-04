@@ -365,14 +365,14 @@ docling exposes no batch API — upstream work, not local.
 Gaps, not tasks.
 
 - **Does the clamp finding generalise** past one machine and one corpus?
-  A CPU-only machine, where the GPU does none of the work, is the case
-  most likely to differ — and the one most easily hurt by getting it
-  wrong.
+  Blocks item 1 above.
 - **Where is the OCR optimum?** Swept only to 24 workers, still improving
   there.
 
-Answered by measurement rather than left open: the curve past ~32 workers
-**plateaus rather than reversing** (32 and 48 land within 0.9% over three
-runs each), and what flattens it is per-worker startup growing into 12.7%
-of the run at 48 workers while the CPU climbs from 56% to 78% busy.
-Neither the GPUs, `num_threads`, nor the long-document tail is involved.
+What *is* settled: past ~32 workers the curve **plateaus rather than
+reversing** — 32 and 48 land within 0.9% of each other over three runs
+each. Two costs flatten it, both growing with the pool: per-worker
+startup rises to 12.7% of the run at 48 workers, and the CPU climbs from
+56% to 78% busy. Neither the GPUs, `num_threads`, nor the long-document
+tail is involved. So the divisor above is much too large — but which
+smaller value to use is exactly what the first open question blocks.

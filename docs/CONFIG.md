@@ -259,9 +259,10 @@ machine can be far larger. For `docling` that count is divided by 4:
 
 **That divisor of 4 is measurably too conservative.** It models a docling
 worker as occupying about 4 CPUs, which a full-corpus sweep does not
-support: at 32 workers the CPU is only 71% busy, and 32 workers run
-**1.41x faster** than the 12 this table allows. The optimum implies a
-divisor near 1.5. Changing it is a behaviour change and has not been
+support: at 32 workers the CPU is only ~70% busy, and 32 workers run
+**1.41x faster** than the 12 this table allows -- and 48 workers are no
+worse, so the honest reading is "much smaller than 4", not a specific
+replacement. Changing it is a behaviour change and has not been
 made -- see
 [PERFORMANCE.md](PERFORMANCE.md#parserworkers----document-level-parallelism).
 
