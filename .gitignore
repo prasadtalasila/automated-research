@@ -16,7 +16,10 @@ content/provenance/
 __pycache__/
 *.pyc
 .venv/
-.venv-full/
+# No trailing slash: the venv is a directory on a normal checkout, but a
+# *symlink* to a shared one in a git worktree, and `.venv-full/` matches
+# only the directory -- so the symlink shows up as an addable file.
+.venv-full
 venv/
 env/
 .pytest_cache/

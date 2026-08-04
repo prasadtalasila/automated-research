@@ -186,6 +186,7 @@ python3 -m src.ledger
 python3 -m src.citation_gate path/to/draft.md
 python3 -m src.references path/to/draft.md --heading "References"    # --heading default: "References"
 python3 -m src.heavy.render_output path/to/draft.md --format pdf     # also: --csl, --no-collapse-citations, --documentclass, --fontsize, --margin (--help for all)
+python3 -m src.heavy.render_output path/to/draft.md --format md      # numbered Markdown copy in content/rendered/ (no pandoc needed)
 ```
 
 Exporting from Zotero in detail, including the attachment-path trap that

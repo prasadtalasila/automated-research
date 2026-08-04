@@ -246,7 +246,7 @@ under the draft's own heading, including a numbered one like
 |---|---|---|
 | `-h`, `--help` | -- | Show help and exit |
 | `<input>` | required | The draft file (Markdown or LaTeX) |
-| `--format FORMAT` | `pdf` | Output format -- e.g. `pdf`, `tex`, `docx` |
+| `--format FORMAT` | `pdf` | Output format -- e.g. `pdf`, `tex`, `docx`, `md` |
 | `--documentclass CLASS` | `article` | LaTeX documentclass |
 | `--fontsize SIZE` | `12pt` | LaTeX font size |
 | `--papersize SIZE` | `a4` | LaTeX paper size, **without** the `paper` suffix pandoc appends itself -- so `a4`, `letter` |
@@ -254,10 +254,27 @@ under the draft's own heading, including a numbered one like
 | `--csl PATH` | `assets/csl/ieee.csl` | CSL style for citations and the bibliography. A relative path is looked for under the current directory first (like `<input>`), then the repo root -- so the repo-relative form `[render] csl` uses works from anywhere |
 | `--no-collapse-citations` | off | Render a run as `[3], [4], [5], [6]` instead of `[3]-[6]`, i.e. leave the style exactly as it is on disk |
 
+`--format md` on a **Markdown** draft is a special case, and the one
+output you can read without a PDF viewer: it writes
+`content/rendered/<slug>.md` with the citekeys replaced by the same IEEE
+numbers the PDF uses (`[1]`, `[3]-[6]`) over a reference list built from
+the ledger. It needs no `pandoc`, because pandoc's Markdown writer is the
+wrong tool for it -- that writer escapes every marker (`\[1\]`, since
+`[1]` could be a link reference) and emits the bibliography as `:::`
+fenced divs full of `[...]{.csl-left-margin}` spans, none of which render
+anywhere except pandoc.
+
+The draft itself is never modified: it keeps its `[@citekey]` markers,
+which are what `citation_gate` verifies and what `--citeproc` resolves
+when rendering. A `.tex` input still goes through pandoc for `md`, since
+converting a thesis fragment's `\citep{...}` genuinely is a format
+conversion.
+
 ```bash
 python3 -m src.heavy.render_output content/drafts/survey.md --format pdf
 # python3 -m src.heavy.render_output content/drafts/survey.md --format tex
 # python3 -m src.heavy.render_output content/drafts/survey.md --format docx
+# python3 -m src.heavy.render_output content/drafts/survey.md --format md   # numbered Markdown, no pandoc needed
 # python3 -m src.heavy.render_output content/drafts/thesis.md \
 #     --documentclass report --fontsize 11pt --papersize letter --margin 1.5in
 ```

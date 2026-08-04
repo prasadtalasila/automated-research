@@ -237,11 +237,16 @@ python -m src.references content/drafts/deep-research-<slug>.md
 Stdlib-only, like the citation gate -- bare `python3`, no venv. It writes
 numbered IEEE-style entries; leave the body's inline citations as
 `[@citekey]` rather than hand-numbering them to `[1]`, since pandoc
-assigns the numbers at render time. Then render the other two formats:
+assigns the numbers at render time. Then render the other three formats:
 ```
 python3 -m src.heavy.render_output content/drafts/deep-research-<slug>.md --format tex
 python3 -m src.heavy.render_output content/drafts/deep-research-<slug>.md --format pdf
+python3 -m src.heavy.render_output content/drafts/deep-research-<slug>.md --format md
 ```
+The `md` output is a numbered copy in `content/rendered/` -- the same
+IEEE numbers as the PDF, for a reader who won't open one. The draft
+itself keeps its `[@citekey]` markers.
+
 This needs only bare `python3` plus `pandoc`/`pdflatex` on PATH — no heavy
 venv required. If either command reports `[missing-binary]` or `[error]`,
 print a one-line warning in chat with that message and continue anyway —

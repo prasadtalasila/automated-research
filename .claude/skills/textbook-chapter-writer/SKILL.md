@@ -167,11 +167,20 @@ candidate for the chapter.
     `## References` default. Skip this step entirely if there are no
     citations at all -- same as the gate step.
 11. **Render tex and pdf.** Once saved (and gated/referenced, if it has
-    citations), also render the other two formats:
+    citations), also render the other three formats:
     ```
     python3 -m src.heavy.render_output content/drafts/<slug>.md --format tex
     python3 -m src.heavy.render_output content/drafts/<slug>.md --format pdf
+    python3 -m src.heavy.render_output content/drafts/<slug>.md --format md
     ```
+    The `md` output is a numbered copy in `content/rendered/` -- the same
+    IEEE numbers as the PDF, for a reader who won't open one. The draft
+    itself keeps its `[@citekey]` markers.
+
+    The `md` output is a numbered copy in `content/rendered/` -- the same
+    IEEE numbers as the PDF, for a reader who won't open one. The draft
+    itself keeps its `[@citekey]` markers.
+
     This needs only bare `python3` plus `pandoc`/`pdflatex` on PATH -- no
     heavy venv required. If either command reports `[missing-binary]` or
     `[error]`, print a one-line warning in chat with that message and

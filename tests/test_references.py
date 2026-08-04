@@ -111,6 +111,127 @@ class TestFormatEntry:
         assert references.format_entry("k", "", "", {}) == "k."
 
 
+class TestFormatNumbers:
+    @pytest.mark.parametrize("numbers,expected", [
+        ([1], "[1]"),
+        # A run of two is NOT contracted -- IEEE, and the CSL style's own
+        # collapse, only contract three or more. This is what keeps the
+        # numbered Markdown byte-identical to the PDF's markers.
+        ([1, 2], "[1], [2]"),
+        ([3, 4, 5], "[3]–[5]"),
+        ([3, 4, 5, 6], "[3]–[6]"),
+        ([1, 3, 4, 5, 7], "[1], [3]–[5], [7]"),
+        # Out of order and duplicated in the source, sorted and deduped here.
+        ([5, 3, 4, 3], "[3]–[5]"),
+        ([9, 1], "[1], [9]"),
+    ])
+    def test_ieee_contraction_rules(self, numbers, expected):
+        assert references._format_numbers(numbers) == expected
+
+
+class TestRenumber:
+    NUMBERS = {"a": 1, "b": 2, "c": 3, "d": 4, "e": 5, "g": 7}
+
+    @pytest.mark.parametrize("text,expected", [
+        ("Claim [@a].", "Claim [1]."),
+        ("Pair [@a; @b].", "Pair [1], [2]."),
+        ("Run [@c; @d; @e].", "Run [3]–[5]."),
+        ("Mixed [@a; @c; @d; @e; @g].", "Mixed [1], [3]–[5], [7]."),
+        # Suppressed-author and bare forms are still citations.
+        ("Suppressed [-@a].", "Suppressed [1]."),
+        ("Bare @a here.", "Bare [1] here."),
+        # A group carrying a prefix or locator keeps its words: only the
+        # key itself is replaced, because collapsing the whole bracket
+        # would silently delete "see" and "p. 33".
+        ("Locator [see @a, p. 33].", "Locator [see [1], p. 33]."),
+        ("Spaces [ @a ; @b ].", "Spaces [1], [2]."),
+    ])
+    def test_marker_forms(self, text, expected):
+        assert references.renumber(text, self.NUMBERS) == expected
+
+    def test_a_key_with_no_number_is_left_alone(self):
+        assert references.renumber("Unknown [@zzz].", self.NUMBERS) == "Unknown [@zzz]."
+
+    def test_a_bare_key_with_no_number_is_left_alone(self):
+        assert references.renumber("Bare @zzz here.", self.NUMBERS) == "Bare @zzz here."
+
+    def test_a_group_is_left_alone_if_any_key_is_unnumbered(self):
+        assert references.renumber("[@a; @zzz]", self.NUMBERS) == "[@a; @zzz]"
+
+    def test_a_citation_inside_a_code_fence_is_untouched(self):
+        # A tutorial showing `[@citekey]` in an example is teaching the
+        # syntax; the gate ignores it, and so must this.
+        text = "Write:\n\n```markdown\n[@a]\n```\n\nReal [@b].\n"
+        assert references.renumber(text, self.NUMBERS) == "Write:\n\n```markdown\n[@a]\n```\n\nReal [2].\n"
+
+    def test_a_citation_inside_an_inline_code_span_is_untouched(self):
+        assert references.renumber("Use `[@a]` for this. Real [@b].", self.NUMBERS) == \
+            "Use `[@a]` for this. Real [2]."
+
+
+class TestNumberedMarkdown:
+    def _seed(self, con):
+        for key, title, year in [("b2024", "B Paper", "2024"), ("a2023", "A Paper", "2023")]:
+            ledger.upsert_reference(con, make_reference(
+                citekey=key, title=title, year=year, fields={"author": "Doe, Jane", "journal": "J. Things"}))
+
+    def test_numbers_body_and_rebuilds_the_list_without_citekey_labels(self, ledger_con):
+        self._seed(ledger_con)
+        out = references.numbered_markdown(
+            "# T\n\nOne [@b2024]. Two [@a2023].\n", ledger_con)
+
+        assert "One [1]. Two [2]." in out
+        assert "[1] J. Doe, \"B Paper,\" *J. Things*, 2024." in out
+        # No citekey labels: the numbers already index the list, and the
+        # inline markers are no longer keys, so a label would be noise.
+        assert "`b2024`" not in out
+        assert "[@" not in out
+
+    def test_replaces_an_existing_section_and_keeps_its_heading(self, ledger_con):
+        self._seed(ledger_con)
+        draft = ("One [@b2024].\n\n## 6. References\n\n"
+                 "[1] J. Doe, \"B Paper,\" *J. Things*, 2024. `b2024`\n")
+        out = references.numbered_markdown(draft, ledger_con)
+
+        assert out.count("References") == 1
+        assert "## 6. References" in out
+        assert "`b2024`" not in out
+
+    def test_an_explicit_heading_overrides_the_drafts_own(self, ledger_con):
+        self._seed(ledger_con)
+        draft = "One [@b2024].\n\n## 6. References\n\n[1] old entry\n"
+        out = references.numbered_markdown(draft, ledger_con, heading="Further reading")
+        assert "## Further reading" in out
+        assert "6. References" not in out
+
+    def test_a_draft_with_no_citations_is_returned_unchanged(self, ledger_con):
+        assert references.numbered_markdown("# T\n\nJust prose.\n", ledger_con) == "# T\n\nJust prose.\n"
+
+    def test_numbering_follows_first_appearance_not_the_ledger(self, ledger_con):
+        self._seed(ledger_con)
+        out = references.numbered_markdown("First [@a2023]. Then [@b2024].\n", ledger_con)
+        assert "First [1]. Then [2]." in out
+        assert out.index("A Paper") < out.index("B Paper")
+
+
+class TestWriteNumbered:
+    def test_writes_into_the_output_directory_and_leaves_the_draft_alone(self, isolated_config, tmp_path):
+        con = ledger.connect()
+        ledger.upsert_reference(con, make_reference(citekey="smith2024", title="A Paper", year="2024"))
+        con.close()
+
+        draft = tmp_path / "draft.md"
+        original = "Body [@smith2024].\n"
+        draft.write_text(original)
+        out_dir = tmp_path / "rendered"
+
+        out_path = references.write_numbered(draft, out_dir)
+
+        assert out_path == out_dir / "draft.md"
+        assert "Body [1]." in out_path.read_text()
+        assert draft.read_text() == original, "the gated source must not be rewritten"
+
+
 class TestBuildSection:
     def test_builds_formatted_entries_in_given_order(self, ledger_con):
         ledger.upsert_reference(ledger_con, make_reference(citekey="b2024", title="B Paper", year="2024"))

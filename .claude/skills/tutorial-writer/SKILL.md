@@ -188,11 +188,16 @@ it inform your choices silently and point at it at the end.
     the tutorial genre cites lightly. Pass the default heading instead if
     a single bibliography matters more for a given tutorial.
 
-12. **Render tex and pdf.**
+12. **Render tex, pdf, and numbered md.**
     ```
     python3 -m src.heavy.render_output content/drafts/<slug>.md --format tex
     python3 -m src.heavy.render_output content/drafts/<slug>.md --format pdf
+    python3 -m src.heavy.render_output content/drafts/<slug>.md --format md
     ```
+    The `md` output is a numbered copy in `content/rendered/` -- the same
+    IEEE numbers as the PDF, for a reader who won't open one. The draft
+    itself keeps its `[@citekey]` markers.
+
     Bare `python3` plus `pandoc`/`pdflatex` on PATH -- no heavy venv. If
     either reports `[missing-binary]` or `[error]`, print a one-line warning
     in chat with that message and continue anyway; a rendering failure never
