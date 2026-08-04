@@ -22,6 +22,11 @@ env/
 .pytest_cache/
 .mypy_cache/
 .coverage
+# coverage's parallel mode writes one .coverage.<host>.<pid>.<random>
+# file per process instead of the single .coverage above, so a plain
+# `.coverage` entry doesn't catch them and they land as untracked junk
+# a `git add -A` will happily commit.
+.coverage.*
 htmlcov/
 *.egg-info/
 *.log

@@ -104,17 +104,16 @@ def _safe_render_inputs(input_path: Path, bib_path: Path, tmp_dir: Path) -> tupl
 
     Returns the original paths untouched when neither applies.
     """
-    text = input_path.read_text()
-    stripped = _swap_manual_refs_for_citeproc(text)
-    bad_keys = {m.group(1) for m in _PANDOC_CITE_RE.finditer(stripped) if "--" in m.group(1)}
+    original = input_path.read_text()
+    text = _swap_manual_refs_for_citeproc(original)
+    bad_keys = {m.group(1) for m in _PANDOC_CITE_RE.finditer(text) if "--" in m.group(1)}
     if not bad_keys:
-        if stripped == text:
+        if text == original:
             return input_path, bib_path
         safe_md = tmp_dir / input_path.name
-        safe_md.write_text(stripped)
+        safe_md.write_text(text)
         return safe_md, bib_path
 
-    text = stripped
     bib_text = bib_path.read_text()
     for key in bad_keys:
         alias = _alias_for(key)

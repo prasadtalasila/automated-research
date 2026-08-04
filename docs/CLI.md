@@ -234,11 +234,13 @@ for PDF) on `PATH`, but no Python package from the heavy group.
 
 Citations render IEEE-style -- `[1]`, and `[3]-[6]` for a consecutive run
 -- over a numbered bibliography of complete entries, via the CSL style
-vendored at `assets/csl/ieee.csl`. The draft's own `## References` section
-(if `python -m src.references` added one) is stripped from the copy handed
-to pandoc, so the output carries exactly one bibliography: citeproc's,
-which is the one that can be numbered consistently with the inline
-markers. The draft file itself is never modified.
+vendored at `assets/csl/ieee.csl`. In the copy handed to pandoc, the
+draft's own References section (if `python -m src.references` added one)
+keeps its heading but has its entries replaced by citeproc's placement
+anchor, so the output carries exactly one bibliography -- citeproc's,
+the one that can be numbered consistently with the inline markers --
+under the draft's own heading, including a numbered one like
+`## 6. References`. The draft file itself is never modified.
 
 | Flag | Default | What it does |
 |---|---|---|
