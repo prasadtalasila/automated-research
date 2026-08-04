@@ -117,7 +117,10 @@ citation gate.
   it at any other `.csl` file to use a different style;
   [the CSL project](https://github.com/citation-style-language/styles)
   publishes several thousand. Without this, pandoc falls back to Chicago
-  author-date.
+  author-date. Relative to the repo root here, as with every other path
+  setting; `render_output`'s `--csl` flag additionally accepts a path
+  relative to the current directory, since that is what a shell-typed
+  path means.
 - **`collapse_citations`** -- whether a run of consecutive numbers
   collapses: `[3]-[6]` rather than `[3], [4], [5], [6]`. The IEEE
   Reference Guide's own examples use the collapsed form, but upstream

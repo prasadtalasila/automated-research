@@ -21,6 +21,43 @@ pandoc_available = shutil.which("pandoc") is not None
 pdflatex_available = shutil.which("pdflatex") is not None
 
 
+class TestResolveCsl:
+    def test_absolute_path_is_used_as_given(self, tmp_path):
+        style = tmp_path / "house.csl"
+        style.write_text("<style/>")
+        assert render_output._resolve_csl(str(style)) == style
+
+    def test_relative_path_resolves_against_the_working_directory(self, tmp_path, monkeypatch):
+        style = tmp_path / "house.csl"
+        style.write_text("<style/>")
+        monkeypatch.chdir(tmp_path)
+        assert render_output._resolve_csl("house.csl").resolve() == style.resolve()
+
+    def test_repo_relative_path_works_from_another_directory(self, tmp_path, monkeypatch):
+        # config.toml's `[render] csl` is documented repo-root-relative and
+        # --help prints the default in that form, so the same string has to
+        # work when the command is run from outside the repo.
+        monkeypatch.chdir(tmp_path)
+        resolved = render_output._resolve_csl("assets/csl/ieee.csl")
+        assert resolved.is_file()
+        assert resolved == render_output.config.REPO_ROOT / "assets" / "csl" / "ieee.csl"
+
+    def test_the_working_directory_wins_when_both_exist(self, tmp_path, monkeypatch):
+        # A local file the user actually typed a path to is never shadowed
+        # by a same-named one in the repo.
+        local = tmp_path / "assets" / "csl"
+        local.mkdir(parents=True)
+        (local / "ieee.csl").write_text("<style>local</style>")
+        monkeypatch.chdir(tmp_path)
+        assert render_output._resolve_csl("assets/csl/ieee.csl").read_text() == "<style>local</style>"
+
+    def test_unresolvable_path_is_returned_as_typed(self, tmp_path, monkeypatch):
+        # So the error message names what the user wrote, not a repo-root
+        # path they never mentioned.
+        monkeypatch.chdir(tmp_path)
+        assert render_output._resolve_csl("nope.csl") == Path("nope.csl")
+
+
 class TestCollapsedCsl:
     def test_adds_the_collapse_attribute_to_a_temp_copy(self, tmp_path):
         csl = tmp_path / "style.csl"

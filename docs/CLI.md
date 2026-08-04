@@ -251,7 +251,7 @@ under the draft's own heading, including a numbered one like
 | `--fontsize SIZE` | `12pt` | LaTeX font size |
 | `--papersize SIZE` | `a4` | LaTeX paper size, **without** the `paper` suffix pandoc appends itself -- so `a4`, `letter` |
 | `--margin MARGIN` | `1in` | Page margin, passed to the `geometry` package |
-| `--csl PATH` | `assets/csl/ieee.csl` | CSL style for citations and the bibliography |
+| `--csl PATH` | `assets/csl/ieee.csl` | CSL style for citations and the bibliography. A relative path is looked for under the current directory first (like `<input>`), then the repo root -- so the repo-relative form `[render] csl` uses works from anywhere |
 | `--no-collapse-citations` | off | Render a run as `[3], [4], [5], [6]` instead of `[3]-[6]`, i.e. leave the style exactly as it is on disk |
 
 ```bash

@@ -87,7 +87,10 @@ def section_start(lines: list[str]) -> int | None:
 
 
 def _initials(first: str) -> str:
-    """"Jane Mary" -> "J. M.", "J.-P." -> "J.-P.", "" -> ""."""
+    """A given-name field as IEEE initials.
+
+    `Jane Mary` -> `J. M.`, `J.-P.` -> `J.-P.`, `` -> ``.
+    """
     out = []
     for part in first.replace(".", " ").split():
         # A hyphenated given name initializes on both halves ("Jean-Paul"

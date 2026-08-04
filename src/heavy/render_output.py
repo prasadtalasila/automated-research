@@ -149,6 +149,31 @@ def _safe_render_inputs(input_path: Path, bib_path: Path, tmp_dir: Path) -> tupl
 _CSL_CITATION_TAG_RE = re.compile(r"<citation(\s[^>]*?)?(/?)>")
 
 
+def _resolve_csl(csl: str | Path) -> Path:
+    """Resolves a `--csl` value the way a shell-typed path should resolve.
+
+    Against the current working directory first: that is what a path
+    typed at a shell means, and it is already how this CLI resolves its
+    `input` argument, so `--csl ./house-style.csl` behaves like every
+    other file argument.
+
+    A *relative* path that doesn't exist there falls back to the repo
+    root. Without that, the two ways of naming the same style disagree --
+    `config.toml`'s `[render] csl` is documented as repo-root-relative
+    (and `--help` prints the shipped default in that form), so
+    `--csl assets/csl/ieee.csl` would work from the repo root and fail
+    from anywhere else, for no reason the user could see.
+
+    When neither candidate exists, returns the CWD-relative one, so the
+    error names the path that was actually typed.
+    """
+    path = Path(csl)
+    if path.is_absolute() or path.exists():
+        return path
+    from_repo_root = config.REPO_ROOT / path
+    return from_repo_root if from_repo_root.is_file() else path
+
+
 def _collapsed_csl(csl_path: Path, tmp_dir: Path) -> Path:
     """Returns a CSL style path whose citations collapse consecutive runs.
 
@@ -298,14 +323,23 @@ def render(
     input_path = Path(input_path)
     _copy_local_images(input_path, config.RENDERED_DIR)
     out_path = config.RENDERED_DIR / f"{input_path.stem}.{output_format}"
-    csl_path = Path(csl) if csl is not None else config.CSL_STYLE_PATH
+    csl_path = _resolve_csl(csl) if csl is not None else config.CSL_STYLE_PATH
     if collapse_citations is None:
         collapse_citations = config.RENDER_COLLAPSE_CITATIONS
     if not csl_path.is_file():
+        # MissingBinary rather than a new exception type, even though a
+        # style file isn't a binary: it is the same class of failure (a
+        # render input this host doesn't have), and every genre skill's
+        # documented behaviour is to warn-and-continue on the
+        # `[missing-binary]` prefix main() prints for it, rather than
+        # blocking the draft. A new type would need its own handler here
+        # and a matching line in all five SKILL.md files to get the same
+        # outcome.
         raise MissingBinary(
-            f"CSL style not found at {csl_path}. The IEEE style ships with this "
-            "repo at assets/csl/ieee.csl -- pass --csl to point somewhere else, "
-            "or see assets/csl/README.md to re-fetch it."
+            f"CSL style not found at {csl_path}. A relative --csl is looked for "
+            "under the current directory first, then the repo root. The IEEE "
+            "style ships with this repo at assets/csl/ieee.csl -- pass --csl to "
+            "point somewhere else, or see assets/csl/README.md to re-fetch it."
         )
 
     with tempfile.TemporaryDirectory() as tmp:
