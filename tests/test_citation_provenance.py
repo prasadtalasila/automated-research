@@ -2,8 +2,13 @@
 citing it.
 
 The interesting cases here are the ones a synthetic fixture makes easy to
-get wrong: hard-wrapped prose (every draft this project writes), a source
-with no reading order, and a citekey with nothing readable behind it.
+get wrong: hard-wrapped prose (every draft this project writes), and a
+claim that scores against nothing.
+
+Where the passages themselves come from -- sidecar, form-feed pages, or
+`pdftotext` -- is tests/test_passages.py's, since src/passages.py owns
+that ladder. What stays here is what this module still decides: which
+sentence carries a citation, how it scores, and how the report reads.
 """
 
 import json
@@ -37,14 +42,6 @@ def _add_item(citekey, parsed_text=None, pdf_path=None, title="T"):
 def _sidecar(citekey, records):
     config.DOCLING_DIR.mkdir(parents=True, exist_ok=True)
     (config.DOCLING_DIR / f"{citekey}.passages.json").write_text(json.dumps(records))
-
-
-class TestDistinctive:
-    def test_drops_stopwords_and_short_words(self, isolated_config):
-        assert cp.distinctive("The cat is on a mat") == {"cat", "mat"}
-
-    def test_is_case_insensitive(self, isolated_config):
-        assert cp.distinctive("Digital TWIN") == cp.distinctive("digital twin")
 
 
 class TestClaims:
@@ -96,70 +93,6 @@ class TestClaims:
 
     def test_no_citations_yields_nothing(self, isolated_config):
         assert cp.claims("Plain prose with no citations.\n") == []
-
-
-class TestSourcePassages:
-    def test_prefers_the_docling_sidecar(self, isolated_config):
-        _add_item("a_2024", parsed_text="page one\fpage two")
-        _sidecar("a_2024", [{"text": "A real reading-ordered paragraph.",
-                             "label": "text", "page": 4}])
-        con = ledger.connect()
-        try:
-            passages, reason = cp.source_passages(con, "a_2024")
-        finally:
-            con.close()
-
-        assert reason is None
-        assert len(passages) == 1
-        assert passages[0].quotable
-        assert passages[0].page == 4
-
-    def test_falls_back_to_form_feed_pages_and_refuses_to_quote(self, isolated_config):
-        _add_item("a_2024", parsed_text="first page text\fsecond page text")
-        con = ledger.connect()
-        try:
-            passages, reason = cp.source_passages(con, "a_2024")
-        finally:
-            con.close()
-
-        assert reason is None
-        assert len(passages) == 2
-        assert [p.page for p in passages] == [1, 2]
-        assert not any(p.quotable for p in passages), (
-            "page-level passages must never be quoted -- column splicing "
-            "makes any excerpt a two-argument collage"
-        )
-
-    def test_unknown_citekey_reports_why(self, isolated_config):
-        con = ledger.connect()
-        try:
-            passages, reason = cp.source_passages(con, "ghost_2024")
-        finally:
-            con.close()
-        assert passages == []
-        assert "ledger" in reason
-
-    def test_no_parsed_text_and_no_pdf_reports_why(self, isolated_config):
-        _add_item("a_2024")
-        con = ledger.connect()
-        try:
-            passages, reason = cp.source_passages(con, "a_2024")
-        finally:
-            con.close()
-        assert passages == []
-        assert "no readable PDF" in reason
-
-    def test_corrupt_sidecar_falls_through_instead_of_raising(self, isolated_config):
-        _add_item("a_2024", parsed_text="page one\fpage two")
-        config.DOCLING_DIR.mkdir(parents=True, exist_ok=True)
-        (config.DOCLING_DIR / "a_2024.passages.json").write_text("{not json")
-        con = ledger.connect()
-        try:
-            passages, reason = cp.source_passages(con, "a_2024")
-        finally:
-            con.close()
-        assert reason is None
-        assert len(passages) == 2  # fell back to pages
 
 
 class TestScoring:
@@ -295,95 +228,6 @@ class TestWriteReportAndCli:
 
         assert cp.main([str(path), "--formats", "md"]) == 0
         assert "d.provenance.md" in capsys.readouterr().out
-
-
-class TestSidecarRobustness:
-    """A hand-edited or partially-written sidecar must degrade, not crash."""
-
-    @pytest.mark.parametrize("payload", ['{"not": "a list"}', "[]", '["not a dict"]',
-                                         '[{"text": "   "}]', '[{"no_text_key": 1}]'])
-    def test_unusable_sidecar_shapes_fall_through_to_pages(self, isolated_config, payload):
-        _add_item("a_2024", parsed_text="page one\fpage two")
-        config.DOCLING_DIR.mkdir(parents=True, exist_ok=True)
-        (config.DOCLING_DIR / "a_2024.passages.json").write_text(payload)
-        con = ledger.connect()
-        try:
-            passages, reason = cp.source_passages(con, "a_2024")
-        finally:
-            con.close()
-        assert reason is None
-        assert [p.page for p in passages] == [1, 2]
-
-    def test_truncated_utf8_sidecar_falls_through_instead_of_raising(self, isolated_config):
-        """A process killed mid-write can split a multi-byte character,
-        which fails to decode before json ever sees it."""
-        _add_item("a_2024", parsed_text="page one\fpage two")
-        config.DOCLING_DIR.mkdir(parents=True, exist_ok=True)
-        # Valid JSON prefix, then a lone UTF-8 continuation byte.
-        (config.DOCLING_DIR / "a_2024.passages.json").write_bytes(
-            b'[{"text": "Real paragraph ' + b"\xe2\x82" 
-        )
-        con = ledger.connect()
-        try:
-            passages, reason = cp.source_passages(con, "a_2024")
-        finally:
-            con.close()
-        assert reason is None
-        assert [p.page for p in passages] == [1, 2]
-
-    def test_mixed_sidecar_keeps_the_usable_records(self, isolated_config):
-        _add_item("a_2024", parsed_text="ignored\fignored")
-        _sidecar("a_2024", ["junk", {"text": ""}, {"text": "Real paragraph here.", "page": 3}])
-        con = ledger.connect()
-        try:
-            passages, _ = cp.source_passages(con, "a_2024")
-        finally:
-            con.close()
-        assert len(passages) == 1
-        assert passages[0].text == "Real paragraph here."
-
-
-class TestPdfFallback:
-    def test_parsed_text_without_page_breaks_falls_through_to_the_pdf(
-        self, isolated_config, monkeypatch, tmp_path
-    ):
-        """A docling-parsed .txt has no form feeds, so page numbers would
-        all be 1 -- go back to the PDF rather than report that."""
-        pdf = tmp_path / "paper.pdf"
-        pdf.write_bytes(b"%PDF-1.4")
-        _add_item("a_2024", parsed_text="one continuous document, no form feeds",
-                  pdf_path=str(pdf))
-
-        class FakeRun:
-            stdout = "page one hysteresis\fpage two relay"
-
-        monkeypatch.setattr(cp.subprocess, "run", lambda *a, **k: FakeRun())
-        con = ledger.connect()
-        try:
-            passages, reason = cp.source_passages(con, "a_2024")
-        finally:
-            con.close()
-
-        assert reason is None
-        assert [p.page for p in passages] == [1, 2]
-
-    def test_pdftotext_failure_is_reported_not_raised(self, isolated_config, monkeypatch, tmp_path):
-        pdf = tmp_path / "paper.pdf"
-        pdf.write_bytes(b"%PDF-1.4")
-        _add_item("a_2024", parsed_text="no form feeds here", pdf_path=str(pdf))
-
-        def boom(*a, **k):
-            raise OSError("pdftotext not on PATH")
-
-        monkeypatch.setattr(cp.subprocess, "run", boom)
-        con = ledger.connect()
-        try:
-            passages, reason = cp.source_passages(con, "a_2024")
-        finally:
-            con.close()
-
-        assert passages == []
-        assert "pdftotext" in reason
 
 
 class TestBands:

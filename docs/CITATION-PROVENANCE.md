@@ -341,9 +341,20 @@ don't create the same problem one level down). The same draft went from
 
 | Piece | Actual |
 |---|---|
-| `src/citation_provenance.py` | ~330 lines |
+| `src/citation_provenance.py` | ~250 lines |
+| `src/passages.py` | ~150 lines |
 | `_passage_records` in `src/heavy/docling_parse.py` | ~35 lines |
-| Tests | ~40 cases |
+| Tests | ~55 cases |
 
 No new dependencies. No changes to `sync`, `citation_gate`, or the
 render chain beyond calling it.
+
+The sidecar -> form-feed pages -> `pdftotext` ladder, and the rule that a
+source with no reading order reports a page rather than a quotation, live
+in `src/passages.py` rather than here. That split happened when retrieval
+became the second consumer: a snippet shown to a drafting agent *as
+evidence* is under exactly the same constraint as a passage shown to a
+reviewer, and the two must not answer "what does this source say here?"
+from different text. `citation_provenance` still owns everything above
+the ladder -- which sentence carries a citation, how it scores, how the
+report reads.
