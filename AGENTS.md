@@ -51,6 +51,14 @@ with no discoverable author) is the citekey everywhere downstream.
 `src/bib_reader.py` parses it and is the only place that reads it; nothing
 else should ever generate or guess a citekey.
 
+That rule is why a module needing bibliographic detail reads it back out
+of the ledger rather than re-opening the bib file. `src/references.py`
+formats an IEEE bibliography entry (authors, venue, volume, pages) from
+the `bib_fields` column, which `sync` populates via `bib_reader` -- it
+does not, and must not, parse `bibliography.bib` itself. The one thing
+that legitimately reads the bib file directly is pandoc's `--citeproc`,
+which is not this codebase.
+
 This was a deliberate pivot (2026-07-28) away from an earlier design that
 read the reference manager's own database directly and generated its own
 citekeys (`author+year+titleword`) -- that approach is gone. **If you find

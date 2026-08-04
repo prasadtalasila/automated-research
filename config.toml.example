@@ -37,6 +37,39 @@ dir = "content"
 # Relative to the repo root, or absolute.  Default: papers/pdfs
 dir = "papers/pdfs"
 
+[render]
+# How `python3 -m src.heavy.render_output` formats citations. Used by
+# nothing else -- not by sync, not by the citation gate.
+
+# The CSL style pandoc's --citeproc formats citations and the
+# bibliography with. IEEE ships with this repo; the CSL project
+# (github.com/citation-style-language/styles) publishes several thousand
+# others, and any .csl file works here.
+#
+# It is vendored rather than fetched at render time for two reasons:
+# rendering has to work on a host with no network, and a style that
+# changed underneath a draft would silently renumber a document that had
+# already been reviewed. Delete this key and pandoc falls back to its own
+# default, which is Chicago author-date.
+# Relative to the repo root, or absolute.   Default: assets/csl/ieee.csl
+csl = "assets/csl/ieee.csl"
+
+# Whether a run of consecutive citations collapses -- [3]-[6] rather than
+# [3], [4], [5], [6].
+#
+# The IEEE Reference Guide's own examples use the collapsed form, but
+# upstream ieee.csl does not produce it: that needs one CSL attribute
+# (collapse="citation-number") which the style omits. Rather than carry a
+# modified copy of a CC BY-SA style in-tree, render_output.py adds that
+# attribute to a *temp copy* at render time, leaving assets/csl/ieee.csl
+# byte-identical to what the CSL project publishes -- so it can be
+# re-fetched and diffed. See assets/csl/README.md.
+#
+# false renders whatever the style on disk says, unmodified. A style that
+# sets `collapse` itself is never overridden either way.
+#                                                           Default: true
+collapse_citations = true
+
 [parser]
 # Which backend `python -m src.sync` uses to turn a PDF into
 # content/parsed/<citekey>.txt.

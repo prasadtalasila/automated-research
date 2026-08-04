@@ -173,10 +173,20 @@ it inform your choices silently and point at it at the end.
     ```
     python -m src.references content/drafts/<slug>.md --heading "Further reading"
     ```
-    Stdlib-only, bare `python3`, no venv. `--heading "Further reading"` suits
-    this genre better than the bare `## References` default; use whatever
-    heading the draft's own "Where to go next" section flows into. Skip
-    entirely if there are no citations.
+    Stdlib-only, bare `python3`, no venv. Entries are numbered IEEE-style;
+    leave the inline citations as `[@citekey]` rather than hand-numbering
+    them. `--heading "Further reading"` suits this genre better than the
+    bare `## References` default; use whatever heading the draft's own
+    "Where to go next" section flows into. Skip entirely if there are no
+    citations.
+
+    One consequence of a non-default heading: `render_output` only strips
+    a section headed `References` before handing the draft to pandoc, so a
+    `Further reading` list stays in the rendered `.tex`/`.pdf` *and*
+    citeproc appends its own numbered bibliography below it. That is
+    usually fine here -- the curated list is the point of the section, and
+    the tutorial genre cites lightly. Pass the default heading instead if
+    a single bibliography matters more for a given tutorial.
 
 12. **Render tex and pdf.**
     ```

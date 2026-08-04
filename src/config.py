@@ -330,6 +330,20 @@ TOPICS_PATH = CONTENT_DIR / "topics.json"
 TOPIC_EMBED_CACHE_PATH = CONTENT_DIR / "topic_embed_cache.json"
 RENDERED_DIR = CONTENT_DIR / "rendered"
 
+# The CSL style pandoc's --citeproc formats citations and the bibliography
+# with. Vendored (assets/csl/) rather than fetched, so rendering works with
+# no network and so a style change can never silently renumber a draft that
+# was already reviewed -- see assets/csl/README.md.
+CSL_STYLE_PATH = REPO_ROOT / _get("CSL_STYLE", "render", "csl", default="assets/csl/ieee.csl")
+# Whether a run of consecutive citation numbers collapses ([3]-[6] rather
+# than [3], [4], [5], [6]). IEEE's own guide shows the collapsed form, but
+# upstream ieee.csl doesn't produce it; render_output.py injects the one
+# attribute that does, into a temp copy. False renders whatever the style
+# on disk says, unmodified.
+RENDER_COLLAPSE_CITATIONS = _get_bool(
+    "RENDER_COLLAPSE_CITATIONS", "render", "collapse_citations", default=True
+)
+
 EMBEDDING_MODEL = _get(
     "EMBEDDING_MODEL", "heavy", "embedding_model",
     default="sentence-transformers/all-MiniLM-L6-v2",

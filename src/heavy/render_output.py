@@ -19,13 +19,22 @@ works around this by aliasing just the affected citekey(s) in temporary
 copies of the input and the bib file -- never touching the real
 `bibliography.bib` -- before handing both to pandoc.
 
-If the input already carries its own citekey-labeled References section
-(added by `python -m src.references` -- see that module), citeproc's own
-auto-appended bibliography is redundant, so it's suppressed for that input
-(`--metadata suppress-bibliography=true`). Inputs without one (e.g.
-thesis-chapter-writer's preamble-less `.tex` fragment, which deliberately
-defers to the user's own thesis-wide bibliography) keep citeproc's
-bibliography exactly as before.
+Citations render in IEEE style -- numeric `[1]` markers, `[3]-[6]` for a
+consecutive run, over a numbered list of complete entries -- via the CSL
+style vendored at `assets/csl/ieee.csl` (`config.CSL_STYLE_PATH`,
+`--csl` to override). Two notes on how that is wired, both explained
+where they're implemented: the collapsing needs one attribute upstream
+IEEE omits, injected into a temp copy by `_collapsed_csl` so the vendored
+file stays byte-identical to upstream; and a draft's own citekey-labeled
+References section (added by `python -m src.references`) has its entries
+swapped out in the temp copy by `_swap_manual_refs_for_citeproc` --
+heading kept, entries replaced by the anchor citeproc fills in -- so
+citeproc's bibliography is the only one in the output, and it appears
+under the draft's own heading. citeproc's is the one that can be numbered
+consistently with the inline markers, and the one with authors and venues
+in it, because it reads `bibliography.bib` directly. Inputs with no such
+section (e.g. thesis-chapter-writer's preamble-less `.tex` fragment,
+which defers to the user's own thesis-wide bibliography) are unaffected.
 
 Every render also passes documentclass/fontsize/papersize/geometry
 variables so a tex/pdf output always opens with a 12pt, a4paper article
@@ -70,21 +79,40 @@ def _alias_for(citekey: str) -> str:
     # carry through a citekey (see module docstring) -- collapsing it to
     # a single hyphen plus a marker keeps the alias readable and, checked
     # against every citekey currently in the ledger, collision-free.
-    return citekey.replace("--", "-x2d-")
+    #
+    # Every hyphen in a run has to be separated, not just the first pair:
+    # a plain .replace("--", "-x2d-") turns the 3-hyphen run in this
+    # corpus's own `tygesen_state---art_2019` into `state-x2d--art`, which
+    # still contains "--" and so still truncates -- the citation resolves
+    # to nothing and the source silently drops out of the bibliography.
+    # A run of n hyphens becomes "-" + "x2d-" * (n-1), which reduces to
+    # the original "-x2d-" for the 2-hyphen case.
+    return re.sub(r"-{2,}", lambda m: "-" + "x2d-" * (len(m.group()) - 1), citekey)
 
 
 def _safe_render_inputs(input_path: Path, bib_path: Path, tmp_dir: Path) -> tuple[Path, Path]:
     """Returns (markdown_path, bib_path) safe to hand to `pandoc --citeproc`.
 
-    If no citekey in `input_path` contains "--", returns the original
-    paths unchanged (no temp copies needed). Otherwise returns paths to
-    aliased copies under `tmp_dir` -- the real bibliography.bib is never
-    modified.
+    Two independent fixups, both applied only to temp copies -- the draft
+    and the real bibliography.bib are never modified:
+      - a `python -m src.references` References section has its entries
+        replaced by citeproc's own placement anchor, keeping the draft's
+        heading (see _swap_manual_refs_for_citeproc);
+      - a citekey containing "--" is aliased in both files, in the input
+        and the bib together, because pandoc's citation tokenizer would
+        otherwise truncate it mid-key and silently drop the citation.
+
+    Returns the original paths untouched when neither applies.
     """
-    text = input_path.read_text()
+    original = input_path.read_text()
+    text = _swap_manual_refs_for_citeproc(original)
     bad_keys = {m.group(1) for m in _PANDOC_CITE_RE.finditer(text) if "--" in m.group(1)}
     if not bad_keys:
-        return input_path, bib_path
+        if text == original:
+            return input_path, bib_path
+        safe_md = tmp_dir / input_path.name
+        safe_md.write_text(text)
+        return safe_md, bib_path
 
     bib_text = bib_path.read_text()
     for key in bad_keys:
@@ -109,6 +137,107 @@ def _safe_render_inputs(input_path: Path, bib_path: Path, tmp_dir: Path) -> tupl
     safe_md.write_text(text)
     safe_bib.write_text(bib_text)
     return safe_md, safe_bib
+
+
+# The `<citation>` element opening tag, with or without attributes
+# already on it. Upstream CSL styles hand-format this file, so matching
+# the tag textually (rather than parsing and re-serializing the whole
+# document with ElementTree, which rewrites namespace prefixes and
+# reflows every other element) keeps the temp copy a one-attribute diff
+# against the vendored original -- which is the point of not editing the
+# vendored file in the first place.
+_CSL_CITATION_TAG_RE = re.compile(r"<citation(\s[^>]*?)?(/?)>")
+
+
+def _resolve_csl(csl: str | Path) -> Path:
+    """Resolves a `--csl` value the way a shell-typed path should resolve.
+
+    Against the current working directory first: that is what a path
+    typed at a shell means, and it is already how this CLI resolves its
+    `input` argument, so `--csl ./house-style.csl` behaves like every
+    other file argument.
+
+    A *relative* path that doesn't exist there falls back to the repo
+    root. Without that, the two ways of naming the same style disagree --
+    `config.toml`'s `[render] csl` is documented as repo-root-relative
+    (and `--help` prints the shipped default in that form), so
+    `--csl assets/csl/ieee.csl` would work from the repo root and fail
+    from anywhere else, for no reason the user could see.
+
+    When neither candidate exists, returns the CWD-relative one, so the
+    error names the path that was actually typed.
+    """
+    path = Path(csl)
+    if path.is_absolute() or path.exists():
+        return path
+    from_repo_root = config.REPO_ROOT / path
+    return from_repo_root if from_repo_root.is_file() else path
+
+
+def _collapsed_csl(csl_path: Path, tmp_dir: Path) -> Path:
+    """Returns a CSL style path whose citations collapse consecutive runs.
+
+    Upstream `ieee.csl` renders `[@a; @b; @c; @d]` as "[1], [2], [3], [4]".
+    The IEEE Reference Guide's own examples use the collapsed "[1]-[4]"
+    form, and CSL has exactly one knob for it: `collapse="citation-number"`
+    on `<citation>`. Rather than carry a modified copy of a CC BY-SA style
+    in-tree (where the deviation is invisible in a diff against upstream
+    and easy to lose across a style bump), the attribute is added here, to
+    a temp copy, and assets/csl/ieee.csl stays byte-identical to what the
+    CSL project publishes.
+
+    A style that already sets `collapse` is returned unchanged -- its
+    author made a deliberate choice, and overriding it would silently
+    change how someone's own style renders.
+    """
+    text = csl_path.read_text()
+    match = _CSL_CITATION_TAG_RE.search(text)
+    if match is None or "collapse=" in (match.group(1) or ""):
+        return csl_path
+
+    patched = (
+        text[:match.start()]
+        + f'<citation collapse="citation-number"{match.group(1) or ""}{match.group(2)}>'
+        + text[match.end():]
+    )
+    out = tmp_dir / csl_path.name
+    out.write_text(patched)
+    return out
+
+
+# Pandoc's own idiom for "put the bibliography exactly here" -- citeproc
+# fills this div in place instead of appending its bibliography to the end
+# of the document. `fenced_divs` is on by default in pandoc's markdown.
+_REFS_ANCHOR = "::: {#refs}\n:::\n"
+
+
+def _swap_manual_refs_for_citeproc(text: str) -> str:
+    """Replaces a `python -m src.references` section's *entries* with an
+    anchor citeproc fills in, keeping the draft's own heading.
+
+    Only ever applied to the temp copy handed to pandoc, never to the
+    draft itself. The draft keeps its citekey-labelled entries: a reader
+    (or `citation_gate`) can trace one back to a literal key, which is the
+    project's whole citation invariant. What that hand-built list cannot
+    be is *numbered consistently with the rendered output* -- pandoc
+    assigns citation numbers itself -- so the rendered artifact takes
+    citeproc's bibliography instead, drawn straight from bibliography.bib
+    with authors and venues in it. That is what
+    `--metadata suppress-bibliography=true` used to prevent here, back
+    when the manual section was the only one with real entries in it.
+
+    The heading stays because it is the draft's own: a genre skill may
+    have numbered it to match its other headings (`## 6. References`, via
+    `src.references --heading`), and citeproc emits no heading of its own,
+    so dropping the whole section left the rendered bibliography
+    untitled.
+    """
+    lines = text.splitlines(keepends=True)
+    idx = references.section_start(lines)
+    if idx is None:
+        return text
+    heading = lines[idx] if lines[idx].endswith("\n") else lines[idx] + "\n"
+    return "".join(lines[:idx]).rstrip() + f"\n\n{heading}\n{_REFS_ANCHOR}"
 
 
 # Matches Markdown image syntax: ![alt](path) or ![alt](path "title").
@@ -162,8 +291,18 @@ def render(
     fontsize: str = "12pt",
     papersize: str = "a4",
     margin: str = "1in",
+    csl: str | Path | None = None,
+    collapse_citations: bool | None = None,
 ) -> Path:
     """Renders `input_path` (Pandoc markdown) to `output_format` (pdf/tex/docx/...).
+
+    Citations and the bibliography are formatted with `csl` (default:
+    `config.CSL_STYLE_PATH`, the vendored IEEE style), so a rendered draft
+    carries numeric markers -- `[1]`, and `[3]-[6]` for a consecutive run
+    when `collapse_citations` (default: `config.RENDER_COLLAPSE_CITATIONS`)
+    -- over a numbered reference list of complete entries. Without a
+    `--csl`, pandoc falls back to Chicago author-date, which is what this
+    rendered before.
 
     `--standalone` is always passed so a `tex` output is a complete,
     compilable LaTeX document (documentclass + preamble), not a bare
@@ -184,10 +323,29 @@ def render(
     input_path = Path(input_path)
     _copy_local_images(input_path, config.RENDERED_DIR)
     out_path = config.RENDERED_DIR / f"{input_path.stem}.{output_format}"
-    has_manual_refs = references.has_section(input_path.read_text())
+    csl_path = _resolve_csl(csl) if csl is not None else config.CSL_STYLE_PATH
+    if collapse_citations is None:
+        collapse_citations = config.RENDER_COLLAPSE_CITATIONS
+    if not csl_path.is_file():
+        # MissingBinary rather than a new exception type, even though a
+        # style file isn't a binary: it is the same class of failure (a
+        # render input this host doesn't have), and every genre skill's
+        # documented behaviour is to warn-and-continue on the
+        # `[missing-binary]` prefix main() prints for it, rather than
+        # blocking the draft. A new type would need its own handler here
+        # and a matching line in all five SKILL.md files to get the same
+        # outcome.
+        raise MissingBinary(
+            f"CSL style not found at {csl_path}. A relative --csl is looked for "
+            "under the current directory first, then the repo root. The IEEE "
+            "style ships with this repo at assets/csl/ieee.csl -- pass --csl to "
+            "point somewhere else, or see assets/csl/README.md to re-fetch it."
+        )
 
     with tempfile.TemporaryDirectory() as tmp:
         safe_md, safe_bib = _safe_render_inputs(input_path, config.BIB_FILE_PATH, Path(tmp))
+        if collapse_citations:
+            csl_path = _collapsed_csl(csl_path, Path(tmp))
         cmd = [
             "pandoc", str(safe_md),
             "--standalone",
@@ -210,9 +368,8 @@ def render(
             "--variable", f"papersize={papersize}",
             "--variable", f"geometry:margin={margin}",
             "--citeproc", "--bibliography", str(safe_bib),
+            "--csl", str(csl_path),
         ]
-        if has_manual_refs:
-            cmd += ["--metadata", "suppress-bibliography=true"]
         if output_format == "pdf":
             cmd += ["--pdf-engine", "pdflatex"]
         cmd += ["-o", str(out_path)]
@@ -241,12 +398,22 @@ def main() -> int:
         help='LaTeX paper size, without the "paper" suffix pandoc appends itself (default: a4)',
     )
     parser.add_argument("--margin", default="1in", help="Page margin, passed to the geometry package (default: 1in)")
+    parser.add_argument(
+        "--csl", default=None,
+        help=f"CSL style for citations and the bibliography (default: {config.CSL_STYLE_PATH})",
+    )
+    parser.add_argument(
+        "--no-collapse-citations", dest="collapse_citations", action="store_false", default=None,
+        help="Render a consecutive run as [3], [4], [5], [6] instead of [3]-[6] "
+             "-- i.e. leave the CSL style exactly as it is on disk",
+    )
     args = parser.parse_args()
 
     try:
         out_path = render(
             args.input, args.output_format, args.documentclass,
             args.fontsize, args.papersize, args.margin,
+            args.csl, args.collapse_citations,
         )
     except MissingBinary as exc:
         print(f"[missing-binary] {exc}")
