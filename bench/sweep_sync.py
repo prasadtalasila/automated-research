@@ -131,10 +131,12 @@ class ResourceSampler:
         busy_cpus = mean_host * host_cpus / 100 if mean_host is not None else None
         per_gpu = None
         if self._gpu_samples:
-            # Sample rows can be short: a driver hiccup, or
-            # CUDA_VISIBLE_DEVICES changing what nvidia-smi reports. Take
-            # the narrowest row rather than indexing off the first, so a
-            # transient blip cannot IndexError away an otherwise good run.
+            # Host-wide, like the CPU figures: nvidia-smi ignores
+            # CUDA_VISIBLE_DEVICES and reports every card on the machine,
+            # including load this run did not cause. Rows can also come
+            # back short on a driver hiccup, so take the narrowest rather
+            # than indexing off the first -- a transient blip should not
+            # IndexError away an otherwise good run.
             n = min(len(row) for row in self._gpu_samples)
             per_gpu = [round(sum(row[i] for row in self._gpu_samples) / len(self._gpu_samples), 1)
                        for i in range(n)]
@@ -173,9 +175,11 @@ def one_run(workers: int, gpus: int, ocr: bool, python: str,
             # be timestamped as it arrives. `sync` prints "  [n/N] citekey"
             # to stderr per document, which turns "what is this run
             # actually spending its time on" into an answerable question:
-            # time to the *first* completion is the pool's startup, time
-            # after the *last* is the tail one long document imposes, and
-            # the gaps in between are the steady-state rate.
+            # time to the *first* completion is pool startup plus the
+            # fastest document's parse -- an upper bound on startup, not a
+            # measurement of it -- time after the *last* is the tail one
+            # long document imposes, and the gaps between are the
+            # steady-state rate.
             proc = subprocess.Popen(
                 [python, "-m", "src.sync"], cwd=str(REPO_ROOT), env=env,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -211,16 +215,25 @@ def one_run(workers: int, gpus: int, ocr: bool, python: str,
             first, last = completions[0], completions[-1]
             timeline = {
                 # Everything before the first document lands: process
-                # start, imports, model load, pool construction.
+                # start, imports, model load, pool construction -- and
+                # whichever document finished first, since sync submits
+                # biggest-first and something has to complete before this
+                # can be timed. Read it as an upper bound on startup. Its
+                # *growth* with worker count is the startup part, since a
+                # single document's parse does not get slower because the
+                # pool got bigger.
                 "startup_s": round(first, 1),
                 "startup_pct": round(100 * first / elapsed, 1),
                 # Everything after the last: nothing left to overlap with,
                 # so this is the tail a single long document imposes.
                 "drain_s": round(elapsed - last, 1),
                 "drain_pct": round(100 * (elapsed - last) / elapsed, 1),
-                # Throughput while the pool is actually full.
-                "steady_docs_per_s": (round(len(completions) / (last - first), 2)
-                                      if last > first else None),
+                # Throughput while the pool is actually full. n
+                # completions span n-1 intervals, not n: the one at
+                # `first` bounds the window rather than falling inside it.
+                "steady_docs_per_s": (round((len(completions) - 1) / (last - first), 2)
+                                      if last > first and len(completions) > 1
+                                      else None),
                 "completions": len(completions),
             }
         return {

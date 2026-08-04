@@ -199,7 +199,11 @@ Timing each run's phases separates the candidates:
 
 - **Startup is a growing tax, not a fixed one.** Every worker pays its
   own ~8.5s model load, so standing the pool up costs more the bigger the
-  pool: 7.9% of the run at 24 workers, 12.7% at 48.
+  pool: 7.9% of the run at 24 workers, 12.7% at 48. (The column is time
+  to the *first completion*, so it also contains the fastest document's
+  parse -- an upper bound on startup rather than a measurement of it.
+  The **growth** is the startup part: one document's parse does not get
+  slower because the pool got bigger.)
 - **The CPU is heading for saturation**, 56% to 78% across the same
   range. Read alone, "70% busy at 32" suggests headroom; read against 56%
   at 24 and 78% at 48, it is clearly *becoming* the limit.
