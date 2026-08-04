@@ -74,6 +74,25 @@ class Passage:
         return self.text is not None
 
 
+def _page_number(raw) -> int | None:
+    """A sidecar's `page` as a 1-based page number, or None.
+
+    `_passage_records` writes Docling's own `page_no` here, so the
+    machine-written case is always an int -- but the file is JSON on
+    disk, it may have been hand-edited, and `Passage.page` is both
+    rendered straight into "p.{page}" and typed `int | None` for callers
+    that store it. Anything that isn't a page number a reader could turn
+    to becomes None, which the report already knows how to omit, rather
+    than propagating as one.
+
+    `bool` is excluded explicitly because it is an `int` subclass in
+    Python, and `True` would otherwise report as page 1.
+    """
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
+        return None
+    return raw
+
+
 def _ledger_row(con, citekey: str):
     row = con.execute(
         "SELECT parsed_path, pdf_path, title FROM items WHERE citekey = ?", (citekey,)
@@ -98,11 +117,14 @@ def _from_sidecar(citekey: str) -> list[Passage] | None:
     for rec in records:
         if not isinstance(rec, dict):
             continue
-        text = (rec.get("text") or "").strip()
+        text = rec.get("text")
+        text = text.strip() if isinstance(text, str) else ""
         if not text:
             continue
-        found.append(Passage(page=rec.get("page"), words=distinctive(text),
-                             text=text, label=rec.get("label")))
+        label = rec.get("label")
+        found.append(Passage(page=_page_number(rec.get("page")),
+                             words=distinctive(text), text=text,
+                             label=label if isinstance(label, str) else None))
     return found or None
 
 
@@ -143,8 +165,16 @@ def source_passages(con, citekey: str) -> tuple[list[Passage], str | None]:
 
     if pdf_path and Path(pdf_path).exists():
         try:
+            # encoding/errors rather than a bare text=True: that decodes
+            # with the *platform* encoding under strict error handling, so
+            # a single undecodable byte anywhere in a paper -- a ligature,
+            # a stray control character, anything under a C-locale host --
+            # raises UnicodeDecodeError, which is not in the except clause
+            # below and would take down a whole report over one PDF. Same
+            # guard the parsed-text branch above already applies.
             out = subprocess.run(["pdftotext", "-layout", pdf_path, "-"],
-                                 capture_output=True, text=True, check=True)
+                                 capture_output=True, check=True,
+                                 encoding="utf-8", errors="replace")
         except (OSError, subprocess.CalledProcessError) as exc:
             return [], f"couldn't run pdftotext on the PDF ({exc})"
         return _from_pages(out.stdout), None

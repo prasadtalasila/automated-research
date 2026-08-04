@@ -9,6 +9,8 @@ source with no reading order yields a page number and never a quotation.
 """
 
 import json
+import subprocess
+import sys
 
 import pytest
 
@@ -140,7 +142,8 @@ class TestSidecarRobustness:
     """A hand-edited or partially-written sidecar must degrade, not crash."""
 
     @pytest.mark.parametrize("payload", ['{"not": "a list"}', "[]", '["not a dict"]',
-                                         '[{"text": "   "}]', '[{"no_text_key": 1}]'])
+                                         '[{"text": "   "}]', '[{"no_text_key": 1}]',
+                                         '[{"text": 7}]'])
     def test_unusable_sidecar_shapes_fall_through_to_pages(self, isolated_config, payload):
         _add_item("a_2024", parsed_text="page one\fpage two")
         config.DOCLING_DIR.mkdir(parents=True, exist_ok=True)
@@ -180,6 +183,43 @@ class TestSidecarRobustness:
             con.close()
         assert len(found) == 1
         assert found[0].text == "Real paragraph here."
+
+    @pytest.mark.parametrize("bad_page", ["seven", 3.5, 0, -2, True, None, [1]])
+    def test_a_page_that_is_not_a_page_number_is_dropped(self, isolated_config, bad_page):
+        """`Passage.page` is typed `int | None` and gets rendered straight
+        into "p.{page}" and (soon) into an INTEGER column. JSON permits
+        anything here, and this sidecar may have been hand-edited -- so a
+        value that isn't a 1-based page number becomes None rather than
+        propagating as one."""
+        _add_item("a_2024", parsed_text="ignored\fignored")
+        _sidecar("a_2024", [{"text": "Real paragraph.", "page": bad_page}])
+        con = ledger.connect()
+        try:
+            found, _ = passages.source_passages(con, "a_2024")
+        finally:
+            con.close()
+        assert found[0].page is None
+        assert found[0].quotable, "the text is still fine -- only the locator was junk"
+
+    def test_a_real_page_number_survives(self, isolated_config):
+        _add_item("a_2024", parsed_text="ignored\fignored")
+        _sidecar("a_2024", [{"text": "Real paragraph.", "page": 4}])
+        con = ledger.connect()
+        try:
+            found, _ = passages.source_passages(con, "a_2024")
+        finally:
+            con.close()
+        assert found[0].page == 4
+
+    def test_a_label_that_is_not_a_string_is_dropped(self, isolated_config):
+        _add_item("a_2024", parsed_text="ignored\fignored")
+        _sidecar("a_2024", [{"text": "Real paragraph.", "label": 7}])
+        con = ledger.connect()
+        try:
+            found, _ = passages.source_passages(con, "a_2024")
+        finally:
+            con.close()
+        assert found[0].label is None
 
 
 class TestPdfFallback:
@@ -223,6 +263,48 @@ class TestPdfFallback:
 
         assert found == []
         assert "pdftotext" in reason
+
+    def test_undecodable_pdftotext_output_does_not_take_down_the_report(
+        self, isolated_config, monkeypatch, tmp_path
+    ):
+        """A single oddly-encoded PDF must not raise.
+
+        `subprocess.run(text=True)` decodes with the *platform* encoding
+        under strict error handling, so on a `C`/POSIX-locale host -- a CI
+        runner, a slim container -- any non-ASCII byte in pdftotext's
+        output raises UnicodeDecodeError, which is not in the except
+        clause below it. The sibling parsed-text path already guards this
+        with `errors="replace"`; this one has to match.
+
+        Rather than assert on the kwargs (which would just restate the
+        implementation), the fake re-dispatches to the *real*
+        subprocess.run with whatever kwargs the module passed, running a
+        command that emits bytes that are not valid UTF-8. If those
+        kwargs can't survive it, this raises for real.
+        """
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        _add_item("a_2024", parsed_text="no form feeds here", pdf_path=str(pdf))
+
+        real_run = subprocess.run
+        # \xff\xfe is not valid UTF-8 in any position; \f is the page break.
+        emit = r"import sys; sys.stdout.buffer.write(b'first \xff\xfe page\fsecond page')"
+
+        def fake_run(cmd, **kwargs):
+            return real_run([sys.executable, "-c", emit], **kwargs)
+
+        monkeypatch.setattr(passages.subprocess, "run", fake_run)
+        con = ledger.connect()
+        try:
+            found, reason = passages.source_passages(con, "a_2024")
+        finally:
+            con.close()
+
+        assert reason is None
+        assert [p.page for p in found] == [1, 2]
+        assert "first" in " ".join(found[0].words), (
+            "the decodable text either side of the bad bytes is still there"
+        )
 
     def test_missing_parsed_file_falls_through_to_the_pdf(
         self, isolated_config, monkeypatch, tmp_path
