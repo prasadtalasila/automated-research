@@ -1,259 +1,115 @@
-# Plan: make the Docling parse path use this host's CPUs, then its GPUs
+# Engineering plan: what to measure and change next
 
-Written 2026-08-02 against the measurements in [RESULTS.md](RESULTS.md).
-Read that first -- every claim about what is slow, and why, is measured
-there rather than asserted here.
+The **benchmarking** side of the parallel parse path — what is still
+unknown, what would have to be measured before changing it, and how to
+run that measurement.
 
-The one-line summary of the measurement: a full Docling parse of the
-501-PDF bib corpus takes **~1.6 hours**, during which one A40 runs at
-**~7% utilisation**, three A40s are idle, and **3 of 48 CPUs** are busy.
-The GPU is worth only **1.79x** over CPU-only on this workload. So the
-wall clock is in CPU-level document parallelism, and that is what this
-plan does first.
+This is deliberately narrow. For how the parse path is *built*, see
+[docs/PARALLELISM.md](../docs/PARALLELISM.md), which carries the
+architecture and the user-facing roadmap. For what anything costs, see
+[docs/PERFORMANCE.md](../docs/PERFORMANCE.md) and [RESULTS.md](RESULTS.md).
 
-Phases are ordered by (measured benefit) / (risk), and each is
-independently shippable.
+Everything below is forward-looking. What was done and why is in
+`git log` and RESULTS.md's dated sections; this file used to be a
+phase-by-phase record of it, which had stopped being a plan.
 
-## Phase 0 -- make OCR optional, and stop rebuilding the converter -- **DONE (v0.12.0)**
+## The method this directory exists to enforce
 
-Measured outcome: **2.46x** from turning OCR off, taking the full-corpus
-parse from ~1.6 hours to ~39 minutes -- more than the GPU itself is
-worth. (Both times are 16-PDF extrapolations; Phase 5 measured 1h 56m to
-55m 30s directly, and found OCR's cost rises to 4.79x once the run is
-parallel.)
-It is a trade-off rather than a free win: it changed the extracted text of
-8 of 16 sampled documents, because OCR is what reads text embedded as
-bitmaps (mostly publisher furniture, but on one document two whole
-tables). See RESULTS.md's Phase 0 sections. The original plan for this
-phase follows, for the record.
+Four rules, each of which was learned by getting it wrong:
 
-No parallelism at all, and likely the largest single win. Also a
-prerequisite: a process pool that rebuilds models per document would pay
-that cost N times over.
+1. **Measure the thing you ship.** Every pool-level figure must come from
+   the real `python -m src.sync` (`sweep_sync.py`), not from a harness
+   that approximates it. `run_parallel.py` launches independent processes
+   and shares none of the pool's machinery; it answers a different
+   question.
+2. **Measure the whole corpus, not a sample.** A per-page extrapolation
+   from 16 PDFs understated a measured serial run by **41%**, and that
+   number was quoted as fact for two releases.
+3. **Report the resolved setting, not the requested one.**
+   `worker_ceiling()` silently clamps, so a run can look like it honoured
+   a setting it never applied. `sweep_sync.py` warns.
+4. **A baseline is a measurement, not an assumption.** Efficiency figures
+   are only as good as the denominator, and the denominator is the number
+   least likely to be re-measured.
 
-- **Add an OCR toggle to `config.toml`, default off.** Docling's
-  `do_ocr` defaults to `True` and its OCR runs on the CPU (RapidOCR on
-  onnxruntime) -- a prime suspect for the CPU-bound profile in RESULTS.md,
-  on a corpus of born-digital papers whose run log was full of
-  `RapidOCR returned empty result!`. Default-off is the right default for
-  *this* corpus; the key exists so a user with scanned PDFs can turn it
-  back on. Note in the config comment that this changes extracted text
-  for scanned documents -- it is a real behaviour change, not just a
-  speed knob.
-- **Hoist the converter** to a lazily-built, options-keyed singleton in
-  `src/pdf_text.py`, and out of `parse_doc` into `parse_corpus` in
-  `src/heavy/docling_parse.py`. `parse_doc` already takes an injected
-  `cache` for exactly this reason -- follow that parameter shape, and
-  keep the standalone path working by building on demand when nothing is
-  injected, mirroring how `cache=None` is handled today.
-- **Measure the rebuild cost first**, with the harness that already
-  exists: `bench_docling.py --mode fresh` against `--mode reused`. That
-  turns fact (2) in RESULTS.md from an inference into a number.
+## Open questions
 
-Verifiable independently of any timing claim: with OCR left on, the
-emitted `.md` bytes should be unchanged.
+Ranked by how much a change depends on the answer.
 
-## Phase 1 -- CPU: a process pool over documents -- **DONE for `sync` (v1.0.0)**
+### 1. Does the clamp finding generalise?
 
-Shipped as `[parser].workers`, **defaulting to 1** so a default run is
-still the historical serial path -- no pool, no pickling, no
-subprocesses. The resolved count is clamped to
-`min(requested, allowed_cpus // 4, docs_needing_parse)`, so a four-core
-desktop resolves to 2 and an over-large request is clamped and reported
-rather than silently obeyed.
+Validated on one machine (48 CPUs, 4 GPUs) and one corpus. A CPU-only
+machine, where the GPU does none of the work, would plausibly want a
+different divisor — and that is the machine most likely to be hurt by
+getting it wrong.
 
-**Still to do:** `src/heavy/docling_parse.py`'s `parse_corpus` is
-untouched and remains serial. It belongs with Phase 2, since per-worker
-GPU assignment lands in the same place.
+Needs: the same sweep on a CPU-only machine and on a different corpus
+shape. Until then the constant should not move.
 
-The original plan for this phase follows, for the record.
+### 2. Where is the OCR optimum?
 
-**Processes, not threads.** `sync.py`'s existing comment is right that
-`pdftotext` (an external subprocess, GIL released) wants threads -- but
-Docling runs in-process and holds the GIL, so a `ThreadPoolExecutor`
-would serialise exactly the work we want overlapped. This should be
-**backend-conditional**: threads for `pdftotext`, processes for
-`docling`. That changes the *conclusion* in that comment, not its
-premises, and the comment must be rewritten to say so rather than left
-contradicting the code.
+Swept only to 24 workers, where it was still improving (1213.9s at 12 →
+1139.0s at 24) with the CPU already 93% busy. The knee is probably close,
+but "probably" is what this directory exists to avoid.
 
-- `ProcessPoolExecutor` with a **worker initialiser** that builds one
-  converter per worker, so Phase 0's saving is amortised across that
-  worker's whole shard rather than paid per task.
-- **Only `extract_text` goes to the pool.** Every
-  `ledger.upsert_reference` / `mark_parsed` / `mark_parse_failed` call
-  stays on the main process as futures complete -- sqlite has a single
-  writer, and this is the shape `sync.py`'s comment already commits to.
-- Workers exchange `(citekey, pdf_path)` and return
-  `(citekey, out_path | error)`. Nothing unpicklable crosses the
-  boundary; the parse-quality guard and ledger semantics are untouched.
-- **Worker count**: `len(os.sched_getaffinity(0)) // num_threads`, with
-  Docling's `AcceleratorOptions.num_threads` set explicitly rather than
-  left at its default of 4. On this host: 48/4 = 12. Exposed as
-  `[parser] workers` in `config.toml`, `"auto"` by default and `1` to
-  restore today's behaviour exactly. **Not** `os.cpu_count()` -- see
-  fact (4) in RESULTS.md.
-- **Longest-first scheduling.** With one 675-page document in the corpus,
-  picking it up last bounds the whole run by that one document. Sort by
-  page count descending before submitting; page counts are milliseconds
-  via `pypdfium2`. This is the LPT heuristic `run_parallel.py` already
-  uses for its shards.
-- **Deterministic output**: futures complete out of order, so sort the
-  per-document log lines before printing or `sync`'s output stops being
-  reproducible run to run.
-- **Failure isolation**: a worker killed by the OOM killer must fail one
-  document, not the run. `BrokenProcessPool` needs handling the current
-  `try/except ExtractionError` does not have.
+## Closed, and how
 
-Ceiling: at ~3 logical CPUs per worker against 48 allowed, the CPU
-saturates somewhere around 12-16 workers.
+### What flattens the curve past ~24 workers — *answered*
 
-## Phase 2 -- GPU: spread the workers across the four A40s -- **DONE (v1.1.0)**
+Three runs per point, plus the completion timeline `sweep_sync.py` now
+records, settled it. First, the curve **plateaus rather than reversing**:
+32w 223.4s and 48w 221.4s are 0.9% apart, and the spread *within* the 32w
+triple alone is 86.8s — larger than the difference being compared. The
+single-run reading that named 32 "the optimum" was noise.
 
-Shipped: each worker process claims one CUDA device round-robin, via a
-counter handed out in the pool initialiser. Measured over the full
-501-PDF corpus at 12 workers: **528s on one card, 326s across four --
-1.62x**, taking the whole corpus to 5m26s.
+What flattens it is two costs that both grow with the pool:
 
-Two corrections to what this section predicted, both from measurement:
-it is *not* worth anything at small corpus sizes (a 60-document subset
-showed no difference at all, because per-worker startup dominates), and
-the "GPU 0 at 100%" reading of the 12-worker plateau was only half the
-story -- freeing GPU 0 did not speed that subset up. See RESULTS.md.
+| Workers | Startup (to 1st completion) | Tail | CPU busy |
+|---|---|---|---|
+| 24 | 18.6s — 7.9% | 4.9s — 2.1% | 56% |
+| 32 | 21.8s — 8.9% | 5.9s — 2.6% | 70% |
+| 48 | 28.5s — **12.7%** | 7.9s — 3.6% | 78% |
 
-`src/heavy/docling_parse.py`'s `parse_corpus` was parallelised in the
-same release, so both Docling paths now use the pool.
+Every worker pays its own ~8.5s model load, so a bigger pool spends a
+bigger *fraction* of the run standing itself up; meanwhile the CPU heads
+for saturation. Neither alone explains the plateau; together they do. The
+long-document tail stays under 4% throughout and is not involved.
 
-The original plan for this phase follows, for the record.
+The consequence for the constant: the finding is "`_CPUS_PER_DOCLING_WORKER`
+= 4 is much too large", not "it should be 1.5". Anywhere in 32-48 workers
+buys the same ~1.4x on this machine, which is a wide target to hit — but
+only question 1 below says whether it is the same target elsewhere.
 
-### Original plan
+## How to run any of it
 
-This phase was written as "modest benefit, the GPUs are close to
-redundant on this host". Phase 1's measurement overturned that. At 12
-workers, GPU 0 runs pinned at **100%** while GPUs 1-3 sit at **0%**, and
-the 4-to-12-worker speedup is 3.60x to 3.69x -- i.e. nothing. The parse
-is no longer CPU-bound; it is bound by one card out of four.
+```bash
+# Whole scaling curve, three runs per point so a 2% difference can be
+# told from noise.
+.venv-full/bin/python bench/sweep_sync.py \
+    --workers 1,4,8,12,16,24,32,48 --gpus 4 --ocr off --repeat 3 --tag curve
 
-Do this next, and expect it to matter. The plan below stands as written;
-only the expected payoff changed.
+# GPU scaling at a fixed worker count, and the OCR question above.
+.venv-full/bin/python bench/sweep_sync.py --workers 24 --gpus 1,2,4 --tag gpus
+.venv-full/bin/python bench/sweep_sync.py --workers 24,32,48 --ocr on --tag ocr-knee
+```
 
-Worth doing only after Phase 1, and only *because* of it: a single
-process cannot use more than one GPU here, so there is nothing to spread
-until there are several workers -- and per fact (3) in RESULTS.md, those
-workers would all land on `cuda:0`.
+**Sweeping past the shipped ceiling needs instrumentation.**
+`worker_ceiling()` clamps to `allowed_cpus // 4`, so `--workers 32`
+resolves to 12 on a 48-CPU machine and `sweep_sync.py` will say so. The
+2026-08-04 sweep added two temporary env overrides to `src/pdf_text.py`
+— `BENCH_CPUS_PER_WORKER` and `BENCH_DOCLING_THREADS` — to get past it.
+Those were measurement instruments and were **not** committed; re-add
+them locally when you need them, and do not ship them.
 
-- Assign worker `i` to GPU `i % <gpu count>` in the pool initialiser.
-- **Mechanism**: prefer passing `AcceleratorOptions(device="cuda:N")`
-  directly if docling 2.117 accepts an indexed device string -- check
-  this first, because it sidesteps an ordering constraint. The fallback
-  is setting `CUDA_VISIBLE_DEVICES` in the worker before torch
-  initialises CUDA, which forces the `"spawn"` start method (under
-  `"fork"`, a parent that has already touched CUDA hands the child a
-  broken context). `CUDA_VISIBLE_DEVICES` is known-good -- the benchmark
-  harness uses it.
-- **VRAM is a non-issue**: 1.7 GB per worker against 46 GB per card. Even
-  12 workers fit on one A40. Do not size the pool off GPU memory.
-- **State the benefit honestly.** At ~7% SM per worker, one A40 absorbs
-  roughly 12 workers before the GPU constrains anything -- which is about
-  where the CPU runs out anyway. On *this* host the four GPUs are close
-  to redundant for this workload. They become load-bearing if the worker
-  count rises, or if Phase 0's OCR change shifts the remaining work onto
-  the GPU.
+Each run parses the whole corpus. A serial pass is ~55 minutes, so a
+full curve with repeats is an overnight job — `--dry-run` prints the plan
+first.
 
-## Phase 4 -- per-worker startup -- **DONE (v2.1.0)**
+## Changes that are ready except for their measurement
 
-The question Phase 2's measurement left open: a 60-document subset showed
-no benefit from anything, because "per-worker startup dominates". This
-phase measured what that startup *is*.
-
-It is ~8.5s per worker on this host: **3.2s importing torch and docling,
-~5.0s loading Docling's models**, and the second is not shareable between
-processes at all -- `initialized_pipelines` lives on the converter
-instance. So the ceiling on this whole phase was ever only 3.2s.
-
-Shipped: `[parser].start_method`, defaulting to `"auto"`, which resolves
-to **forkserver** with torch and docling in its preload list. Measured
-(medians of three): over 8 real bib PDFs, **23.1s to 21.8s at 4 workers
-and 22.9s to 20.7s at 8**; over 60, **103.6s to 101.9s at 4 and 80.8s to
-78.8s at 12**. The same ~1.3-2.2s every time -- 9.6% of the smallest run
-and 2.5% of the largest.
-
-Three corrections to what was assumed before this phase, all from
-measurement:
-
-- **"Counting GPUs initialises CUDA in the parent" was false.** That was
-  the stated reason for `spawn`, and against torch 2.7.1 it is simply
-  not what happens -- `device_count()` goes through NVML and leaves
-  `torch.cuda.is_initialized()` False. `gpu_count()` reads `nvidia-smi`
-  now anyway, so the question cannot come back, but the old comment was
-  wrong rather than merely cautious.
-- **Plain `fork` is still ruled out -- by sqlite, not CUDA.** The parent
-  holds the run lock and the ledger open as live connections when the
-  pool is built. It also measured no faster than forkserver, so nothing
-  is being given up.
-- **A shared import is a wash on its own.** Workers import concurrently,
-  so moving 3.2s out of N children and into one parent nets zero
-  (22.4s vs 22.9s, measured). The saving comes from *when*: the
-  forkserver is started before the bibliography is read, so its preload
-  overlaps the ~2.5s that takes.
-
-The honest summary is that this phase takes a fixed ~1.5-2s off pool
-startup, which is worth having when the run is a handful of documents and
-is lost in the noise when it is the whole corpus. That is the shape the
-breakdown predicted once it existed. See RESULTS.md's "Per-worker
-startup" section.
-
-## Phase 5 -- measure the whole corpus, not a sample -- **DONE (v2.1.1)**
-
-Every phase above was planned against an extrapolated baseline. Measuring
-the real thing found it **41% low** (55m 30s, not ~39m), which turned a
-reported 60% parallel efficiency into an actual 89%.
-
-It also found the one concrete win still on the table: `worker_ceiling()`
-caps at `allowed_cpus // 4 = 12`, and **32 workers is 1.41x faster**. The
-divisor's premise -- a worker uses ~4 CPUs -- does not survive
-measurement: 71% CPU busy at 32 workers, and docling's `num_threads`
-worth 1.9%.
-
-Not acted on in v2.1.1, which is docs and benchmarking only. **The next
-phase is to change that constant and re-measure**, ideally deriving it
-per machine rather than hard-coding it.
-
-## Phase 3 -- keep it measurable
-
-- Keep `bench/`. It is what turns "docling is ~42x pdftotext" (../docs/PDF-PARSER.md,
-  measured on 5 PDFs) into a figure that covers the real corpus.
-- Record pages/s in `sync`'s summary line, so a regression shows up
-  without anyone running a special benchmark.
-- Update `config.toml`'s `[parser]` comment: it currently warns that a
-  first-time Docling sync "will take hours, not minutes, and that loop
-  still runs serially". After Phase 1 the second clause is false, and the
-  first should carry a measured figure.
-
-## Projected wall clock -- projections, not measurements
-
-Scaling was **not** measured (see RESULTS.md, "Not measured"). These
-extrapolate the measured 0.43 s/page serial figure and the
-~3-cores-per-worker observation, and assume near-linear CPU scaling up to
-saturation -- which is precisely the assumption that needs testing.
-
-| Workers | Projected | Confidence |
-|---|---|---|
-| 1 (today) | ~1h 36m | measured |
-| 4 | ~25 min | moderate -- well inside CPU headroom |
-| 8 | ~13 min | moderate |
-| 12-16 | ~8-10 min | low -- near CPU saturation, expect sublinear |
-
-Realistic target: **single-digit-to-low-teens minutes against ~1.6 hours
-today** -- and essentially all of it from Phases 0 and 1, not from the
-GPUs.
-
-## Open questions to resolve while implementing
-
-- How much does OCR actually cost? Phase 0 should measure it, because the
-  answer changes the worker-sizing arithmetic in Phase 1.
-- Does docling 2.117's `AcceleratorOptions` accept `"cuda:1"`? Decides
-  Phase 2's mechanism.
-- Should `parse_corpus`'s incremental cache be saved incrementally under
-  parallelism? It currently saves once at the end, so a killed bulk run
-  loses the whole run's bookkeeping.
+| Change | Blocked on |
+|---|---|
+| Derive `_CPUS_PER_DOCLING_WORKER` | open questions 1 and 2 |
+| Selective OCR (only bitmap-heavy documents) | a cheap page classifier, and question 3 |
+| Resident worker pool across runs | nothing measured; it is a design change, not a tuning one |
+| Batch inference across documents | upstream — docling exposes no batch API |

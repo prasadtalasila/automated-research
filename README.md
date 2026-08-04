@@ -78,9 +78,9 @@ to 5m 10s**, both ends measured over the whole corpus:
 - **Bounded and interruptible.** Per-document and stalled-run timeouts,
   Ctrl+C that stops in about a second, live progress, and a
   one-writer-at-a-time lock that releases itself if the holder is killed.
-- **A benchmark harness** (`bench/`) so the numbers stay checkable. The
-  full story, including the conclusions later measurement overturned, is
-  in [docs/PARALLELISM.md](docs/PARALLELISM.md).
+- **A benchmark harness** (`bench/`) so the numbers stay checkable, and
+  a design write-up of how the parallel parse fits together in
+  [docs/PARALLELISM.md](docs/PARALLELISM.md).
 
 ### What it deliberately is not
 
@@ -126,7 +126,7 @@ and what it needs. Everything else lives in one document per question.
 | [docs/WRITING-STANDARDS.md](docs/WRITING-STANDARDS.md) | What prose standards do the genre skills follow, and where in the technical-communication literature do they come from? |
 | [docs/CITATION-PROVENANCE.md](docs/CITATION-PROVENANCE.md) | What does the provenance report say, and how do I read it? |
 | [docs/DESIGN.md](docs/DESIGN.md) | How is this put together, and what happens when two runs collide? |
-| [docs/PARALLELISM.md](docs/PARALLELISM.md) | How did the parse get 22x faster, and which conclusions along the way turned out to be wrong -- including the baseline itself? |
+| [docs/PARALLELISM.md](docs/PARALLELISM.md) | How does the parallel parse actually work, what is each component for, and what is planned next? |
 
 **Working on the repository itself**
 

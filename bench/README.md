@@ -124,7 +124,7 @@ being tested.
 is an *instance* attribute, so a converter built per PDF re-initialises
 the layout/table/OCR models every time. `fresh` reproduces that; `reused`
 builds one converter for the whole run. This is the difference the
-Phase 0 work in the plan is about.
+converter-reuse work was about.
 
 **`--device cuda` vs `--device cpu`.** Docling's `AcceleratorDevice.AUTO`
 resolves to `cuda:0` whenever a GPU is present, so the default is already

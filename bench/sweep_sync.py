@@ -50,6 +50,9 @@ import threading
 import time
 from pathlib import Path
 
+# "  [12/501] citekey" -- src/sync.py's per-completion progress line.
+PROGRESS_RE = re.compile(r"^\s*\[\d+/\d+\]\s")
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BENCH_DIR = REPO_ROOT / "bench"
 
@@ -162,10 +165,32 @@ def one_run(workers: int, gpus: int, ocr: bool, python: str,
     try:
         with ResourceSampler() as sampler:
             started = time.perf_counter()
-            proc = subprocess.run([python, "-m", "src.sync"], cwd=str(REPO_ROOT),
-                                  env=env, capture_output=True, text=True)
+            # Streamed rather than captured wholesale so each completion can
+            # be timestamped as it arrives. `sync` prints "  [n/N] citekey"
+            # to stderr per document, which turns "what is this run
+            # actually spending its time on" into an answerable question:
+            # time to the *first* completion is the pool's startup, time
+            # after the *last* is the tail one long document imposes, and
+            # the gaps in between are the steady-state rate.
+            proc = subprocess.Popen(
+                [python, "-m", "src.sync"], cwd=str(REPO_ROOT), env=env,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            completions: list[float] = []
+            err_lines: list[str] = []
+
+            def drain_stderr():
+                for line in proc.stderr:
+                    err_lines.append(line)
+                    if PROGRESS_RE.match(line):
+                        completions.append(time.perf_counter() - started)
+
+            reader = threading.Thread(target=drain_stderr, daemon=True)
+            reader.start()
+            out = proc.stdout.read()
+            proc.wait()
+            reader.join(timeout=30)
             elapsed = time.perf_counter() - started
-        out, err = proc.stdout, proc.stderr
+        err = "".join(err_lines)
         parsed = len(re.findall(r"^  parsed ", out, flags=re.M))
         # `sync` prints per-document failures to *stderr* and the totals to
         # stdout. Counting only stdout reported every run as clean, which
@@ -177,11 +202,28 @@ def one_run(workers: int, gpus: int, ocr: bool, python: str,
                   else len(re.findall(r"^  FAILED ", out + err, flags=re.M)))
         m = re.search(r"parsing \d+ document\(s\) with (\d+) workers", out)
         resolved = int(m.group(1)) if m else (1 if workers == 1 else None)
+        timeline = {}
+        if completions:
+            first, last = completions[0], completions[-1]
+            timeline = {
+                # Everything before the first document lands: process
+                # start, imports, model load, pool construction.
+                "startup_s": round(first, 1),
+                "startup_pct": round(100 * first / elapsed, 1),
+                # Everything after the last: nothing left to overlap with,
+                # so this is the tail a single long document imposes.
+                "drain_s": round(elapsed - last, 1),
+                "drain_pct": round(100 * (elapsed - last) / elapsed, 1),
+                # Throughput while the pool is actually full.
+                "steady_docs_per_s": (round(len(completions) / (last - first), 2)
+                                      if last > first else None),
+                "completions": len(completions),
+            }
         return {
             "record": "run", "workers_requested": workers,
             "workers_resolved": resolved, "gpus": gpus, "ocr": ocr,
             "seconds": round(elapsed, 1), "parsed": parsed, "failed": failed,
-            "returncode": proc.returncode, **sampler.summary(),
+            "returncode": proc.returncode, **timeline, **sampler.summary(),
         }
     finally:
         if not keep_output:
@@ -231,7 +273,7 @@ def main() -> int:
     plan = [(w, g, o) for o in ocrs for g in gpus for w in workers]
 
     print(f"{len(plan)} configuration(s) x {args.repeat} run(s); "
-          f"each parses the whole corpus from an empty ledger.")
+          f"each parses the whole corpus from an empty ledger.", flush=True)
     print(f"machine: {allowed_cpus()} CPUs available to this process "
           f"(host reports {os.cpu_count()})\n")
     if args.dry_run:
@@ -263,9 +305,17 @@ def main() -> int:
                              f" -- see worker_ceiling()")
                 status = "" if rec["returncode"] == 0 and rec["failed"] == 0 else \
                          f"  !! rc={rec['returncode']} failed={rec['failed']}"
+                extra = ""
+                if rec.get("startup_s") is not None:
+                    extra = (f"  startup={rec['startup_s']}s({rec['startup_pct']}%)"
+                             f" tail={rec['drain_s']}s({rec['drain_pct']}%)")
+                # flush: these runs are tens of minutes each, and stdout
+                # is block-buffered when redirected to a file -- without
+                # this a `> sweep.log` shows nothing until the very end.
                 print(f"  workers={w:<3} gpus={g} ocr={'on ' if o else 'off'} "
                       f"{rec['seconds']:8.1f}s  parsed={rec['parsed']:<4}"
-                      f"  cpu={rec['cpu_pct_of_allowed']}%{clamp}{status}")
+                      f"  cpu={rec['cpu_pct_of_allowed']}%{extra}{clamp}{status}",
+                      flush=True)
             runs.sort(key=lambda r: r["seconds"])
             records.append(runs[len(runs) // 2])
 

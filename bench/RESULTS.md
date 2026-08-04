@@ -61,7 +61,7 @@ runs on onnxruntime, on the CPU) -- with short GPU bursts for the layout
 and table models.
 
 That 1.79x is the entire benefit the GPU currently delivers. It is the
-reason [PARALLELISM-PLAN.md](PARALLELISM-PLAN.md) does CPU-level
+reason the work did CPU-level
 parallelism first and GPU assignment second.
 
 ## Three code facts behind the numbers
@@ -93,7 +93,7 @@ A fourth fact, host-specific but a live trap for worker sizing:
    would oversubscribe 2x. This already bit the benchmark run: a
    `taskset -c 24-39` invocation failed outright with `Invalid argument`.
 
-## Phase 1, measured: parallel `sync`, and the ceiling it hits
+## 2026-08-02: parallel `sync`, and the ceiling it hit
 
 Measured 2026-08-02 with the real `python -m src.sync`, not the bench
 harness: 60 bib PDFs (1,166 pages), `parser.backend = "docling"`, OCR off,
@@ -123,9 +123,8 @@ three A40s are never addressed at all, because Docling's
 `AcceleratorDevice.AUTO` resolves to `cuda:0` in every worker process
 (fact 3 above).
 
-That is what Phase 2 of PARALLELISM-PLAN.md is for, and this measurement
-is the argument for it: the four GPUs stopped being redundant the moment
-Phase 1 landed. A 60-document sample already saturates one card at 12
+That is the argument that produced per-worker GPU assignment: the four
+GPUs stopped being redundant the moment document parallelism landed. A 60-document sample already saturates one card at 12
 workers, so the full 501-document corpus will too.
 
 On smaller batches the per-worker model load dominates instead: over 8
@@ -138,7 +137,7 @@ parse.
 Correctness was checked, not assumed: `content/parsed/` after a 4-worker
 run is byte-identical to the serial run's, and the ledger rows match.
 
-## Phase 0, measured: OCR costs more than the GPU saves
+## 2026-08-02: OCR costs more than the GPU saves
 
 Measured 2026-08-02 on the same 16-PDF sample and the same GPU, with
 `bench_docling.py --no-ocr`. Raw timings:
@@ -186,7 +185,7 @@ run-together words, not for content that never arrived. A corpus of scans
 needs `ocr = true`; so does one where tables-as-images matter more than
 parse time.
 
-## Phase 0, measured: the converter rebuild
+## 2026-08-02: the converter rebuild
 
 `DocumentConverter` cold start is **16.5s** on this host, and
 `initialized_pipelines` is an instance attribute -- so the pre-0.12.0
@@ -196,7 +195,7 @@ for every document in the corpus. Both `pdf_text.py` and
 `parse_corpus` defers the build until a document actually needs parsing,
 so a fully-cached re-run loads no models at all.
 
-## Phase 2, measured: spreading workers across the four A40s
+## 2026-08-02: spreading workers across the four A40s
 
 Measured 2026-08-02 with the real `python -m src.sync` over the **whole
 501-PDF corpus** (13,400 pages), `docling`, OCR off, 12 workers. The A/B
@@ -441,8 +440,8 @@ plainly that both understate.
 | 12 | 310.2s | 10.74x | 89% | the most `worker_ceiling()` allows |
 | 16 | 268.1s | 12.42x | 78% | |
 | 24 | 237.6s | 14.02x | 58% | |
-| **32** | **220.7s** | **15.09x** | 47% | **measured optimum** |
-| 48 | 226.3s | 14.72x | 31% | past the knee |
+| **32** | **220.7s** | **15.09x** | 47% | single run; see 2026-08-04b |
+| 48 | 226.3s | 14.72x | 31% | single run; see 2026-08-04b |
 
 **The clamp is costing 1.41x.** `worker_ceiling()` caps at
 `allowed_cpus // 4 = 12`; the optimum is near 32. Rows above 12 required
@@ -503,13 +502,57 @@ OCR roughly halves how well the pipeline parallelises.
 
 ### Open, not glossed
 
-- **What binds at 32 workers is unknown.** CPU is 71% busy, GPUs are far
-  from saturated, `num_threads` is irrelevant, and the big-document tail
-  does not bind until ~35x.
-- **The 32 -> 48 reversal is 2.5% and not established.** Each point is a
-  single run; the 12 -> 32 trend is far outside noise, this is not.
 - **The OCR optimum was not found** -- swept only to 24 workers, where it
   was still improving.
-- **One machine, one corpus.** The implied `cpus // 1.5` divisor may not
+- **One machine, one corpus.** Any specific replacement divisor may not
   generalise, particularly to a CPU-only machine where the GPU is doing
   none of the work.
+
+Two questions this section used to list were answered on 2026-08-04b,
+below.
+
+## 2026-08-04b: repeats, and where the time goes
+
+The single-run sweep above left two questions. Three runs per point, with
+`sweep_sync.py` timing each run's phases, settled both. Raw records:
+`results/sweep-knee.jsonl`.
+
+| Workers | Runs (s) | Median | Spread |
+|---|---|---|---|
+| 24 | 234.6, 235.0, 235.8 | 235.0s | 1.2s |
+| 32 | 222.8, 223.4, 309.6 | 223.4s | **86.8s** |
+| 48 | 220.4, 221.4, 227.7 | 221.4s | 7.3s |
+
+### The 32 -> 48 "reversal" was noise
+
+Medians put 32 and 48 **0.9% apart** — while the spread *within* the
+32-worker configuration alone is 86.8s. The single-run pass had 32 at
+220.7s and 48 at 226.3s and read that as a knee; with repeats the
+ordering flips.
+
+**The curve plateaus past ~32; it does not turn back up.** Single runs
+cannot resolve anything in that region, which is the argument for
+`--repeat`.
+
+### What flattens the curve: startup, plus the CPU filling up
+
+Timing each run's phases separates the three candidates:
+
+| Workers | Startup (to 1st document) | Tail (after last) | CPU busy |
+|---|---|---|---|
+| 24 | 18.6s — **7.9%** | 4.9s — 2.1% | 56% |
+| 32 | 21.8s — **8.9%** | 5.9s — 2.6% | 70% |
+| 48 | 28.5s — **12.7%** | 7.9s — 3.6% | 78% |
+
+- **Startup is a growing tax, not a fixed one.** Every worker pays its
+  own ~8.5s model load, so the cost of standing the pool up rises with
+  the pool: 7.9% of the run at 24 workers, 12.7% at 48.
+- **The CPU is heading for saturation** — 56% to 78% across the same
+  range. Earlier the 71% figure at 32 workers was read as "the CPU is not
+  the limit"; against 56% at 24 and 78% at 48 it is clearly *becoming*
+  one.
+- **The long-document tail is not the story**: 5-8s throughout, under 4%.
+
+Neither cost alone explains the plateau. Together they account for it,
+and both worsen with every worker added — which is why past ~32 there is
+nothing left to win by adding more.

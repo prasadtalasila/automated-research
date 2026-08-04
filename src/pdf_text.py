@@ -39,12 +39,13 @@ from src import config
 #
 # **A full-corpus sweep does not support it.** Measured over all 501 PDFs
 # (docs/PERFORMANCE.md, bench/results/2026-08-04-full-corpus/):
-#   - 32 workers is 1.41x faster than the 12 this constant allows on a
-#     48-CPU machine, and 48 workers still beats 12;
-#   - at 32 workers the CPU is only 71% busy;
+#   - 32 workers is ~1.4x faster than the 12 this constant allows on a
+#     48-CPU machine, and 48 workers is no worse;
 #   - docling's own num_threads changes a run by 1.9% -- noise -- so a
 #     worker is not doing four CPUs of parallel work.
-# The optimum implies a divisor near 1.5 on that machine.
+# Past ~32 workers the curve plateaus rather than reversing (32 and 48
+# land within 0.9% over three runs each), so the finding is "this divisor
+# is much too large", not "it should be 1.5".
 #
 # Left at 4 deliberately: changing it alters what every run does on every
 # machine, and it has been validated on exactly one machine and one

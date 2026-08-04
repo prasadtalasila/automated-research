@@ -48,14 +48,14 @@ release zip for the same reason `tests/` is.
 
 - [docs/PERFORMANCE.md](docs/PERFORMANCE.md) -- what each setting costs,
   organised by setting. Ships in the release archive, unlike `bench/`
-- [docs/PARALLELISM.md](docs/PARALLELISM.md) -- the whole story across
-  seven releases, including the six conclusions that turned out wrong
+- [docs/PARALLELISM.md](docs/PARALLELISM.md) -- parallel parse design:
+  architecture, components, and the roadmap
 - [bench/README.md](bench/README.md) -- how to run it, and what each
   switch measures
 - [bench/RESULTS.md](bench/RESULTS.md) -- the 2026-08-02 baseline, with
   raw per-PDF timings in `bench/results/`
-- [bench/PARALLELISM-PLAN.md](bench/PARALLELISM-PLAN.md) -- the phased
-  plan that measurement produced
+- [bench/PARALLELISM-PLAN.md](bench/PARALLELISM-PLAN.md) -- what is still
+  unknown, and what to measure before changing it
 
 The headline, in the order it was found:
 
@@ -125,9 +125,9 @@ DOCKER.md                 running this repo in a container (docker/Dockerfile)
 docs/                     reference docs that ship in the release zip -- everything except the four
                           root-level ones above, which stay put because they're what a reader looks
                           for first
-  PARALLELISM.md            how the parser got 22x faster across eight releases, and what it cost
+  PARALLELISM.md            parallel parse design: architecture, components, and the roadmap
   PERFORMANCE.md            what each config setting costs, measured -- the lookup-oriented companion
-                            to PARALLELISM.md's narrative
+                            to PARALLELISM.md's design doc
   ZOTERO.md                 getting a bib file and its PDFs into the shape this pipeline expects
   CLI.md                    every command, and which interpreter each one needs
   CONFIG.md                 every setting, with config.toml.example reproduced in full

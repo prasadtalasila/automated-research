@@ -9,9 +9,8 @@ Related reading:
 
 - [PDF-PARSER.md](PDF-PARSER.md) -- how the two backends compare on
   fidelity, and why two other candidates were evaluated and dropped.
-- [PARALLELISM.md](PARALLELISM.md) -- the narrative of how the parse got
-  17x faster across seven releases, including the conclusions that later
-  measurement overturned.
+- [PARALLELISM.md](PARALLELISM.md) -- how the parallel parse is built:
+  architecture diagrams, what each component does, and the roadmap.
 - `bench/RESULTS.md` -- the raw measurement record with per-PDF timings.
   Developer-only: `bench/` is excluded from the release archive, so it is
   in the repository but not in a downloaded release.
@@ -128,7 +127,7 @@ why the parallelism work went after CPU-level document concurrency first.
 ## `[parser].workers` -- document-level parallelism
 
 **The largest lever on a multi-core machine, and the code currently caps
-it below the measured optimum.**
+it well below where the curve flattens.**
 
 Measured 2026-08-04 with the real `python -m src.sync` over the **whole
 501-PDF corpus** (13,400 pages), docling, OCR off, 4 GPUs. Each row is
@@ -141,22 +140,27 @@ one run from an empty ledger; all reported 501 parsed, 0 failed:
 | 8 | 428.6s | 7.77x | 97% | |
 | 12 | 310.2s | 10.74x | 89% | <- **the most `worker_ceiling()` allows** |
 | 16 | 268.1s | 12.42x | 78% | |
-| 24 | 237.6s | 14.02x | 58% | |
-| **32** | **220.7s** | **15.09x** | 47% | <- **measured optimum** |
-| 48 | 226.3s | 14.72x | 31% | past the knee |
+| 24 | 235.0s | 14.17x | 59% | median of 3 |
+| **32** | **223.4s** | **14.91x** | 47% | median of 3 |
+| 48 | 221.4s | 15.04x | 31% | median of 3 |
 
 - **Scaling holds far better than previously documented.** 97% at 8
   workers, 89% at 12. The 104% at 4 is not an error: one worker does not
   saturate the threads it is given, so serial is a slightly unfair
   denominator.
-- **The knee is near 32, not 12.** `worker_ceiling()` caps at
-  `allowed_cpus // 4`, which is 12 here. Running 32 is **1.41x faster**
-  -- 29% less wall clock, available today only by changing that constant.
-- **48 is past the knee**, so "one worker per CPU" would also be wrong.
-  The optimum implies a divisor near 1.5 rather than 4 -- but that is
-  arithmetic from **one machine and one corpus** (48 CPUs / 32 workers),
-  not a measured constant. A CPU-only machine, where the GPU does none of
-  the work, would likely want a different value.
+- **The knee is somewhere past 24, not at 12.** `worker_ceiling()` caps
+  at `allowed_cpus // 4`, which is 12 here. Running 32 is **~1.4x
+  faster** -- available today only by changing that constant.
+- **The curve plateaus from 32 to 48; it does not reverse.** Medians of
+  three runs put them 0.9% apart (223.4s vs 221.4s), while the spread
+  *within* the 32-worker configuration alone was 86.8s. An earlier
+  single-run pass had 32 beating 48 and read that as a knee; with repeats
+  the ordering flips. **Anything past ~32 is flat, and single runs cannot
+  resolve it.**
+- So the useful statement is "the divisor should be much smaller than 4",
+  not "it should be 1.5". Any specific value here is arithmetic from
+  **one machine and one corpus**, on a plateau, and a CPU-only machine
+  would likely want a different one.
 - Asking for 16 on this machine resolves to 12 and takes 315.9s. The
   clamp is doing exactly what it documents, and costing 1.43x.
 
@@ -171,6 +175,27 @@ CPUs. It does not. Measured CPU busy, against the 48 available:
 
 At 32 workers -- past the point the code will go -- the CPU is still only
 71% busy. With OCR off a worker uses closer to one CPU than four.
+
+### What flattens the curve past ~24 workers
+
+Timing each run's phases separates the candidates:
+
+| Workers | Startup (to 1st document) | Tail (after last) | CPU busy |
+|---|---|---|---|
+| 24 | 18.6s — **7.9%** of the run | 4.9s — 2.1% | 56% |
+| 32 | 21.8s — **8.9%** | 5.9s — 2.6% | 70% |
+| 48 | 28.5s — **12.7%** | 7.9s — 3.6% | 78% |
+
+- **Startup is a growing tax, not a fixed one.** Every worker pays its
+  own ~8.5s model load, so standing the pool up costs more the bigger the
+  pool: 7.9% of the run at 24 workers, 12.7% at 48.
+- **The CPU is heading for saturation**, 56% to 78% across the same
+  range. Read alone, "71% busy at 32" suggests headroom; read against 56%
+  at 24 and 78% at 48, it is clearly *becoming* the limit.
+- **The long-document tail is not the story** — 5-8s throughout, under 4%.
+
+Neither cost alone explains the plateau; together they account for it,
+and both worsen with every worker added.
 
 **Corpus size still decides whether raising this is worth anything.** Over
 8 documents, 4 workers gave 1.90x and 8 gave none at all (34.6s / 18.3s /
@@ -302,10 +327,11 @@ editions of this table read `~1.6 h -> ~39 min -> 8.8 min -> 5m26s`; the
 first two were extrapolations that ran low, so the improvement was
 understated.
 
-**About 17x, and the GPU work is the smallest contribution.** The largest
-is a boolean. [PARALLELISM.md](PARALLELISM.md) tells that story properly,
-including the four intermediate conclusions that were wrong until the
-next measurement corrected them.
+**22x with the shipped defaults, and the GPU work is the smallest
+contribution.** The largest is a boolean.
+[PARALLELISM.md](PARALLELISM.md) describes the machinery that produces
+these numbers; `bench/RESULTS.md` carries the measurements themselves,
+including the conclusions later ones overturned.
 
 ## Output is not bit-reproducible under heavy concurrency
 

@@ -39,9 +39,9 @@ The repository is designed around a few hard constraints that strongly shape the
      stays on the parent process, because sqlite has a single writer and
      because the parent is the only place that can order results
      deterministically.
-   - Backends get the concurrency they can use: threads for `pdftotext`
-     (external subprocess, releases the GIL), processes for `docling`
-     (in-process, holds it), with one CUDA device claimed per worker.
+   - Backends get the kind of parallelism they can use: threads for
+     `pdftotext` (external subprocess, releases the GIL), processes for
+     `docling` (in-process, holds it), with one CUDA device per worker.
 
 ## Design pattern review
 
@@ -158,12 +158,14 @@ half-parsed is discarded rather than stored (1 over availability). A
 corrupt PDF is *not* retried, yet still fails the run every time (2:
 never silent, but also never pointlessly expensive).
 
-## Concurrency and resource design
+## Parallelism and resource design
 
-The parse path is the only part of this repository that is concurrent,
-and it acquired that concurrency across six releases of measured work
-(see PARALLELISM.md for the narrative). The design rules it settled on
-are worth stating separately from the history.
+The parse path is the only part of this repository that runs work in
+**parallel** -- several documents at once, to cut the wall clock of a
+single run. That is a different mechanism from the **concurrency
+control** below, which stops two separate runs colliding; PARALLELISM.md
+defines both and describes the components. The design rules the parse
+path settled on are worth stating here.
 
 ### Opt-in, and clamped rather than obeyed
 
