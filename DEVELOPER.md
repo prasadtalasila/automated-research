@@ -165,10 +165,13 @@ src/                      core pipeline (needs bibtexparser; citation_gate/refer
                           deleting stale ledger rows (default: report only, see README's "Removing a paper")
   dedup.py                  advisory near-duplicate citekey detection (shared DOI/title), called from sync
   retrieval.py              BM25 search over the content layer, backed by a cached term-frequency index
+  passages.py               where a citekey's supporting text comes from (docling sidecar -> form-feed
+                          pages -> pdftotext) and whether it may be quoted -- shared by the consumers
+                          that need to point at part of a source rather than all of it
   citation_gate.py          hard citation-verification gate -- "job 2" must pass this
   citation_coverage.py      ad-hoc review aid: retrieval-candidates-vs-actually-cited report, not a gate
   citation_provenance.py    ad-hoc review aid: what in each cited source supports the claim citing it, not a gate
-                            (see docs/CITATION-PROVENANCE.md)
+                            (scores claims against passages.py's ladder; see docs/CITATION-PROVENANCE.md)
   references.py             auto-generates a draft's "## References" section from its own cited citekeys
 src/heavy/                optional heavier pipeline (pyproject.toml's "heavy" Poetry group)
   corpus.py                 unifies ledger items + [source_pdfs].dir's raw PDFs (doc: prefixed, non-citable)

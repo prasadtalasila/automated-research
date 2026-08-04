@@ -15,27 +15,14 @@ A check that blocked on that distinction would train people to work
 around it, which is exactly the corrosion citation_gate avoids by only
 ever asserting something it can verify exactly.
 
-Passages come from the best source available, in this order:
+Passages come from `src/passages.py`, which owns the sidecar -> pages ->
+`pdftotext` ladder and the rule that a source with no reading order
+reports a page rather than a quotation. This module scores claims
+against whatever that ladder hands back; it no longer decides where the
+text comes from.
 
-1. `content/docling/<citekey>.passages.json`, if the heavy Docling stage
-   has run. Real reading-ordered paragraphs.
-2. `content/parsed/<citekey>.txt` split on form feeds -- page-level only.
-3. `pdftotext -layout` on the PDF the ledger recorded, same shape as (2),
-   for a citekey parsed by a backend that left no page breaks.
-
-The difference between (1) and (2)/(3) is not cosmetic. `pdftotext
--layout` preserves a page's *visual* arrangement rather than its reading
-order, so on a two-column paper each output line splices together two
-unrelated columns -- 82%-89% of long lines on 4 of the 10 papers
-measured in this project's own sample. Scoring survives that, because it
-compares bags of words and splicing moves words around within a page
-rather than between pages. *Quoting* does not: an excerpt cut from that
-text is a collage of two arguments, which is worse than no excerpt at
-all because it reads as evidence. So a page-level source reports a page
-and a score, and only a Docling sidecar quotes.
-
-Stdlib only (sqlite3/re/subprocess), like citation_gate.py and
-references.py -- runs with bare `python3`, no venv.
+Stdlib only (sqlite3/re), like citation_gate.py and references.py --
+runs with bare `python3`, no venv.
 
 Usage:
     python -m src.citation_provenance content/drafts/<slug>.md
@@ -43,45 +30,14 @@ Usage:
 """
 
 import argparse
-import json
 import re
-import subprocess
 import sys
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
 from src import citation_gate, config, ledger
-
-# Same tokenizer shape as src/retrieval.py: lowercase alphanumeric runs,
-# stopwords and very short words dropped, so scoring keys off the words
-# that actually distinguish one claim from another.
-_WORD = re.compile(r"[a-z0-9]+")
-_STOPWORDS = {
-    "a", "an", "the", "of", "on", "in", "for", "and", "to", "with",
-    "is", "are", "be", "this", "that", "as", "by", "from", "at",
-    "it", "its", "can", "has", "have", "was", "were", "which", "such",
-    "these", "those", "their", "than", "then", "but", "not", "also",
-}
-
-
-def distinctive(text: str) -> set[str]:
-    return {w for w in _WORD.findall(text.lower()) if len(w) > 2 and w not in _STOPWORDS}
-
-
-@dataclass
-class Passage:
-    """A candidate span of source text. `text` is None when the source
-    couldn't be read in reading order, in which case the passage stands
-    for a whole page and must not be quoted."""
-    page: int | None
-    words: set[str]
-    text: str | None = None
-    label: str | None = None
-
-    @property
-    def quotable(self) -> bool:
-        return self.text is not None
+from src.passages import Passage, distinctive, source_passages
 
 
 @dataclass
@@ -99,81 +55,6 @@ class Report:
     draft: str
     findings: list[Finding] = field(default_factory=list)
     unreadable: dict[str, str] = field(default_factory=dict)
-
-
-def _ledger_row(con, citekey: str):
-    row = con.execute(
-        "SELECT parsed_path, pdf_path, title FROM items WHERE citekey = ?", (citekey,)
-    ).fetchone()
-    return row
-
-
-def _passages_from_sidecar(citekey: str) -> list[Passage] | None:
-    path = config.DOCLING_DIR / f"{citekey}.passages.json"
-    try:
-        records = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-        # UnicodeDecodeError alongside the other two: a sidecar truncated
-        # mid-write by a killed process can split a multi-byte character,
-        # which fails to decode before json ever sees it. Falling back to
-        # page-level costs a re-parse at worst; raising would take down a
-        # whole report over one damaged file.
-        return None
-    if not isinstance(records, list) or not records:
-        return None
-    passages = []
-    for rec in records:
-        if not isinstance(rec, dict):
-            continue
-        text = (rec.get("text") or "").strip()
-        if not text:
-            continue
-        passages.append(Passage(page=rec.get("page"), words=distinctive(text),
-                                text=text, label=rec.get("label")))
-    return passages or None
-
-
-def _pages_to_passages(raw: str) -> list[Passage]:
-    """One passage per form-feed-delimited page, not quotable.
-
-    Deliberately whole pages rather than windows within them: a window
-    cut from column-spliced text reads as a quotation while being a
-    collage, and there is no way to tell from the text alone which
-    documents are affected.
-    """
-    return [Passage(page=i, words=distinctive(page))
-            for i, page in enumerate(raw.split("\f"), 1) if page.strip()]
-
-
-def source_passages(con, citekey: str) -> tuple[list[Passage], str | None]:
-    """Best available passages for `citekey`, plus a reason if there are
-    none."""
-    sidecar = _passages_from_sidecar(citekey)
-    if sidecar:
-        return sidecar, None
-
-    row = _ledger_row(con, citekey)
-    if row is None:
-        return [], "not in the ledger -- run `python -m src.sync`"
-
-    parsed_path, pdf_path, _title = row
-    if parsed_path and Path(parsed_path).exists():
-        raw = Path(parsed_path).read_text(encoding="utf-8", errors="replace")
-        passages = _pages_to_passages(raw)
-        # A backend that emits no form feeds yields exactly one "page",
-        # which would report every hit as p.1. Fall through to the PDF.
-        if len(passages) > 1:
-            return passages, None
-
-    if pdf_path and Path(pdf_path).exists():
-        try:
-            out = subprocess.run(["pdftotext", "-layout", pdf_path, "-"],
-                                 capture_output=True, text=True, check=True)
-        except (OSError, subprocess.CalledProcessError) as exc:
-            return [], f"couldn't run pdftotext on the PDF ({exc})"
-        return _pages_to_passages(out.stdout), None
-
-    return [], "no parsed text with page breaks and no readable PDF"
 
 
 def _paragraph_spans(lines: list[str]) -> list[tuple[int, int, str]]:
@@ -401,7 +282,7 @@ def render_markdown(report: Report) -> str:
             page = finding.passage.page
             lines += [
                 f"Best match is on **page {page}** of the source. The text for "
-                "this citekey has no reading order (see the module docstring), "
+                "this citekey has no reading order (see src/passages.py), "
                 "so the page is reported without quoting from it.",
                 "",
             ]
