@@ -122,7 +122,7 @@ citation gate.
   relative to the current directory, since that is what a shell-typed
   path means.
 - **`collapse_citations`** -- whether a run of consecutive numbers
-  collapses: `[3]-[6]` rather than `[3], [4], [5], [6]`. The IEEE
+  collapses: `[3]–[6]` rather than `[3], [4], [5], [6]`. The IEEE
   Reference Guide's own examples use the collapsed form, but upstream
   `ieee.csl` does not produce it, so `render_output.py` injects the one
   CSL attribute that does (`collapse="citation-number"`) into a temp copy

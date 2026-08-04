@@ -232,7 +232,7 @@ python3 -m src.citation_provenance content/drafts/survey.md
 Render a Pandoc-Markdown or LaTeX draft. Needs `pandoc` (and `pdflatex`
 for PDF) on `PATH`, but no Python package from the heavy group.
 
-Citations render IEEE-style -- `[1]`, and `[3]-[6]` for a consecutive run
+Citations render IEEE-style -- `[1]`, and `[3]–[6]` for a consecutive run
 -- over a numbered bibliography of complete entries, via the CSL style
 vendored at `assets/csl/ieee.csl`. In the copy handed to pandoc, the
 draft's own References section (if `python -m src.references` added one)
@@ -252,12 +252,12 @@ under the draft's own heading, including a numbered one like
 | `--papersize SIZE` | `a4` | LaTeX paper size, **without** the `paper` suffix pandoc appends itself -- so `a4`, `letter` |
 | `--margin MARGIN` | `1in` | Page margin, passed to the `geometry` package |
 | `--csl PATH` | `assets/csl/ieee.csl` | CSL style for citations and the bibliography. A relative path is looked for under the current directory first (like `<input>`), then the repo root -- so the repo-relative form `[render] csl` uses works from anywhere |
-| `--no-collapse-citations` | off | Render a run as `[3], [4], [5], [6]` instead of `[3]-[6]`, i.e. leave the style exactly as it is on disk |
+| `--no-collapse-citations` | off | Render a run as `[3], [4], [5], [6]` instead of `[3]–[6]`, i.e. leave the style exactly as it is on disk |
 
 `--format md` on a **Markdown** draft is a special case, and the one
 output you can read without a PDF viewer: it writes
 `content/rendered/<slug>.md` with the citekeys replaced by the same IEEE
-numbers the PDF uses (`[1]`, `[3]-[6]`) over a reference list built from
+numbers the PDF uses (`[1]`, `[3]–[6]`) over a reference list built from
 the ledger. It needs no `pandoc`, because pandoc's Markdown writer is the
 wrong tool for it -- that writer escapes every marker (`\[1\]`, since
 `[1]` could be a link reference) and emits the bibliography as `:::`

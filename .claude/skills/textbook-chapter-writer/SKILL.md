@@ -177,10 +177,6 @@ candidate for the chapter.
     IEEE numbers as the PDF, for a reader who won't open one. The draft
     itself keeps its `[@citekey]` markers.
 
-    The `md` output is a numbered copy in `content/rendered/` -- the same
-    IEEE numbers as the PDF, for a reader who won't open one. The draft
-    itself keeps its `[@citekey]` markers.
-
     This needs only bare `python3` plus `pandoc`/`pdflatex` on PATH -- no
     heavy venv required. If either command reports `[missing-binary]` or
     `[error]`, print a one-line warning in chat with that message and

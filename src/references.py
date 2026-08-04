@@ -297,7 +297,16 @@ def build_section(citekeys: list[str], con, heading: str = "References",
 _CITATION_GROUP_RE = re.compile(
     r"\[\s*-?@[A-Za-z][A-Za-z0-9_-]*(?:\s*;\s*-?@[A-Za-z][A-Za-z0-9_-]*)*\s*\]"
 )
-_BARE_KEY_RE = re.compile(r"-?@([A-Za-z][A-Za-z0-9_-]*)")
+# citation_gate's own Pandoc-citation regex, not a second definition of
+# one. Its negative lookbehind is what keeps `@` inside a larger token
+# from reading as a citation -- this project's own tutorial draft carries
+# an author's email address, and a looser pattern would rewrite the
+# `@gmail` in it the moment a citekey happened to be named `gmail`.
+# Sharing the gate's pattern also guarantees that what gets renumbered
+# here is exactly what the gate verified and what used_citekeys() counted;
+# two patterns that drifted apart would silently leave a real citation
+# un-numbered, or number something that was never a citation.
+_BARE_KEY_RE = citation_gate._PANDOC_CITE_RE
 # IEEE, and the CSL style's own `collapse="citation-number"`, only
 # contract a run of *three or more*: [1], [2] stays as it is, [3]-[5]
 # collapses. Matching that keeps the numbered Markdown identical to what
@@ -388,6 +397,13 @@ def numbered_markdown(text: str, con, heading: str | None = None) -> str:
     numbering its headings (`## 6. References`) keeps doing so.
     """
     keys = used_citekeys(text)
+    # Checked before anything is removed. A draft with no citations has
+    # nothing to number and nothing to rebuild, so it comes back exactly
+    # as it went in -- otherwise a document that merely *has* a section
+    # matching the heading (a hand-written "References" of URLs, say)
+    # would come back with that section silently deleted.
+    if not keys:
+        return text
 
     lines = text.splitlines(keepends=True)
     index = section_start(lines)
@@ -395,9 +411,6 @@ def numbered_markdown(text: str, con, heading: str | None = None) -> str:
         if heading is None:
             heading = re.sub(r"^#+\s*", "", lines[index].strip())
         text = "".join(lines[:index]).rstrip() + "\n"
-
-    if not keys:
-        return text
 
     body = renumber(text, {key: number for number, key in enumerate(keys, start=1)})
     section = build_section(keys, con, heading or "References", label_citekeys=False)

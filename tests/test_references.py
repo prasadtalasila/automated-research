@@ -155,6 +155,23 @@ class TestRenumber:
     def test_a_bare_key_with_no_number_is_left_alone(self):
         assert references.renumber("Bare @zzz here.", self.NUMBERS) == "Bare @zzz here."
 
+    def test_an_email_address_is_not_a_citation(self):
+        # This project's own tutorial draft carries an author's email, and
+        # a citekey *could* be named `gmail`. renumber() shares the gate's
+        # regex precisely so it can never rewrite the address.
+        numbers = dict(self.NUMBERS, gmail=9, example=8)
+        text = "Write to <prasad.talasila@gmail.com> or name@example.com about [@a]."
+        assert references.renumber(text, numbers) == \
+            "Write to <prasad.talasila@gmail.com> or name@example.com about [1]."
+
+    def test_renumbers_exactly_what_the_gate_counts(self):
+        # The two must agree: a marker the gate verified but this left
+        # un-numbered would ship a raw citekey in the numbered copy.
+        text = "A [@a]. B [-@b]. C @c. Code `[@d]`. Mail x@e.com."
+        numbers = {k: i for i, k in enumerate("abcde", start=1)}
+        out = references.renumber(text, numbers)
+        assert out.count("[") - out.count("`[") == len(references.used_citekeys(text))
+
     def test_a_group_is_left_alone_if_any_key_is_unnumbered(self):
         assert references.renumber("[@a; @zzz]", self.NUMBERS) == "[@a; @zzz]"
 
@@ -206,6 +223,13 @@ class TestNumberedMarkdown:
 
     def test_a_draft_with_no_citations_is_returned_unchanged(self, ledger_con):
         assert references.numbered_markdown("# T\n\nJust prose.\n", ledger_con) == "# T\n\nJust prose.\n"
+
+    def test_an_uncited_draft_keeps_a_references_section_it_already_had(self, ledger_con):
+        # Nothing to number means nothing to rebuild. Stripping the
+        # section first would silently delete a hand-written list of URLs
+        # from a document this function was asked only to renumber.
+        draft = "# T\n\nJust prose.\n\n## References\n\n- A hand-written pointer\n"
+        assert references.numbered_markdown(draft, ledger_con) == draft
 
     def test_numbering_follows_first_appearance_not_the_ledger(self, ledger_con):
         self._seed(ledger_con)
