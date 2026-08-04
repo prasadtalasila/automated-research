@@ -14,7 +14,7 @@ document, not something exercised. Validate before relying on it.
 ## Build
 
 ```bash
-docker build -t research-pipeline -f docker/Dockerfile .
+docker build -t chitragupta -f docker/Dockerfile .
 ```
 
 This runs `scripts/install_full_pipeline.sh` twice as separate,
@@ -37,9 +37,9 @@ restarts:
 
 ```bash
 docker run -it --rm \
-    -v "$(pwd)":/workspace/automated-research \
-    -v research-pipeline-content:/workspace/automated-research/content \
-    research-pipeline
+    -v "$(pwd)":/workspace/chitragupta \
+    -v chitragupta-content:/workspace/chitragupta/content \
+    chitragupta
 ```
 
 The image deliberately doesn't bake the repo in -- it mounts it -- so the

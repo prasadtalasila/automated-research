@@ -1,8 +1,12 @@
-# Automated Research Pipeline
+# Chitragupta
 
 Turns a BibTeX bibliography into grounded survey papers, thesis chapters,
 undergraduate textbook chapters and hands-on tutorials, with every citation
 traceable back to a paper the bibliography actually holds.
+
+Named for the Hindu god who keeps the ledger of every deed and audits
+souls against it -- which is what this does to citations. `NAME` has the
+longer justification.
 
 ## About
 

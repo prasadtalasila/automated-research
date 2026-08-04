@@ -26,7 +26,7 @@ jobs:
       # Catches the plausible human mistake of tagging a release before
       # bumping pyproject.toml's version (or vice versa) -- scripts/release.py
       # names its archive from pyproject.toml alone, so a mismatch here
-      # would otherwise silently ship a release/automated-research-<old
+      # would otherwise silently ship a release/chitragupta-<old
       # version>.zip under a new-version tag.
       - name: Verify tag matches pyproject.toml version
         run: |
@@ -46,5 +46,5 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release/automated-research-*.zip
+          files: release/chitragupta-*.zip
           generate_release_notes: true

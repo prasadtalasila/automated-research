@@ -1,4 +1,4 @@
-"""scripts/release.py: builds release/automated-research-<version>.zip
+"""scripts/release.py: builds release/chitragupta-<version>.zip
 from git-tracked files, excluding developer-only material. Uses a real,
 throwaway git repo (cheap, and exercises the actual `git ls-files` call
 rather than mocking subprocess) rather than the real repo's own tracked
@@ -90,14 +90,14 @@ class TestBuildRelease:
 
         zip_path, n_files = release.build_release()
 
-        assert zip_path == repo / "release" / "automated-research-9.9.9.zip"
+        assert zip_path == repo / "release" / "chitragupta-9.9.9.zip"
         assert zip_path.exists()
         assert n_files == 3  # README.md, pyproject.toml, src/foo.py
 
         with zipfile.ZipFile(zip_path) as zf:
             names = set(zf.namelist())
-        assert "automated-research-9.9.9/README.md" in names
-        assert "automated-research-9.9.9/src/foo.py" in names
+        assert "chitragupta-9.9.9/README.md" in names
+        assert "chitragupta-9.9.9/src/foo.py" in names
         assert not any("tests/" in n for n in names)
         assert not any(n.endswith("DEVELOPER.md") for n in names)
 
@@ -119,12 +119,12 @@ class TestBuildRelease:
 
         with zipfile.ZipFile(zip_path) as zf:
             names = zf.namelist()
-        assert "automated-research-9.9.9/content/" in names
-        assert "automated-research-9.9.9/papers/" in names
+        assert "chitragupta-9.9.9/content/" in names
+        assert "chitragupta-9.9.9/papers/" in names
         # The directory placeholder is present, but none of the real,
         # per-host tracked files that used to live under it are.
-        assert not any(n.startswith("automated-research-9.9.9/content/") and n != "automated-research-9.9.9/content/" for n in names)
-        assert not any(n.startswith("automated-research-9.9.9/papers/") and n != "automated-research-9.9.9/papers/" for n in names)
+        assert not any(n.startswith("chitragupta-9.9.9/content/") and n != "chitragupta-9.9.9/content/" for n in names)
+        assert not any(n.startswith("chitragupta-9.9.9/papers/") and n != "chitragupta-9.9.9/papers/" for n in names)
 
         # Staging directory is cleaned up; only the zip remains under release/.
         assert list((repo / "release").iterdir()) == [zip_path]
@@ -138,7 +138,7 @@ class TestBuildRelease:
         """A prior run that died before its own cleanup would leave the
         staging dir behind; build_release must clear it, not merge into it
         or fail on FileExistsError."""
-        stale_staging = repo / "release" / "automated-research-9.9.9"
+        stale_staging = repo / "release" / "chitragupta-9.9.9"
         stale_staging.mkdir(parents=True)
         (stale_staging / "leftover-from-a-crashed-run.txt").write_text("stale")
 
@@ -153,4 +153,4 @@ class TestMain:
         rc = release.main()
         assert rc == 0
         out = capsys.readouterr().out
-        assert "automated-research-9.9.9.zip" in out
+        assert "chitragupta-9.9.9.zip" in out

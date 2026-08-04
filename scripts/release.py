@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Builds a distributable release/automated-research-<version>.zip.
+"""Builds a distributable release/chitragupta-<version>.zip.
 
 Version comes from pyproject.toml's [tool.poetry].version -- the single
 source of truth for it (see that file's own comments on why Poetry here
@@ -73,7 +73,7 @@ def tracked_files() -> list[str]:
 
 def build_release() -> tuple[Path, int]:
     version = get_version()
-    name = f"automated-research-{version}"
+    name = f"chitragupta-{version}"
     release_dir = REPO_ROOT / "release"
     staging = release_dir / name
 
