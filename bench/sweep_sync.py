@@ -128,8 +128,12 @@ class ResourceSampler:
         busy_cpus = mean_host * host_cpus / 100 if mean_host is not None else None
         per_gpu = None
         if self._gpu_samples:
-            n = len(self._gpu_samples[0])
-            per_gpu = [round(sum(s[i] for s in self._gpu_samples) / len(self._gpu_samples), 1)
+            # Sample rows can be short: a driver hiccup, or
+            # CUDA_VISIBLE_DEVICES changing what nvidia-smi reports. Take
+            # the narrowest row rather than indexing off the first, so a
+            # transient blip cannot IndexError away an otherwise good run.
+            n = min(len(row) for row in self._gpu_samples)
+            per_gpu = [round(sum(row[i] for row in self._gpu_samples) / len(self._gpu_samples), 1)
                        for i in range(n)]
         return {
             "cpu_busy_cores": round(busy_cpus, 1) if busy_cpus is not None else None,
@@ -161,9 +165,16 @@ def one_run(workers: int, gpus: int, ocr: bool, python: str,
             proc = subprocess.run([python, "-m", "src.sync"], cwd=str(REPO_ROOT),
                                   env=env, capture_output=True, text=True)
             elapsed = time.perf_counter() - started
-        out = proc.stdout
+        out, err = proc.stdout, proc.stderr
         parsed = len(re.findall(r"^  parsed ", out, flags=re.M))
-        failed = len(re.findall(r"^  FAILED ", out, flags=re.M))
+        # `sync` prints per-document failures to *stderr* and the totals to
+        # stdout. Counting only stdout reported every run as clean, which
+        # is the exact failure mode this harness exists to catch -- so
+        # prefer the authoritative summary line and fall back to counting
+        # across both streams.
+        summary = re.search(r"Sync complete: \d+ parsed, .*?, (\d+) failed", out)
+        failed = (int(summary.group(1)) if summary
+                  else len(re.findall(r"^  FAILED ", out + err, flags=re.M)))
         m = re.search(r"parsing \d+ document\(s\) with (\d+) workers", out)
         resolved = int(m.group(1)) if m else (1 if workers == 1 else None)
         return {
@@ -192,9 +203,31 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="print the plan and exit")
     args = ap.parse_args()
 
-    workers = [int(w) for w in args.workers.split(",")]
-    gpus = [int(g) for g in args.gpus.split(",")]
-    ocrs = [o.strip().lower() in ("on", "true", "1", "yes") for o in args.ocr.split(",")]
+    if args.repeat < 1:
+        ap.error(f"--repeat must be at least 1, got {args.repeat}")
+    # Validated rather than coerced: an unrecognised token used to fall
+    # through to "off", which silently runs a different benchmark than the
+    # one asked for and reports it under the requested name.
+    ON, OFF = {"on", "true", "1", "yes"}, {"off", "false", "0", "no"}
+    ocrs = []
+    for token in args.ocr.split(","):
+        t = token.strip().lower()
+        if t in ON:
+            ocrs.append(True)
+        elif t in OFF:
+            ocrs.append(False)
+        else:
+            ap.error(f"--ocr: {token!r} is neither on nor off "
+                     f"(accepted: {', '.join(sorted(ON | OFF))})")
+    try:
+        workers = [int(w) for w in args.workers.split(",")]
+        gpus = [int(g) for g in args.gpus.split(",")]
+    except ValueError as exc:
+        ap.error(f"--workers and --gpus take comma-separated integers: {exc}")
+    if any(w < 1 for w in workers):
+        ap.error(f"--workers must all be at least 1, got {args.workers!r}")
+    if any(g < 0 for g in gpus):
+        ap.error(f"--gpus must all be non-negative, got {args.gpus!r}")
     plan = [(w, g, o) for o in ocrs for g in gpus for w in workers]
 
     print(f"{len(plan)} configuration(s) x {args.repeat} run(s); "
