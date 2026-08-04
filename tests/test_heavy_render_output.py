@@ -281,6 +281,84 @@ class TestRequire:
         render_output._require("pandoc")  # should not raise
 
 
+class TestRenderMarkdown:
+    """`--format md` on a Markdown draft, which is a citation-numbering
+    job rather than a format conversion and so never calls pandoc."""
+
+    def test_produces_plain_numbered_markdown(self, isolated_config, tmp_path, monkeypatch):
+        con = ledger.connect()
+        for key, title in [("b_2024", "B Paper"), ("a_2023", "A Paper")]:
+            ledger.upsert_reference(con, make_reference(
+                citekey=key, title=title, year="2024",
+                fields={"author": "Doe, Jane", "journal": "J. Things"}))
+        con.close()
+
+        draft = tmp_path / "draft.md"
+        draft.write_text("# T\n\nOne [@b_2024]. Two [@a_2023].\n")
+
+        # Deliberately hidden: this path must not need pandoc, so a host
+        # without it still gets a readable numbered draft.
+        monkeypatch.setattr(render_output.shutil, "which", lambda _: None)
+        out_path = render_output.render(str(draft), output_format="md")
+        text = out_path.read_text()
+
+        assert out_path == isolated_config.RENDERED_DIR / "draft.md"
+        assert "One [1]. Two [2]." in text
+        # None of pandoc's Markdown-writer artifacts.
+        assert "\\[" not in text, "brackets must not be escaped"
+        assert ":::" not in text, "no fenced-div wrappers"
+        assert "csl-" not in text, "no citeproc span classes"
+        assert "[@" not in text, "no citekeys left inline"
+
+    def test_a_citekey_missing_from_the_ledger_is_reported_not_raised(
+        self, isolated_config, tmp_path, capsys, monkeypatch
+    ):
+        # The gate would normally catch this first, but render_output is a
+        # standalone CLI -- it must not answer with a traceback.
+        draft = tmp_path / "draft.md"
+        draft.write_text("Body [@never_synced_2024].\n")
+
+        monkeypatch.setattr(sys, "argv", ["render_output.py", str(draft), "--format", "md"])
+        rc = render_output.main()
+        out = capsys.readouterr().out
+
+        assert rc == 1
+        assert "[error]" in out
+        assert "never_synced_2024" in out
+
+    def test_leaves_the_draft_untouched(self, isolated_config, tmp_path):
+        con = ledger.connect()
+        ledger.upsert_reference(con, make_reference(citekey="a_2024", title="A Paper", year="2024"))
+        con.close()
+
+        draft = tmp_path / "draft.md"
+        original = "Body [@a_2024].\n"
+        draft.write_text(original)
+        render_output.render(str(draft), output_format="md")
+
+        # The draft is the gated source; only content/rendered/ is derived.
+        assert draft.read_text() == original
+
+    @pytest.mark.skipif(not pandoc_available, reason="pandoc not installed")
+    def test_a_latex_input_still_goes_through_pandoc(self, isolated_config, tmp_path):
+        # thesis-chapter-writer renders its .tex fragment to .md as a
+        # preview: that is a real conversion, and the fragment carries
+        # \citep{...} rather than [@key] and no reference list of its own.
+        con = ledger.connect()
+        ledger.upsert_reference(con, make_reference(citekey="a_2024", title="A Paper", year="2024"))
+        con.close()
+        isolated_config.BIB_FILE_PATH.write_text(
+            "@article{a_2024,\n  author={Doe, Jane},\n  title={A Paper},\n  year={2024},\n}\n"
+        )
+
+        fragment = tmp_path / "chapter.tex"
+        fragment.write_text("\\section{Intro}\nA claim \\citep{a_2024}.\n")
+        out_path = render_output.render(str(fragment), output_format="md")
+
+        assert out_path == isolated_config.RENDERED_DIR / "chapter.md"
+        assert "Intro" in out_path.read_text()
+
+
 @pytest.mark.skipif(not (pandoc_available and pdflatex_available), reason="pandoc/pdflatex not installed")
 class TestRenderReal:
     def test_renders_markdown_with_citation_to_pdf(self, isolated_config, tmp_path):

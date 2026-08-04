@@ -36,6 +36,13 @@ in it, because it reads `bibliography.bib` directly. Inputs with no such
 section (e.g. thesis-chapter-writer's preamble-less `.tex` fragment,
 which defers to the user's own thesis-wide bibliography) are unaffected.
 
+`--format md` on a Markdown draft does not go through pandoc at all --
+see render() and references.numbered_markdown. Markdown in, Markdown out
+is a citation-numbering job, and pandoc's Markdown writer mangles it:
+escaped `\\[1\\]` markers and a bibliography wrapped in `:::` fenced divs
+and `[...]{.csl-left-margin}` spans, which render as literal punctuation
+anywhere that isn't pandoc.
+
 Every render also passes documentclass/fontsize/papersize/geometry
 variables so a tex/pdf output always opens with a 12pt, a4paper article
 class and 1-inch margins via the geometry package -- overridable per
@@ -240,6 +247,11 @@ def _swap_manual_refs_for_citeproc(text: str) -> str:
     return "".join(lines[:idx]).rstrip() + f"\n\n{heading}\n{_REFS_ANCHOR}"
 
 
+# Input suffixes treated as Markdown by the `md` output format (see
+# render()). Anything else -- .tex above all -- is a real conversion and
+# goes to pandoc.
+_MARKDOWN_SUFFIXES = {".md", ".markdown"}
+
 # Matches Markdown image syntax: ![alt](path) or ![alt](path "title").
 _MD_IMAGE_RE = re.compile(r'!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)')
 # A URI scheme prefix (http:, https:, data:, ...) -- pandoc fetches these
@@ -315,12 +327,30 @@ def render(
     `\\documentclass[12pt,a4paper]{article}` plus
     `\\usepackage[margin=1in]{geometry}`.
     """
+    input_path = Path(input_path)
+    if output_format == "md" and input_path.suffix.lower() in _MARKDOWN_SUFFIXES:
+        # Markdown in, Markdown out: this is a citation-numbering job, not
+        # a format conversion, and pandoc is the wrong tool for it. Its
+        # Markdown writer escapes every marker (`\[1\]`, because `[1]`
+        # could be a link reference) and emits citeproc's bibliography as
+        # `::: {#refs}` fenced divs full of `[...]{.csl-left-margin}`
+        # spans -- all of which render as literal punctuation anywhere
+        # that isn't pandoc, which is the whole audience for a .md.
+        # references.numbered_markdown produces the same numbering from
+        # the ledger directly, as plain Markdown.
+        #
+        # A LaTeX input still goes through pandoc below: converting a
+        # thesis fragment's `\citep{...}` into Markdown genuinely is a
+        # format conversion, and that fragment deliberately carries no
+        # reference list of its own.
+        _copy_local_images(input_path, config.RENDERED_DIR)
+        return references.write_numbered(input_path, config.RENDERED_DIR)
+
     _require("pandoc")
     if output_format == "pdf":
         _require("pdflatex")
 
     config.RENDERED_DIR.mkdir(parents=True, exist_ok=True)
-    input_path = Path(input_path)
     _copy_local_images(input_path, config.RENDERED_DIR)
     out_path = config.RENDERED_DIR / f"{input_path.stem}.{output_format}"
     csl_path = _resolve_csl(csl) if csl is not None else config.CSL_STYLE_PATH
@@ -420,6 +450,16 @@ def main() -> int:
         return 1
     except subprocess.CalledProcessError as exc:
         print(f"[error] pandoc failed: {exc.stderr or exc}")
+        return 1
+    except KeyError as exc:
+        # `--format md` builds its reference list from the ledger, so a
+        # cited key that isn't there stops it (references.build_section's
+        # own error names the keys and what to run). Reported the same way
+        # as any other render failure rather than as a traceback: a genre
+        # skill's documented reaction to `[error]` is to warn and carry on
+        # presenting the draft, which is right here too -- the draft is
+        # fine, only this one derived copy could not be built.
+        print(f"[error] {exc.args[0] if exc.args else exc}")
         return 1
 
     print(str(out_path))

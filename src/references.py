@@ -25,6 +25,13 @@ what makes an entry traceable from the text, and a code span is invisible
 to `citation_gate` (it blanks code spans before scanning), so listing a
 key here can never look like citing it.
 
+For a reader who wants numbers inline as well, `numbered_markdown` (used
+by `render_output --format md`) returns a *derived* copy with every
+`[@citekey]` replaced by its number. That copy is never the draft: the
+draft's literal citekeys are what `citation_gate` verifies and what
+pandoc resolves, and a numbered body would leave the gate reporting
+"0 citations ... OK" on a draft it can no longer check at all.
+
 Usage:
     python -m src.references <file.md> [--heading TEXT]
 Appends a References section, or replaces one if this was already run on
@@ -237,7 +244,17 @@ def _join(parts: list[str]) -> str:
     return out
 
 
-def build_section(citekeys: list[str], con, heading: str = "References") -> str:
+def build_section(citekeys: list[str], con, heading: str = "References",
+                  label_citekeys: bool = True) -> str:
+    """The References section for `citekeys`, numbered in the given order.
+
+    `label_citekeys` appends each entry's key in a code span. On by
+    default, because in the *draft* the inline markers are `[@citekey]`
+    and the label is what ties one to its entry. The numbered copy
+    (`numbered_markdown`) turns it off: there the inline markers are
+    numbers, the numbers already index this list, and a trailing key
+    would just be noise to a reader.
+    """
     placeholders = ",".join("?" * len(citekeys))
     rows = {
         citekey: (title, year, bib_fields)
@@ -266,9 +283,152 @@ def build_section(citekeys: list[str], con, heading: str = "References") -> str:
         except (TypeError, ValueError):
             fields = {}
         entry = format_entry(key, title, year, fields)
-        lines.append(f"[{number}] {entry} `{key}`")
+        lines.append(f"[{number}] {entry} `{key}`" if label_citekeys else f"[{number}] {entry}")
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
+
+
+# A bracketed Pandoc citation containing nothing but citekeys separated
+# by ";" -- `[@a]`, `[@a; @b; @c]`, `[-@a]`. Deliberately does NOT match a
+# group carrying a prefix or locator (`[see @a, p. 33]`): collapsing that
+# to a bare number would silently delete the words around it. Those are
+# handled one key at a time by _BARE_KEY_RE below, which leaves the
+# surrounding text alone.
+_CITATION_GROUP_RE = re.compile(
+    r"\[\s*-?@[A-Za-z][A-Za-z0-9_-]*(?:\s*;\s*-?@[A-Za-z][A-Za-z0-9_-]*)*\s*\]"
+)
+# citation_gate's own Pandoc-citation regex, not a second definition of
+# one. Its negative lookbehind is what keeps `@` inside a larger token
+# from reading as a citation -- this project's own tutorial draft carries
+# an author's email address, and a looser pattern would rewrite the
+# `@gmail` in it the moment a citekey happened to be named `gmail`.
+# Sharing the gate's pattern also guarantees that what gets renumbered
+# here is exactly what the gate verified and what used_citekeys() counted;
+# two patterns that drifted apart would silently leave a real citation
+# un-numbered, or number something that was never a citation.
+_BARE_KEY_RE = citation_gate._PANDOC_CITE_RE
+# IEEE, and the CSL style's own `collapse="citation-number"`, only
+# contract a run of *three or more*: [1], [2] stays as it is, [3]-[5]
+# collapses. Matching that keeps the numbered Markdown identical to what
+# the same draft's PDF shows.
+_MIN_COLLAPSIBLE_RUN = 3
+
+
+def _format_numbers(numbers: list[int]) -> str:
+    """`[1]`, `[1], [2]`, `[3]–[6]` -- IEEE's own contraction rules."""
+    runs: list[list[int]] = []
+    for n in sorted(set(numbers)):
+        if runs and n == runs[-1][-1] + 1:
+            runs[-1].append(n)
+        else:
+            runs.append([n])
+
+    out = []
+    for run in runs:
+        if len(run) >= _MIN_COLLAPSIBLE_RUN:
+            out.append(f"[{run[0]}]–[{run[-1]}]")
+        else:
+            out.extend(f"[{n}]" for n in run)
+    return ", ".join(out)
+
+
+def renumber(text: str, numbers: dict[str, int]) -> str:
+    """Rewrites `text`'s citekey markers as IEEE numbers from `numbers`.
+
+    Scans a code-blanked copy to locate the citations, then edits the
+    original at those offsets -- `citation_gate._blank_code` replaces a
+    fenced block or code span with spaces while preserving every
+    character position, so a `[@key]` shown inside an example (which the
+    gate itself ignores) is left exactly as written here too.
+
+    A key with no number -- which can only happen if a caller passes a
+    partial map -- is left untouched rather than rendered as `[None]`.
+    """
+    blanked = citation_gate._blank_code(text)
+
+    edits: list[tuple[int, int, str]] = []
+    covered: list[tuple[int, int]] = []
+    for match in _CITATION_GROUP_RE.finditer(blanked):
+        keys = _BARE_KEY_RE.findall(match.group())
+        # Marked covered either way, so that a group holding even one
+        # unnumbered key is left exactly as written. Without this the
+        # per-key pass below would still rewrite its *known* keys and
+        # leave `[[1]; @zzz]` -- a mangling that is worse than the
+        # untouched marker, which at least reads as an obvious omission.
+        covered.append((match.start(), match.end()))
+        if any(k not in numbers for k in keys):
+            continue
+        edits.append((match.start(), match.end(), _format_numbers([numbers[k] for k in keys])))
+
+    # Anything left: a bare `@key`, or one inside a group with a prefix or
+    # locator. Replaced individually so the words around it survive.
+    for match in _BARE_KEY_RE.finditer(blanked):
+        if any(start <= match.start() < end for start, end in covered):
+            continue
+        number = numbers.get(match.group(1))
+        if number is not None:
+            edits.append((match.start(), match.end(), f"[{number}]"))
+
+    out = []
+    position = 0
+    for start, end, replacement in sorted(edits):
+        out.append(text[position:start])
+        out.append(replacement)
+        position = end
+    out.append(text[position:])
+    return "".join(out)
+
+
+def numbered_markdown(text: str, con, heading: str | None = None) -> str:
+    """`text` with its citekeys replaced by IEEE numbers, over a matching
+    reference list.
+
+    The draft keeps `[@citekey]` markers -- they are what
+    `citation_gate` verifies, and what pandoc resolves when rendering --
+    so this returns a *derived* copy for a reader who wants numbered
+    Markdown rather than a PDF. Both are numbered by first appearance,
+    so this copy, the draft's own reference list, and the rendered PDF
+    all agree on which source is [1].
+
+    Any existing References section is rebuilt rather than renumbered:
+    the entries have to match the numbering this just applied, and
+    rebuilding from the ledger is the only way to be sure they do. The
+    draft's own heading text is reused when it has one, so a chapter
+    numbering its headings (`## 6. References`) keeps doing so.
+    """
+    keys = used_citekeys(text)
+    # Checked before anything is removed. A draft with no citations has
+    # nothing to number and nothing to rebuild, so it comes back exactly
+    # as it went in -- otherwise a document that merely *has* a section
+    # matching the heading (a hand-written "References" of URLs, say)
+    # would come back with that section silently deleted.
+    if not keys:
+        return text
+
+    lines = text.splitlines(keepends=True)
+    index = section_start(lines)
+    if index is not None:
+        if heading is None:
+            heading = re.sub(r"^#+\s*", "", lines[index].strip())
+        text = "".join(lines[:index]).rstrip() + "\n"
+
+    body = renumber(text, {key: number for number, key in enumerate(keys, start=1)})
+    section = build_section(keys, con, heading or "References", label_citekeys=False)
+    return body.rstrip() + "\n\n" + section
+
+
+def write_numbered(path: Path, out_dir: Path) -> Path:
+    """Writes `path`'s numbered copy into `out_dir`, returning its path."""
+    con = ledger.connect()
+    try:
+        rendered = numbered_markdown(path.read_text(), con)
+    finally:
+        con.close()
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{path.stem}.md"
+    out_path.write_text(rendered)
+    return out_path
 
 
 def apply(path: Path, heading: str = "References") -> str:

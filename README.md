@@ -40,7 +40,7 @@ research** (multi-perspective, corpus-grounded). The two teaching genres
 are deliberately separate: a textbook chapter explains, a tutorial is
 verified to run.
 Drafts render to PDF or LaTeX through Pandoc/TeX Live, in IEEE citation
-style -- numeric `[1]` markers, `[3]-[6]` for a consecutive run, over a
+style -- numeric `[1]` markers, `[3]–[6]` for a consecutive run, over a
 numbered bibliography generated from the citekeys actually cited.
 
 ### The content layer
@@ -186,6 +186,7 @@ python3 -m src.ledger
 python3 -m src.citation_gate path/to/draft.md
 python3 -m src.references path/to/draft.md --heading "References"    # --heading default: "References"
 python3 -m src.heavy.render_output path/to/draft.md --format pdf     # also: --csl, --no-collapse-citations, --documentclass, --fontsize, --margin (--help for all)
+python3 -m src.heavy.render_output path/to/draft.md --format md      # numbered Markdown copy in content/rendered/ (no pandoc needed)
 ```
 
 Exporting from Zotero in detail, including the attachment-path trap that

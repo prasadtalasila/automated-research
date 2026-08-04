@@ -187,7 +187,9 @@ src/                      core pipeline (needs bibtexparser; citation_gate/refer
 src/heavy/                optional heavier pipeline (pyproject.toml's "heavy" Poetry group)
   corpus.py                 unifies ledger items + [source_pdfs].dir's raw PDFs (doc: prefixed, non-citable)
   docling_parse.py, embed_index.py, topic_model.py
-  render_output.py          Pandoc/TeX Live rendering + standalone CLI -- stdlib-only, no heavy venv needed
+  render_output.py          Pandoc/TeX Live rendering + standalone CLI -- stdlib-only, no heavy venv needed.
+                          `--format md` on a Markdown draft skips pandoc entirely and emits
+                          references.numbered_markdown's plain numbered copy instead
 scripts/
   install_full_pipeline.sh  single staged install path (os-deps/python-deps/dev-deps/all) for host + Docker
   full_pipeline.py           orchestrates src/heavy/* stages
