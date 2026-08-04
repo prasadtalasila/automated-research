@@ -99,6 +99,13 @@ def main() -> None:
                          "curve below rather than assuming perfect scaling")
     args = ap.parse_args()
 
+    # Both are divisors below; a non-positive value is a ZeroDivisionError
+    # or a negative estimate rather than an answer.
+    if args.workers < 1:
+        ap.error("--workers must be at least 1")
+    if args.efficiency is not None and args.efficiency <= 0:
+        ap.error("--efficiency must be greater than 0")
+
     corpus = [c for c in json.loads(Path(args.corpus).read_text()) if c["pages"]]
     total_pages = sum(c["pages"] for c in corpus)
     n_docs = len(corpus)

@@ -413,7 +413,13 @@ Measured with the real `python -m src.sync` over **all 501 PDFs** rather
 than a sample, on the same machine (4x A40, 48 CPUs available of 96 host
 logical CPUs), repository at `92c1420` (v2.1.0). Every run started from
 an empty `CONTENT_DIR` and reported 501 parsed, 0 failed. Raw records:
-`results/2026-08-04-full-corpus/sweep.jsonl`.
+`results/2026-08-04-full-corpus/sweep.jsonl` -- **wall clock only.** The
+CPU-busy and GPU-utilisation figures quoted below came from separate
+instrumented runs on the same machine and are *not* in that file; the
+resource sampler was added to `sweep_sync.py` afterwards, so
+`results/2026-08-04b-repeats/sweep.jsonl` is the first record set
+carrying them. Treat the timings here as reproducible from the committed
+data and the utilisation figures as reported, not evidenced.
 
 Reproduce with `bench/sweep_sync.py`, which was written for exactly this
 and did not exist when the earlier sections were measured.
