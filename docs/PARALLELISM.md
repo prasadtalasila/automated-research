@@ -162,7 +162,9 @@ fits the machine. Capped at docling's default of 4, so a single-worker
 run gets exactly what docling would have picked on its own.
 
 Measured to matter far less than it looks: forcing 1/2/4/8 at 12 workers
-moves a full-corpus run by 1.9%. Kept because dividing down is still the
+moves a full-corpus run by 1.9% -- and 8 was only reachable by patching
+the cap for the experiment, not through any setting. Kept because
+dividing down is still the
 correct thing to do when the product would exceed the machine, not
 because it buys throughput.
 
@@ -272,7 +274,7 @@ Each backend gets the concurrency it can use:
 | Event | Behaviour |
 |---|---|
 | One document fails | Reported, marked `parse_failed`, **retried next run**. The batch continues |
-| A worker dies (OOM killer) | `BrokenProcessPool` is handled: that document fails, the run does not |
+| A worker dies (OOM killer) | `BrokenProcessPool` is handled: it takes the whole pool, so **every document without a result yet** is marked a transient failure -- the run still writes its ledger, prints its summary, and exits nonzero |
 | The pool goes silent | Watchdog warns at half `stall_timeout`, then abandons the outstanding documents as failures |
 | Ctrl+C | `interrupt_guard` terminates workers (SIGTERM, grace period, then kill) and `os._exit`s |
 

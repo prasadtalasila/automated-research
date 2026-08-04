@@ -574,7 +574,9 @@ def docling_threads(workers: int) -> int:
 
     **This matters far less than it looks.** Forcing the value to 1, 2, 4
     or 8 at 12 workers moved a full-corpus run by 1.9% -- noise (see
-    docs/PERFORMANCE.md). It is kept because dividing down is still the
+    docs/PERFORMANCE.md). The 8 case needed a temporary bench override,
+    since the cap above puts it out of reach of any shipped
+    configuration. It is kept because dividing down is still the
     correct thing to do when workers x threads would exceed the machine,
     not because it buys measurable throughput.
     """

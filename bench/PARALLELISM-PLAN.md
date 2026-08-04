@@ -15,7 +15,7 @@ phase-by-phase record of it, which had stopped being a plan.
 
 ## The method this directory exists to enforce
 
-Four rules, each of which was learned by getting it wrong:
+Five rules, each of which was learned by getting it wrong:
 
 1. **Measure the thing you ship.** Every pool-level figure must come from
    the real `python -m src.sync` (`sweep_sync.py`), not from a harness
