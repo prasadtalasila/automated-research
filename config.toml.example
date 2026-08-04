@@ -62,9 +62,11 @@ backend = "pdftotext"
 # Whether the docling backend runs its OCR stage. docling's own default
 # is on; this project's is off. Ignored by the pdftotext backend.
 #
-# That is a trade, not a free win. OCR runs on the CPU and roughly halves
-# throughput -- but it is what reads text stored in the PDF as a *bitmap*
-# rather than as characters. Turning it off changed the extracted text of
+# That is a trade, not a free win. OCR runs on the CPU, and what it costs
+# depends on how parallel the run is: measured over the full corpus,
+# 2.08x serially but 3.91x at 12 workers and 4.79x at 24, because it
+# competes with the parallelism for CPU. In exchange it reads text stored
+# in the PDF as a *bitmap* rather than as characters. Turning it off changed the extracted text of
 # 8 of 16 sampled documents: mostly publisher furniture and figure
 # sub-captions, but one lost 10.1% of its characters including two whole
 # tables embedded as images.
@@ -92,11 +94,15 @@ ocr = false
 # how many documents actually need parsing), never below 1. "What the
 # machine allows" is the CPUs this *process* may run on -- not the
 # machine's total, which on a shared or containerised machine can be far
-# larger -- divided by 4 for docling, since one docling worker uses about
-# 4 CPUs of its own:
+# larger -- divided by 4 for docling:
 #
 #   CPUs available to the process   4    8    16   48
 #   "auto" resolves to              1    2    4    12
+#
+# NOTE that divisor is measurably conservative. A full-corpus sweep found
+# 32 workers 1.41x faster than the 12 this allows on a 48-CPU machine,
+# with the CPU still only 71% busy. Raising it is a behaviour change and
+# has not been made; docs/PERFORMANCE.md has the numbers.
 #
 # So a four-core desktop resolves to 2, and asking for 15 there still
 # gets 2 -- clamped and said out loud on stderr, rather than silently

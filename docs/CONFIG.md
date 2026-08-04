@@ -251,12 +251,20 @@ parse 3 documents pays 12 model loads to save two documents' work.
 
 "What the machine can sustain" counts the CPUs **this process may run
 on** -- not the machine's total, which on a shared or containerised
-machine can be far larger. For `docling` that count is divided by 4,
-because one docling worker occupies about 4 CPUs of its own:
+machine can be far larger. For `docling` that count is divided by 4:
 
 | CPUs available to the process | 4 | 8 | 16 | 48 |
 |---|---|---|---|---|
 | `workers = "auto"` resolves to | 1 | 2 | 4 | 12 |
+
+**That divisor of 4 is measurably too conservative.** It models a docling
+worker as occupying about 4 CPUs, which a full-corpus sweep does not
+support: at 32 workers the CPU is only ~70% busy, and 32 workers run
+**1.41x faster** than the 12 this table allows -- and 48 workers are no
+worse, so the honest reading is "much smaller than 4", not a specific
+replacement. Changing it is a behaviour change and has not been
+made -- see
+[PERFORMANCE.md](PERFORMANCE.md#parserworkers----document-level-parallelism).
 
 So a four-core desktop resolves to 2, and asking for 15 there still gets
 2 -- **clamped and said out loud on stderr**, rather than silently obeyed

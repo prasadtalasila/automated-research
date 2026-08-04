@@ -9,9 +9,8 @@ Related reading:
 
 - [PDF-PARSER.md](PDF-PARSER.md) -- how the two backends compare on
   fidelity, and why two other candidates were evaluated and dropped.
-- [PARALLELISM.md](PARALLELISM.md) -- the narrative of how the parse got
-  17x faster across seven releases, including the conclusions that later
-  measurement overturned.
+- [PARALLELISM.md](PARALLELISM.md) -- how the parallel parse is built:
+  architecture diagrams, what each component does, and the roadmap.
 - `bench/RESULTS.md` -- the raw measurement record with per-PDF timings.
   Developer-only: `bench/` is excluded from the release archive, so it is
   in the repository but not in a downloaded release.
@@ -65,17 +64,32 @@ run, which is what the rest of this document is for.
 
 ## `[parser].ocr` -- the largest single lever, and a trade
 
-Measured over 16 rank-stratified bibliography PDFs (943 pages) on the
-multi-GPU machine, one process, one GPU:
+**OCR's cost is not a single number.** It grows with worker count,
+because OCR is CPU-bound and therefore competes with the parallelism you
+added. Measured 2026-08-04, end to end over the whole 501-PDF corpus:
 
-| | s/page | Extrapolated to the 501-PDF corpus |
-|---|---|---|
-| `ocr = true` (docling's own default) | 0.431 | ~1h 36m |
-| `ocr = false` (this project's default) | 0.176 | **~39m** |
+| Workers | OCR off | OCR on | Cost of OCR |
+|---|---|---|---|
+| 1 | 3330.4s | 6941.4s | **2.08x** |
+| 12 | 310.2s | 1213.9s | **3.91x** |
+| 24 | 237.6s | 1139.0s | **4.79x** |
 
-**2.46x** -- more than the GPU is worth on this workload. docling's OCR
-runs on the CPU (RapidOCR on onnxruntime), which is a large part of why
-this path is CPU-bound.
+Equivalently, from the other side -- **turning OCR on roughly halves how
+well the pipeline parallelises**:
+
+| | Speedup, 1 -> 24 workers |
+|---|---|
+| OCR off | 14.02x |
+| OCR on | **6.09x** |
+
+At 24 workers with OCR on, 93% of the available CPU is busy -- the one
+configuration measured where this machine is genuinely full. docling's
+OCR runs on the CPU (RapidOCR on onnxruntime), which is why.
+
+An earlier figure of **2.46x** appears in older documents and in
+`bench/RESULTS.md`. It came from a 16-PDF serial sample and is a
+reasonable estimate of the *serial* cost (measured: 2.08x); it is not the
+cost you will pay on a parallel run.
 
 **It is not free, and this is the part to read twice.** OCR only runs on
 *bitmap* regions, so what it recovers is text stored in the PDF as an
@@ -112,24 +126,98 @@ why the parallelism work went after CPU-level document concurrency first.
 
 ## `[parser].workers` -- document-level parallelism
 
-Measured with the real `python -m src.sync` over 60 bibliography PDFs
-(1,166 pages), docling, OCR off, on the multi-GPU machine:
+**The largest lever on a multi-core machine, and the code currently caps
+it well below where the curve flattens.**
 
-| Workers | Wall clock | Speedup | Efficiency |
+Measured 2026-08-04 with the real `python -m src.sync` over the **whole
+501-PDF corpus** (13,400 pages), docling, OCR off, 4 GPUs. Each row is
+one run from an empty ledger; all reported 501 parsed, 0 failed:
+
+| Workers | Wall clock | Speedup | Efficiency | |
+|---|---|---|---|---|
+| 1 | 3330.4s | 1.00x | -- | |
+| 4 | 799.2s | 4.17x | 104% | |
+| 8 | 428.6s | 7.77x | 97% | |
+| 12 | 310.2s | 10.74x | 89% | <- **the most `worker_ceiling()` allows** |
+| 16 | 268.1s | 12.42x | 78% | |
+| 24 | 235.0s | 14.17x | 59% | median of 3 |
+| **32** | **223.4s** | **14.91x** | 47% | median of 3 |
+| 48 | 221.4s | 15.04x | 31% | median of 3 |
+
+- **Scaling holds far better than previously documented.** 97% at 8
+  workers, 89% at 12. The 104% at 4 is not an error: one worker does not
+  saturate the threads it is given, so serial is a slightly unfair
+  denominator.
+- **The knee is somewhere past 24, not at 12.** `worker_ceiling()` caps
+  at `allowed_cpus // 4`, which is 12 here. Running 32 is **~1.4x
+  faster** -- available today only by changing that constant.
+- **The curve plateaus from 32 to 48; it does not reverse.** Medians of
+  three runs put them 0.9% apart (223.4s vs 221.4s), while the spread
+  *within* the 32-worker configuration alone was 86.8s. An earlier
+  single-run pass had 32 beating 48 and read that as a knee; with repeats
+  the ordering flips. **Anything past ~32 is flat, and single runs cannot
+  resolve it.**
+- So the useful statement is "the divisor should be much smaller than 4",
+  not "it should be 1.5". Any specific value here is arithmetic from
+  **one machine and one corpus**, on a plateau, and a CPU-only machine
+  would likely want a different one.
+- Asking for 16 on this machine resolves to 12 and takes 315.9s. The
+  clamp is doing exactly what it documents, and costing 1.43x.
+
+**Why the cap is too low:** the constant models a worker as occupying 4
+CPUs. It does not. Measured CPU busy, against the 48 available:
+
+| Run | CPUs busy | of the 48 allowed |
+|---|---|---|
+| 16 workers | 18.7 | 39% |
+| 32 workers | ~34 | ~70% |
+| 24 workers, OCR on | 44.6 | **93%** |
+
+At 32 workers -- well past the point the code will go -- the CPU is still
+only ~70% busy. With OCR off a worker uses closer to one CPU than four.
+(The 32-worker figure landed at 71% in one sweep and 70% in another; a
+run-to-run point is worth about a percentage point, not a decimal.)
+
+> **These CPU figures are host-wide.** `sweep_sync.py` samples
+> `/proc/stat`, which counts every process on the machine, and expresses
+> it against the 48 CPUs this process may use. On an otherwise-idle
+> machine that is the run; on a busy one it is an **upper bound** on what
+> the run used, and can exceed 100%. Treat them as "the machine was this
+> busy", not "the parse used this much" -- and note that the conclusion
+> below rests on the *trend* across configurations, not the absolute
+> level.
+
+### What flattens the curve past ~24 workers
+
+Timing each run's phases separates the candidates:
+
+| Workers | Startup (to 1st document) | Tail (after last) | CPU busy |
 |---|---|---|---|
-| 1 | 444.4s | 1.00x | -- |
-| 4 | 123.4s | **3.60x** | 90% |
-| 12 | 120.3s | 3.69x | 31% |
+| 24 | 18.6s — **7.9%** of the run | 4.9s — 2.1% | 56% |
+| 32 | 21.8s — **8.9%** | 5.9s — 2.6% | 70% |
+| 48 | 28.5s — **12.7%** | 7.9s — 3.6% | 78% |
 
-Four workers scale almost linearly. Twelve buy nothing over four -- and
-the reason changed the design (see the next section).
+- **Startup is a growing tax, not a fixed one.** Every worker pays its
+  own ~8.5s model load, so standing the pool up costs more the bigger the
+  pool: 7.9% of the run at 24 workers, 12.7% at 48. (The column is time
+  to the *first completion*, so it also contains the fastest document's
+  parse -- an upper bound on startup rather than a measurement of it.
+  The **growth** is the startup part: one document's parse does not get
+  slower because the pool got bigger.)
+- **The CPU is heading for saturation**, 56% to 78% across the same
+  range. Read alone, "70% busy at 32" suggests headroom; read against 56%
+  at 24 and 78% at 48, it is clearly *becoming* the limit.
+- **The long-document tail is not the story** — 5-8s throughout, under 4%.
 
-**Corpus size decides whether raising this is worth anything.** Over 8
-documents, 4 workers gave 1.90x and 8 workers gave none at all (34.6s /
-18.3s / 19.3s). Each worker pays its own model load, so the benefit is
+Neither cost alone explains the plateau; together they account for it,
+and both worsen with every worker added.
+
+**Corpus size still decides whether raising this is worth anything.** Over
+8 documents, 4 workers gave 1.90x and 8 gave none at all (34.6s / 18.3s /
+19.3s): each worker pays its own ~8.5s model load, so the benefit is
 proportional to how much work there is to amortise it over. That is why
-the resolved worker count is capped by the number of documents actually
-needing a parse.
+the resolved count is also capped by the number of documents needing a
+parse.
 
 ## Multi-GPU -- nothing to configure
 
@@ -139,13 +227,22 @@ CUDA device round-robin. This is not automatic in docling: its
 without an explicit per-worker device every worker piles onto card 0
 while the rest idle.
 
-Measured over the whole 501-PDF corpus at 12 workers:
+Measured over the whole 501-PDF corpus (2026-08-04, OCR off):
 
-| | Wall clock |
-|---|---|
-| One GPU (docling's own `AUTO`) | 528.0s |
-| Four GPUs (round-robin) | **326.2s** |
-| | **1.62x** |
+| Workers | 1 GPU | 2 GPUs | 4 GPUs | 1->2 | 2->4 |
+|---|---|---|---|---|---|
+| 12 | 518.4s | 339.7s | 310.2s | 1.53x | 1.10x |
+| 24 | 535.8s | 298.6s | 237.6s | **1.79x** | 1.26x |
+
+- **The second card is worth far more than the third and fourth.**
+- **GPUs matter more at higher worker counts**, since more workers share
+  each card.
+- At 24 workers, one GPU is *slower* than at 12 (535.8s vs 518.4s):
+  piling more workers onto a single card is counterproductive.
+
+The 2026-08-02 run of the same 12-worker configuration measured 528.0s
+and 326.2s -- within 2-5% of the figures above, on a different day and a
+rebuilt venv.
 
 Restrict which cards are used with `CUDA_VISIBLE_DEVICES`; there is no
 separate setting, and the pool only ever sees what that leaves visible.
@@ -231,18 +328,25 @@ Two costs, both worth knowing before turning it on:
 
 ## Where it all ended up
 
+Measured end to end on 2026-08-04, rather than extrapolated:
+
 | Change | Kind | Full 501-PDF corpus |
 |---|---|---|
-| Baseline (serial, OCR on, one GPU) | -- | ~1.6 hours |
-| OCR off + one converter per run | not parallelism | ~39 min |
-| 12 worker processes | CPU | ~8.8 min |
-| One GPU per worker | GPU | **5m26s** |
-| forkserver pool startup | startup | 5m26s (under 1% here) |
+| Baseline: serial, OCR on | -- | **1h 56m** |
+| OCR off | not parallelism | 55m 30s |
+| 12 workers, 4 GPUs (today's cap) | CPU + GPU | 5m 10s |
+| 32 workers, 4 GPUs (needs the clamp raised) | CPU | **3m 43s** |
 
-**About 17x, and the GPU work is the smallest contribution.** The largest
-is a boolean. [PARALLELISM.md](PARALLELISM.md) tells that story properly,
-including the four intermediate conclusions that were wrong until the
-next measurement corrected them.
+**22x with the shipped defaults, 31x with the clamp raised.** Earlier
+editions of this table read `~1.6 h -> ~39 min -> 8.8 min -> 5m26s`; the
+first two were extrapolations that ran low, so the improvement was
+understated.
+
+**22x with the shipped defaults, and the GPU work is the smallest
+contribution.** The largest is a boolean.
+[PARALLELISM.md](PARALLELISM.md) describes the machinery that produces
+these numbers; `bench/RESULTS.md` carries the measurements themselves,
+including the conclusions later ones overturned.
 
 ## Output is not bit-reproducible under heavy concurrency
 

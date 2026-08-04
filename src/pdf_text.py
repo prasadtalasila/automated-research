@@ -29,13 +29,36 @@ from pathlib import Path
 
 from src import config
 
-# Logical CPUs one docling worker actually occupies. Docling's
-# AcceleratorOptions.num_threads defaults to 4, and a single docling
-# process was measured holding ~300% CPU on the documented A40 host --
-# so "one worker per CPU" would oversubscribe by about 4x. Used both as
-# the divisor for `workers = "auto"` and as the ceiling an explicit
-# request is clamped to.
+# Logical CPUs one docling worker is *charged*. Used both as the divisor
+# for `workers = "auto"` and as the ceiling an explicit request is
+# clamped to.
+#
+# The 4 came from a single docling process measured holding ~300% CPU, on
+# the reasoning that "one worker per CPU" would then oversubscribe by
+# about 4x.
+#
+# **A full-corpus sweep does not support it.** Measured over all 501 PDFs
+# (docs/PERFORMANCE.md, bench/results/2026-08-04-full-corpus/):
+#   - 32 workers is ~1.4x faster than the 12 this constant allows on a
+#     48-CPU machine, and 48 workers is no worse;
+#   - docling's own num_threads changes a run by 1.9% -- noise -- so a
+#     worker is not doing four CPUs of parallel work.
+# Past ~32 workers the curve plateaus rather than reversing (32 and 48
+# land within 0.9% over three runs each), so the finding is "this divisor
+# is much too large", not "it should be 1.5".
+#
+# Left at 4 deliberately: changing it alters what every run does on every
+# machine, and it has been validated on exactly one machine and one
+# corpus. See bench/PARALLELISM-PLAN.md's open questions for what would
+# have to be measured before moving it.
 _CPUS_PER_DOCLING_WORKER = 4
+
+# Docling's own default num_threads. Equal to the divisor above today,
+# and deliberately a separate constant: that one is a CPU budget and the
+# roadmap expects it to shrink, while this one tracks upstream's default.
+# Sharing a literal would have quietly changed the thread cap the first
+# time the budget moved.
+_DOCLING_DEFAULT_THREADS = 4
 
 # How long a worker gets to honour SIGTERM before being killed outright.
 _TERMINATE_GRACE_SECONDS = 2.0
@@ -87,7 +110,7 @@ def worker_ceiling() -> int:
     if config.PARSER == "docling":
         return max(1, cpus // _CPUS_PER_DOCLING_WORKER)
     # Each pdftotext is a short, single-threaded subprocess, so charging
-    # it a docling worker's 4 CPUs would under-use the machine.
+    # it a docling worker's CPU budget would under-use the machine.
     return cpus
 
 
@@ -550,13 +573,21 @@ def init_worker(counter, lock, n_gpus: int) -> None:
 
 def docling_threads(workers: int) -> int:
     """Docling's per-worker thread count, divided down so that
-    workers x threads still fits the host.
+    workers x threads still fits the machine.
 
     Capped at Docling's own default of 4, so the single-worker default
     resolves to exactly what Docling would have picked on its own and
     this function changes nothing until someone raises [parser].workers.
+
+    **This matters far less than it looks.** Forcing the value to 1, 2, 4
+    or 8 at 12 workers moved a full-corpus run by 1.9% -- noise (see
+    docs/PERFORMANCE.md). The 8 case needed a temporary bench override,
+    since the cap above puts it out of reach of any shipped
+    configuration. It is kept because dividing down is still the
+    correct thing to do when workers x threads would exceed the machine,
+    not because it buys measurable throughput.
     """
-    return max(1, min(_CPUS_PER_DOCLING_WORKER, allowed_cpus() // max(workers, 1)))
+    return max(1, min(_DOCLING_DEFAULT_THREADS, allowed_cpus() // max(workers, 1)))
 
 
 class BackendUnavailable(RuntimeError):

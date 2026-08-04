@@ -158,8 +158,11 @@ PARSER_BACKENDS = ("pdftotext", "docling")
 PARSER = _get("PARSER", "parser", "backend", default="pdftotext")
 # Whether the docling backend runs its OCR stage. Docling's own default
 # is on; this project's is off -- a speed/completeness trade-off, not a
-# free win. Measured over 16 real bib PDFs on the documented A40 host:
-# off is 2.46x faster, but changes the extracted text of 8 of the 16,
+# free win. Measured over the full corpus, OCR costs 2.08x serially but
+# 3.91x at 12 workers and 4.79x at 24: it is CPU-bound, so it competes
+# with the parallelism. (An older 2.46x figure came from a 16-PDF serial
+# sample.) Turning it off changed the extracted text of 8 of 16 sampled
+# documents,
 # because OCR is what reads text embedded as *bitmaps*. Mostly that text
 # is publisher furniture and figure captions; on one document it was two
 # whole tables. See config.toml's [parser].ocr comment, or README's
@@ -244,11 +247,12 @@ def _get_start_method(env_var: str, *toml_path: str, default: str) -> str:
 # other two force one. Only ever consulted when [parser].workers > 1 and
 # the backend is docling, since nothing else uses a process pool.
 #
-# Measured on the documented A40 host, wall clock for a pool to reach its
-# first parsed document: forkserver 9.6s against spawn 11.3s at four
-# workers. The saving is one shared import of torch+docling rather than
-# one per worker; the model load that dominates the rest is per process
-# either way. Plain "fork" is deliberately not offered -- see
+# Measured, wall clock for a pool to reach its first parsed document:
+# forkserver 9.6s against spawn 11.3s at four workers. The saving is one
+# shared import of torch+docling rather than one per worker; the model
+# load that dominates the rest is per process either way. End to end this
+# is a fixed 1.3-2.2s, which is ~10% of an eight-document run and under
+# 1% of a full-corpus one. Plain "fork" is deliberately not offered -- see
 # src/pdf_text.start_method.
 PARSER_START_METHODS = ("auto", "forkserver", "spawn")
 PARSER_START_METHOD = _get_start_method(

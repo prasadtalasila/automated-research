@@ -33,6 +33,14 @@ page mix mirrors the corpus's.
 | 1 process, 1 A40 | 0.43 | **1h 36m** (per-page), 1h 56m (per-doc fit) |
 | 1 process, CPU only | 1.37 | 5h 05m (per-page), 5h 21m (per-doc fit) |
 
+> **Superseded 2026-08-04.** These are *extrapolations from a 16-PDF
+> sample*, and both models understate a real run. Measured directly, a
+> serial full-corpus pass with OCR **on** takes 6941.4s (1h 56m) -- which
+> the per-doc fit got right and the per-page model missed by 21%. With
+> OCR **off** the measured figure is 3330.4s (55m 30s) against a per-page
+> prediction of ~39m: **41% low**. See
+> ["2026-08-04: the full-corpus sweep"](#2026-08-04-the-full-corpus-sweep).
+
 Per-PDF cost ranged 0.11-1.52 s/page, so read those as a band of roughly
 1.5-2 hours on GPU, not a point estimate.
 
@@ -52,9 +60,9 @@ work is CPU-bound -- PDF backend, layout post-processing, and OCR (which
 runs on onnxruntime, on the CPU) -- with short GPU bursts for the layout
 and table models.
 
-That 1.79x is the entire benefit the GPU currently delivers. It is the
-reason [PARALLELISM-PLAN.md](PARALLELISM-PLAN.md) does CPU-level
-parallelism first and GPU assignment second.
+That 1.79x is the entire benefit the GPU currently delivers, and it is
+why this work pursued CPU-level parallelism first and GPU assignment
+second.
 
 ## Three code facts behind the numbers
 
@@ -85,7 +93,7 @@ A fourth fact, host-specific but a live trap for worker sizing:
    would oversubscribe 2x. This already bit the benchmark run: a
    `taskset -c 24-39` invocation failed outright with `Invalid argument`.
 
-## Phase 1, measured: parallel `sync`, and the ceiling it hits
+## 2026-08-02: parallel `sync`, and the ceiling it hit
 
 Measured 2026-08-02 with the real `python -m src.sync`, not the bench
 harness: 60 bib PDFs (1,166 pages), `parser.backend = "docling"`, OCR off,
@@ -115,9 +123,8 @@ three A40s are never addressed at all, because Docling's
 `AcceleratorDevice.AUTO` resolves to `cuda:0` in every worker process
 (fact 3 above).
 
-That is what Phase 2 of PARALLELISM-PLAN.md is for, and this measurement
-is the argument for it: the four GPUs stopped being redundant the moment
-Phase 1 landed. A 60-document sample already saturates one card at 12
+That is the argument that produced per-worker GPU assignment: the four
+GPUs stopped being redundant the moment document parallelism landed. A 60-document sample already saturates one card at 12
 workers, so the full 501-document corpus will too.
 
 On smaller batches the per-worker model load dominates instead: over 8
@@ -130,7 +137,7 @@ parse.
 Correctness was checked, not assumed: `content/parsed/` after a 4-worker
 run is byte-identical to the serial run's, and the ledger rows match.
 
-## Phase 0, measured: OCR costs more than the GPU saves
+## 2026-08-02: OCR costs more than the GPU saves
 
 Measured 2026-08-02 on the same 16-PDF sample and the same GPU, with
 `bench_docling.py --no-ocr`. Raw timings:
@@ -142,6 +149,12 @@ Measured 2026-08-02 on the same 16-PDF sample and the same GPU, with
 | OCR off | 0.176 | **~39m** |
 
 **2.46x**, from one setting -- more than the 1.79x the GPU is worth.
+
+> **Superseded 2026-08-04.** 2.46x is a *serial 16-PDF sample* figure.
+> Measured end to end on the full corpus, OCR costs **2.08x serially but
+> 3.91x at 12 workers and 4.79x at 24** -- it is CPU-bound, so it
+> competes with the parallelism. Quoting 2.46x for a parallel run
+> understates it by roughly half.
 Docling's OCR runs on the CPU (RapidOCR on onnxruntime), which is a large
 part of why this pipeline is CPU-bound.
 
@@ -164,14 +177,15 @@ outputs, that breaks down as:
   as images. `perno_implementation_2022` lost a paragraph of body prose
   set in a graphical text box.
 
-So the default is `ocr = false` (2.46x, and most documents are
-unaffected), but it is a trade-off rather than a free win, and the
+So the default is `ocr = false` (2.46x on this serial sample -- 2.08x to
+4.79x measured end to end depending on worker count, see below), but it
+is a trade-off rather than a free win, and the
 parse-quality guard will not catch a bad choice -- it looks for
 run-together words, not for content that never arrived. A corpus of scans
 needs `ocr = true`; so does one where tables-as-images matter more than
 parse time.
 
-## Phase 0, measured: the converter rebuild
+## 2026-08-02: the converter rebuild
 
 `DocumentConverter` cold start is **16.5s** on this host, and
 `initialized_pipelines` is an instance attribute -- so the pre-0.12.0
@@ -181,7 +195,7 @@ for every document in the corpus. Both `pdf_text.py` and
 `parse_corpus` defers the build until a document actually needs parsing,
 so a fully-cached re-run loads no models at all.
 
-## Phase 2, measured: spreading workers across the four A40s
+## 2026-08-02: spreading workers across the four A40s
 
 Measured 2026-08-02 with the real `python -m src.sync` over the **whole
 501-PDF corpus** (13,400 pages), `docling`, OCR off, 12 workers. The A/B
@@ -391,3 +405,164 @@ exit 130, no orphaned processes, and the same
 `resource_tracker: ... leaked semaphore` warning that `spawn` already
 produced (a consequence of `os._exit` skipping interpreter shutdown, not
 of the start method).
+
+
+## 2026-08-04: the full-corpus sweep
+
+Measured with the real `python -m src.sync` over **all 501 PDFs** rather
+than a sample, on the same machine (4x A40, 48 CPUs available of 96 host
+logical CPUs), repository at `92c1420` (v2.1.0). Every run started from
+an empty `CONTENT_DIR` and reported 501 parsed, 0 failed. Raw records:
+`results/2026-08-04-full-corpus/sweep.jsonl` -- **wall clock only.** The
+CPU-busy and GPU-utilisation figures quoted below came from separate
+instrumented runs on the same machine and are *not* in that file; the
+resource sampler was added to `sweep_sync.py` afterwards, so
+`results/2026-08-04b-repeats/sweep.jsonl` is the first record set
+carrying them. Treat the timings here as reproducible from the committed
+data and the utilisation figures as reported, not evidenced.
+
+Reproduce with `bench/sweep_sync.py`, which was written for exactly this
+and did not exist when the earlier sections were measured.
+
+### It corrected the baseline, which corrected everything downstream
+
+| | |
+|---|---|
+| Serial, OCR off -- **measured** | **3330.4s (55m 30s)** |
+| Serial, OCR off -- per-page extrapolation (what the docs quoted) | ~39m, **41% low** |
+| Serial, OCR off -- per-doc fit | ~50m 32s, 9% low |
+
+One wrong denominator propagated into every efficiency figure in this
+repository. `bench/estimate.py` now leads with the per-doc model and says
+plainly that both understate.
+
+### Worker scaling
+
+| Workers | Wall clock | Speedup | Efficiency | |
+|---|---|---|---|---|
+| 1 | 3330.4s | 1.00x | -- | |
+| 4 | 799.2s | 4.17x | 104% | |
+| 8 | 428.6s | 7.77x | 97% | |
+| 12 | 310.2s | 10.74x | 89% | the most `worker_ceiling()` allows |
+| 16 | 268.1s | 12.42x | 78% | |
+| 24 | 237.6s | 14.02x | 58% | |
+| **32** | **220.7s** | **15.09x** | 47% | single run; see 2026-08-04b |
+| 48 | 226.3s | 14.72x | 31% | single run; see 2026-08-04b |
+
+**The clamp is costing 1.41x.** `worker_ceiling()` caps at
+`allowed_cpus // 4 = 12`; the optimum is near 32. Rows above 12 required
+relaxing that constant and are not reachable with a stock checkout.
+
+`[parser].workers = 16` resolves to 12 and takes 315.9s -- the clamp
+working as documented.
+
+### The `_CPUS_PER_DOCLING_WORKER = 4` model is wrong
+
+CPU busy during these runs, against the 48 available:
+
+| Run | CPUs busy | of the 48 allowed |
+|---|---|---|
+| 16 workers | 18.7 | 39% |
+| 32 workers | 34.0 | 71% |
+| 24 workers, OCR on | 44.6 | **93%** |
+
+At 32 workers the CPU is still only 71% busy. The constant came from a
+single "~300% CPU" observation of one process; the optimum implies a
+divisor near **1.5**.
+
+Confirmed independently: docling's own `num_threads` barely matters.
+
+| threads (at 12 workers) | 1 | 2 | 4 (default) | 8 |
+|---|---|---|---|---|
+| wall clock | 305.3s | 304.3s | 310.2s | 305.6s |
+
+**1.9% spread -- noise.** The hypothesis that `12 workers x 4 threads`
+oversubscribes 48 CPUs is disproved, and it explains why more workers
+help: the threads a worker is charged for are not doing much.
+
+### GPUs
+
+| Workers | 1 GPU | 2 GPUs | 4 GPUs | 1->2 | 2->4 |
+|---|---|---|---|---|---|
+| 12 | 518.4s | 339.7s | 310.2s | 1.53x | 1.10x |
+| 24 | 535.8s | 298.6s | 237.6s | **1.79x** | 1.26x |
+
+The second card is worth far more than the third and fourth, and matters
+more at higher worker counts. At 24 workers, one GPU is *slower* than at
+12 -- piling workers onto a single card is counterproductive.
+
+These agree with the 2026-08-02 phase 2 figures (528.0s / 326.2s) to
+within 2-5% on a rebuilt venv, which is the cross-check that the parallel
+measurements were sound and only the *baseline* was wrong.
+
+### OCR
+
+| Workers | OCR off | OCR on | Cost |
+|---|---|---|---|
+| 1 | 3330.4s | 6941.4s | 2.08x |
+| 12 | 310.2s | 1213.9s | 3.91x |
+| 24 | 237.6s | 1139.0s | **4.79x** |
+
+Speedup from 1 to 24 workers: **14.02x with OCR off, 6.09x with it on.**
+OCR roughly halves how well the pipeline parallelises.
+
+### Open, not glossed
+
+- **The OCR optimum was not found** -- swept only to 24 workers, where it
+  was still improving.
+- **One machine, one corpus.** Any specific replacement divisor may not
+  generalise, particularly to a CPU-only machine where the GPU is doing
+  none of the work.
+
+Two questions this section used to list were answered on 2026-08-04b,
+below.
+
+## 2026-08-04b: repeats, and where the time goes
+
+The single-run sweep above left two questions. Three runs per point, with
+`sweep_sync.py` timing each run's phases, settled both. Raw records:
+`results/2026-08-04b-repeats/sweep.jsonl`.
+
+| Workers | Runs (s) | Median | Spread |
+|---|---|---|---|
+| 24 | 234.6, 235.0, 235.8 | 235.0s | 1.2s |
+| 32 | 222.8, 223.4, 309.6 | 223.4s | **86.8s** |
+| 48 | 220.4, 221.4, 227.7 | 221.4s | 7.3s |
+
+### The 32 -> 48 "reversal" was noise
+
+Medians put 32 and 48 **0.9% apart** — while the spread *within* the
+32-worker configuration alone is 86.8s. The single-run pass had 32 at
+220.7s and 48 at 226.3s and read that as a knee; with repeats the
+ordering flips.
+
+**The curve plateaus past ~32; it does not turn back up.** Single runs
+cannot resolve anything in that region, which is the argument for
+`--repeat`.
+
+### What flattens the curve: startup, plus the CPU filling up
+
+Timing each run's phases separates the three candidates:
+
+| Workers | Startup (to 1st document) | Tail (after last) | CPU busy |
+|---|---|---|---|
+| 24 | 18.6s — **7.9%** | 4.9s — 2.1% | 56% |
+| 32 | 21.8s — **8.9%** | 5.9s — 2.6% | 70% |
+| 48 | 28.5s — **12.7%** | 7.9s — 3.6% | 78% |
+
+- **Startup is a growing tax, not a fixed one.** Every worker pays its
+  own ~8.5s model load, so the cost of standing the pool up rises with
+  the pool: 7.9% of the run at 24 workers, 12.7% at 48.
+- **Startup is measured as time to the first completion**, so it
+  includes the fastest document's parse and overstates pure startup. Its
+  growth across worker counts does not: a single parse does not slow down
+  because the pool got bigger.
+- **The CPU is heading for saturation** — 56% to 78% host-wide across the same
+  range. Earlier the 71% figure at 32 workers was read as "the CPU is not
+  the limit"; against 56% at 24 and 78% at 48 it is clearly *becoming*
+  one.
+- **The long-document tail is not the story**: 5-8s throughout, under 4%.
+
+Neither cost alone explains the plateau. Together they account for it,
+and both worsen with every worker added — which is why past ~32 there is
+nothing left to win by adding more.

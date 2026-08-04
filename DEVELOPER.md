@@ -48,28 +48,32 @@ release zip for the same reason `tests/` is.
 
 - [docs/PERFORMANCE.md](docs/PERFORMANCE.md) -- what each setting costs,
   organised by setting. Ships in the release archive, unlike `bench/`
-- [docs/PARALLELISM.md](docs/PARALLELISM.md) -- the whole story across
-  seven releases, including the six conclusions that turned out wrong
+- [docs/PARALLELISM.md](docs/PARALLELISM.md) -- parallel parse design:
+  architecture, components, and the roadmap
 - [bench/README.md](bench/README.md) -- how to run it, and what each
   switch measures
 - [bench/RESULTS.md](bench/RESULTS.md) -- the 2026-08-02 baseline, with
   raw per-PDF timings in `bench/results/`
-- [bench/PARALLELISM-PLAN.md](bench/PARALLELISM-PLAN.md) -- the phased
-  plan that measurement produced
+- [bench/PARALLELISM-PLAN.md](bench/PARALLELISM-PLAN.md) -- what is still
+  unknown, and what to measure before changing it
 
 The headline, in the order it was found:
 
-1. Parsing all 501 bib PDFs with `docling` took ~1.6 hours, with the A40
-   at ~7% utilization and three CPU cores of 48 busy. The GPU was worth
-   only 1.79x over CPU-only -- the work was CPU-bound.
-2. Turning OCR off (v0.12.0) was worth 2.46x, more than the GPU.
+1. Parsing all 501 bib PDFs with `docling` took ~1.6 hours (later
+   measured at 1h 56m), with the A40 at ~7% utilization and three CPU
+   cores of 48 busy. The GPU was worth only 1.79x over CPU-only -- the
+   work was CPU-bound.
+2. Turning OCR off (v0.12.0) was worth 2.46x on a serial sample, more
+   than the GPU. Measured end to end later: 2.08x serially, but 3.91x at
+   12 workers and 4.79x at 24, since OCR competes for the same CPU the
+   parallelism needs.
 3. Parallelising `sync` (v1.0.0) was worth 3.60x at four workers.
 4. That moved the bottleneck onto a single GPU: `AcceleratorDevice.AUTO`
    resolves to `cuda:0` in every worker, so GPU 0 ran at 100% while
    GPUs 1-3 idled.
 5. Giving each worker its own card (v1.1.0) was worth a further **1.62x**
    on the full corpus -- 528s to 326s at twelve workers. The whole
-   501-PDF corpus now parses in **5m26s**, against ~1.6 hours where this
+   501-PDF corpus now parses in **5m 10s**, against 1h 56m where this
    started.
 6. Per-worker startup (v2.1.0) turned out to be 3.2s of importing torch
    and docling plus ~5s of loading Docling's models, and only the first
@@ -77,6 +81,12 @@ The headline, in the order it was found:
    preloaded, started before the bibliography is read, takes a fixed
    ~1.5-2s off pool startup -- 9.6% of an 8-document run, 2.5% of a
    60-document one.
+7. Measuring the **whole** corpus instead of extrapolating from a 16-PDF
+   sample (2026-08-04) found the serial baseline was 55m 30s, not the
+   ~39m every document had quoted -- **41% low**. Correcting it showed
+   12-worker efficiency is 89%, not the 60% previously reported, and that
+   `worker_ceiling()`'s `cpus // 4` clamp costs **1.41x**: 32 workers
+   beat the 12 it allows.
 
 The lesson worth carrying: every one of those steps was measured, and six
 intermediate conclusions were wrong until the next measurement corrected
@@ -115,9 +125,9 @@ DOCKER.md                 running this repo in a container (docker/Dockerfile)
 docs/                     reference docs that ship in the release zip -- everything except the four
                           root-level ones above, which stay put because they're what a reader looks
                           for first
-  PARALLELISM.md            how the parser got 17x faster across seven releases, and what it cost
+  PARALLELISM.md            parallel parse design: architecture, components, and the roadmap
   PERFORMANCE.md            what each config setting costs, measured -- the lookup-oriented companion
-                            to PARALLELISM.md's narrative
+                            to PARALLELISM.md's design doc
   ZOTERO.md                 getting a bib file and its PDFs into the shape this pipeline expects
   CLI.md                    every command, and which interpreter each one needs
   CONFIG.md                 every setting, with config.toml.example reproduced in full
