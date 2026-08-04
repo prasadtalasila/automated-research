@@ -1,9 +1,10 @@
-# How the parser got 17x faster, and what it cost
+# How the parser got 22x faster, and what it cost
 
-A record of seven releases of parallelism work on the Docling parse
+A record of eight releases of parallelism work on the Docling parse
 path, written for someone who wasn't there. It is as much about the wrong
 turns as the right ones, because **six** of the intermediate conclusions
-were wrong and only the next measurement showed it.
+were wrong and only the next measurement showed it -- including, in the
+end, the baseline every other number was divided by.
 
 Every figure here is one machine's -- read them as ratios, not as times
 to plan against. [PERFORMANCE.md](PERFORMANCE.md) is the
@@ -11,8 +12,13 @@ lookup-oriented version of the same measurements, organised by config
 setting; this is the narrative.
 
 The short version: a full parse of this project's 501-PDF bibliography
-went from **~1.6 hours to 5m26s**. Almost none of that came from the
-thing that looked like the bottleneck.
+went from **1h 56m to 5m 10s** -- **22x**, both ends measured rather than
+extrapolated. Almost none of that came from the thing that looked like
+the bottleneck.
+
+(Earlier editions said "17x, ~1.6 hours to 5m26s". The shape was right;
+the baseline was an extrapolation that ran low, so the improvement was
+*understated*. Raising the worker clamp takes it to 31x -- see v2.1.1.)
 
 ## Where it started
 
@@ -39,7 +45,7 @@ The result, and the reason the rest of this document exists:
 
 | | |
 |---|---|
-| 501 PDFs, 13,400 pages | **~1.6 hours** |
+| 501 PDFs, 13,400 pages | **~1.6 hours** (extrapolated; measured later at 1h 56m) |
 | GPU utilisation during it | **~7%** |
 | CPU used | **3 of 48 cores** |
 | GPU vs CPU-only | **1.79x** |
@@ -71,6 +77,9 @@ document reloaded the layout, table and OCR models. Cold start: 16.5s,
 against a corpus of 501 files.
 
 Full corpus: ~1.6 hours to **~39 minutes**, with no concurrency anywhere.
+(Both figures are extrapolations from a 16-PDF sample. Measured directly
+in v2.1.1: 1h 56m to 55m 30s. The 2.46x ratio held up serially -- 2.08x
+measured -- but not in parallel, where OCR costs up to 4.79x.)
 
 ## v1.0.0 -- CPU parallelism, defaulting to off
 
@@ -257,15 +266,62 @@ interpreter launched with `spawnv_passfds`, so it inherits neither. And
 fork measured no faster than forkserver anyway, so ruling it out cost
 nothing.
 
+## v2.1.1 -- the baseline was wrong, and so was everything divided by it
+
+Seven releases of measurement, and the number underneath all of it had
+never been measured. Every document quoted a serial baseline extrapolated
+from a 16-PDF sample at 0.176 s/page: `0.176 x 13,400 = ~39 min`.
+
+Run for real over all 501 PDFs, a serial pass takes **55m 30s** -- the
+extrapolation was **41% low**. `bench/estimate.py` had reported a second,
+per-doc model all along, which was only 9% low; the documentation had
+consistently quoted the wrong one of the two.
+
+**Correcting the denominator reversed a headline conclusion.** Efficiency
+at 12 workers was reported as 60%, "roughly 40% of the machine unused".
+It is **89%**. There was no mystery to explain; there was a bad divisor.
+
+And with a trustworthy baseline, the scaling curve says something the old
+one could not:
+
+| Workers | Wall clock | Speedup | Efficiency |
+|---|---|---|---|
+| 1 | 3330.4s | 1.00x | -- |
+| 8 | 428.6s | 7.77x | 97% |
+| 12 | 310.2s | 10.74x | 89% |
+| **32** | **220.7s** | **15.09x** | 47% |
+| 48 | 226.3s | 14.72x | 31% |
+
+`worker_ceiling()` caps at `allowed_cpus // 4`, which is 12 here. **The
+optimum is near 32, and the cap costs 1.41x.** The constant it rests on
+-- one docling worker "uses about 4 CPUs" -- came from a single ~300% CPU
+observation. Measured at 32 workers, the CPU is 71% busy; docling's own
+`num_threads` changes the run by 1.9%, which is noise. A worker does not
+use four CPUs.
+
+That constant has **not** been changed. It alters what the pipeline does
+on every machine, and this release is documentation and benchmarking
+only.
+
+**The lesson, and it is the same one as every other section here, applied
+to ourselves:** an extrapolation quoted often enough starts reading as a
+measurement. The tool said "per-doc is the more honest model" in its own
+docstring, and the docs quoted per-page anyway, for two releases.
+
 ## Where the time actually went
+
+Measured end to end (2026-08-04), rather than extrapolated:
 
 | Change | Kind | Full corpus |
 |---|---|---|
-| baseline | -- | ~1.6 h |
-| OCR off + converter reuse | not parallelism | ~39 min |
-| 12 CPU workers | CPU | ~8.8 min |
-| four GPUs | GPU | **5m26s** |
-| forkserver pool startup | startup | 5m26s -- under 1% at this size |
+| baseline, serial + OCR | -- | **1h 56m** |
+| OCR off | not parallelism | 55m 30s |
+| 12 workers, 4 GPUs | CPU + GPU | 5m 10s |
+| 32 workers, 4 GPUs (needs the clamp raised) | CPU | **3m 41s** |
+
+Earlier editions of this table read `~1.6 h -> ~39 min -> 8.8 min ->
+5m26s`. The shape was right and the first two figures were extrapolations
+that ran low; the 5m26s measurement stands, at 5m10s on a rebuilt venv.
 
 The GPU work -- the thing that looked like the answer at the start -- is
 the smallest contribution but one. The largest is a boolean. And the last

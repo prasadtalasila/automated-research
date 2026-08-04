@@ -183,7 +183,9 @@ never below 1. Two parts of that are easy to get wrong:
   Neither sees a cgroup CPU *quota*, which throttles without narrowing
   the affinity mask; an explicit worker count is the answer there.
 - **A worker is not one CPU.** One Docling worker was measured holding
-  ~300% CPU, so the ceiling divides by 4. Docling's own thread count is
+  ~300% CPU, so the ceiling divides by 4 -- a divisor a later
+  full-corpus sweep found too conservative by roughly 2.5x (see
+  docs/PERFORMANCE.md). Docling's own thread count is
   then divided down to match, keeping workers x threads inside the host.
 
 An over-large request is clamped *and reported*. Silently obeying

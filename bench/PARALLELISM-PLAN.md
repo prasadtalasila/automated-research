@@ -17,7 +17,10 @@ independently shippable.
 ## Phase 0 -- make OCR optional, and stop rebuilding the converter -- **DONE (v0.12.0)**
 
 Measured outcome: **2.46x** from turning OCR off, taking the full-corpus
-parse from ~1.6 hours to ~39 minutes -- more than the GPU itself is worth.
+parse from ~1.6 hours to ~39 minutes -- more than the GPU itself is
+worth. (Both times are 16-PDF extrapolations; Phase 5 measured 1h 56m to
+55m 30s directly, and found OCR's cost rises to 4.79x once the run is
+parallel.)
 It is a trade-off rather than a free win: it changed the extracted text of
 8 of 16 sampled documents, because OCR is what reads text embedded as
 bitmaps (mostly publisher furniture, but on one document two whole
@@ -199,6 +202,22 @@ startup, which is worth having when the run is a handful of documents and
 is lost in the noise when it is the whole corpus. That is the shape the
 breakdown predicted once it existed. See RESULTS.md's "Per-worker
 startup" section.
+
+## Phase 5 -- measure the whole corpus, not a sample -- **DONE (v2.1.1)**
+
+Every phase above was planned against an extrapolated baseline. Measuring
+the real thing found it **41% low** (55m 30s, not ~39m), which turned a
+reported 60% parallel efficiency into an actual 89%.
+
+It also found the one concrete win still on the table: `worker_ceiling()`
+caps at `allowed_cpus // 4 = 12`, and **32 workers is 1.41x faster**. The
+divisor's premise -- a worker uses ~4 CPUs -- does not survive
+measurement: 71% CPU busy at 32 workers, and docling's `num_threads`
+worth 1.9%.
+
+Not acted on in v2.1.1, which is docs and benchmarking only. **The next
+phase is to change that constant and re-measure**, ideally deriving it
+per machine rather than hard-coding it.
 
 ## Phase 3 -- keep it measurable
 

@@ -34,6 +34,38 @@ CUDA_VISIBLE_DEVICES=0 .venv-full/bin/python bench/bench_docling.py \
     --sample bench/sample16.json --workers 8 --gpus 4 --tag w8
 ```
 
+## Which tool to reach for
+
+| Question | Tool |
+|---|---|
+| What does the **shipped pipeline** cost at these settings? | **`sweep_sync.py`** -- runs the real `python -m src.sync` |
+| How does Docling itself behave per document? | `bench_docling.py` |
+| How does the workload spread across N processes and G cards? | `run_parallel.py` |
+| What would the whole corpus cost, from a sample? | `estimate.py` -- **but see its docstring: it understates** |
+
+**Prefer a real measurement over an extrapolation whenever you can afford
+one.** A per-page extrapolation from a 16-PDF sample understated a
+measured full-corpus serial run by **41%**, and that figure was quoted as
+fact across the documentation for two releases. `estimate.py` now leads
+with the per-doc model (9% low) and says so.
+
+```bash
+# The whole scaling curve, from an empty ledger each time.
+.venv-full/bin/python bench/sweep_sync.py --workers 1,4,8,12 --gpus 4 --tag scaling
+
+# GPU scaling at a fixed worker count; OCR on vs off.
+.venv-full/bin/python bench/sweep_sync.py --workers 12 --gpus 1,2,4 --tag gpus
+.venv-full/bin/python bench/sweep_sync.py --workers 12,24 --ocr on,off --tag ocr
+
+# See the plan without running anything (each run parses the whole corpus).
+.venv-full/bin/python bench/sweep_sync.py --workers 1,12 --tag plan --dry-run
+```
+
+`sweep_sync.py` reports the **resolved** worker count, not the requested
+one, and warns when they differ. That matters: `worker_ceiling()` clamps
+to `allowed_cpus // 4`, so asking for 32 on a 48-CPU machine silently
+gives you 12 — a trap that hid a measured 1.41x for a whole release.
+
 ## What this harness does *not* measure
 
 `run_parallel.py` launches N **independent** worker processes, each
@@ -45,7 +77,8 @@ processes and cards", not "what does the shipped pool cost".
 
 So every **pool-level** figure in `RESULTS.md` -- worker counts,
 per-worker GPU assignment, and `[parser].start_method` -- was measured
-with the real `python -m src.sync`, not with this harness. The recipe:
+with the real `python -m src.sync`, not with this harness. `sweep_sync.py`
+now automates that; the equivalent by hand is:
 
 ```bash
 # A/B two settings over a subset of the real corpus, three runs each.
@@ -82,6 +115,7 @@ being tested.
 | `bench_docling.py` | Times Docling per PDF; switches device (`cuda`/`cpu`) and converter reuse (`fresh`/`reused`) |
 | `estimate.py` | Extrapolates a sample's timings to the full corpus, two ways |
 | `run_parallel.py` | Runs N worker processes over G GPUs, reports aggregate throughput |
+| `sweep_sync.py` | Sweeps the **real** `src.sync` over worker/GPU/OCR settings -- the pool-level numbers |
 | `results/` | Committed raw timings -- the evidence behind `RESULTS.md` |
 
 ## The two switches that matter

@@ -39,7 +39,8 @@ separate, larger sample -- 16 bib PDFs, 943 pages -- turning OCR off was
 measurements used different samples, so they don't compose into a single
 honest number; treat 42x as the OCR-on ceiling and see
 `bench/RESULTS.md` in the repository (developer-only -- it is not part of the release zip) for the corpus-wide
-figures that replaced it (a full 501-PDF parse: ~39 minutes with OCR off, ~1.6 hours
+figures that replaced it (a full 501-PDF parse, measured serially:
+55m 30s with OCR off, 1h 56m
 with it on).
 
 **Its output is not bit-reproducible under concurrency.** At high worker

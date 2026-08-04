@@ -33,6 +33,14 @@ page mix mirrors the corpus's.
 | 1 process, 1 A40 | 0.43 | **1h 36m** (per-page), 1h 56m (per-doc fit) |
 | 1 process, CPU only | 1.37 | 5h 05m (per-page), 5h 21m (per-doc fit) |
 
+> **Superseded 2026-08-04.** These are *extrapolations from a 16-PDF
+> sample*, and both models understate a real run. Measured directly, a
+> serial full-corpus pass with OCR **on** takes 6941.4s (1h 56m) -- which
+> the per-doc fit got right and the per-page model missed by 21%. With
+> OCR **off** the measured figure is 3330.4s (55m 30s) against a per-page
+> prediction of ~39m: **41% low**. See
+> ["2026-08-04: the full-corpus sweep"](#2026-08-04-the-full-corpus-sweep).
+
 Per-PDF cost ranged 0.11-1.52 s/page, so read those as a band of roughly
 1.5-2 hours on GPU, not a point estimate.
 
@@ -142,6 +150,12 @@ Measured 2026-08-02 on the same 16-PDF sample and the same GPU, with
 | OCR off | 0.176 | **~39m** |
 
 **2.46x**, from one setting -- more than the 1.79x the GPU is worth.
+
+> **Superseded 2026-08-04.** 2.46x is a *serial 16-PDF sample* figure.
+> Measured end to end on the full corpus, OCR costs **2.08x serially but
+> 3.91x at 12 workers and 4.79x at 24** -- it is CPU-bound, so it
+> competes with the parallelism. Quoting 2.46x for a parallel run
+> understates it by roughly half.
 Docling's OCR runs on the CPU (RapidOCR on onnxruntime), which is a large
 part of why this pipeline is CPU-bound.
 
@@ -164,8 +178,9 @@ outputs, that breaks down as:
   as images. `perno_implementation_2022` lost a paragraph of body prose
   set in a graphical text box.
 
-So the default is `ocr = false` (2.46x, and most documents are
-unaffected), but it is a trade-off rather than a free win, and the
+So the default is `ocr = false` (2.46x on this serial sample -- 2.08x to
+4.79x measured end to end depending on worker count, see below), but it
+is a trade-off rather than a free win, and the
 parse-quality guard will not catch a bad choice -- it looks for
 run-together words, not for content that never arrived. A corpus of scans
 needs `ocr = true`; so does one where tables-as-images matter more than
@@ -391,3 +406,110 @@ exit 130, no orphaned processes, and the same
 `resource_tracker: ... leaked semaphore` warning that `spawn` already
 produced (a consequence of `os._exit` skipping interpreter shutdown, not
 of the start method).
+
+
+## 2026-08-04: the full-corpus sweep
+
+Measured with the real `python -m src.sync` over **all 501 PDFs** rather
+than a sample, on the same machine (4x A40, 48 CPUs available of 96 host
+logical CPUs), repository at `92c1420` (v2.1.0). Every run started from
+an empty `CONTENT_DIR` and reported 501 parsed, 0 failed. Raw records:
+`results/2026-08-04-full-corpus/sweep.jsonl`.
+
+Reproduce with `bench/sweep_sync.py`, which was written for exactly this
+and did not exist when the earlier sections were measured.
+
+### It corrected the baseline, which corrected everything downstream
+
+| | |
+|---|---|
+| Serial, OCR off -- **measured** | **3330.4s (55m 30s)** |
+| Serial, OCR off -- per-page extrapolation (what the docs quoted) | ~39m, **41% low** |
+| Serial, OCR off -- per-doc fit | ~50m 32s, 9% low |
+
+One wrong denominator propagated into every efficiency figure in this
+repository. `bench/estimate.py` now leads with the per-doc model and says
+plainly that both understate.
+
+### Worker scaling
+
+| Workers | Wall clock | Speedup | Efficiency | |
+|---|---|---|---|---|
+| 1 | 3330.4s | 1.00x | -- | |
+| 4 | 799.2s | 4.17x | 104% | |
+| 8 | 428.6s | 7.77x | 97% | |
+| 12 | 310.2s | 10.74x | 89% | the most `worker_ceiling()` allows |
+| 16 | 268.1s | 12.42x | 78% | |
+| 24 | 237.6s | 14.02x | 58% | |
+| **32** | **220.7s** | **15.09x** | 47% | **measured optimum** |
+| 48 | 226.3s | 14.72x | 31% | past the knee |
+
+**The clamp is costing 1.41x.** `worker_ceiling()` caps at
+`allowed_cpus // 4 = 12`; the optimum is near 32. Rows above 12 required
+relaxing that constant and are not reachable with a stock checkout.
+
+`[parser].workers = 16` resolves to 12 and takes 315.9s -- the clamp
+working as documented.
+
+### The `_CPUS_PER_DOCLING_WORKER = 4` model is wrong
+
+CPU busy during these runs, against the 48 available:
+
+| Run | CPUs busy | of the 48 allowed |
+|---|---|---|
+| 16 workers | 18.7 | 39% |
+| 32 workers | 34.0 | 71% |
+| 24 workers, OCR on | 44.6 | **93%** |
+
+At 32 workers the CPU is still only 71% busy. The constant came from a
+single "~300% CPU" observation of one process; the optimum implies a
+divisor near **1.5**.
+
+Confirmed independently: docling's own `num_threads` barely matters.
+
+| threads (at 12 workers) | 1 | 2 | 4 (default) | 8 |
+|---|---|---|---|---|
+| wall clock | 305.3s | 304.3s | 310.2s | 305.6s |
+
+**1.9% spread -- noise.** The hypothesis that `12 workers x 4 threads`
+oversubscribes 48 CPUs is disproved, and it explains why more workers
+help: the threads a worker is charged for are not doing much.
+
+### GPUs
+
+| Workers | 1 GPU | 2 GPUs | 4 GPUs | 1->2 | 2->4 |
+|---|---|---|---|---|---|
+| 12 | 518.4s | 339.7s | 310.2s | 1.53x | 1.10x |
+| 24 | 535.8s | 298.6s | 237.6s | **1.79x** | 1.26x |
+
+The second card is worth far more than the third and fourth, and matters
+more at higher worker counts. At 24 workers, one GPU is *slower* than at
+12 -- piling workers onto a single card is counterproductive.
+
+These agree with the 2026-08-02 phase 2 figures (528.0s / 326.2s) to
+within 2-5% on a rebuilt venv, which is the cross-check that the parallel
+measurements were sound and only the *baseline* was wrong.
+
+### OCR
+
+| Workers | OCR off | OCR on | Cost |
+|---|---|---|---|
+| 1 | 3330.4s | 6941.4s | 2.08x |
+| 12 | 310.2s | 1213.9s | 3.91x |
+| 24 | 237.6s | 1139.0s | **4.79x** |
+
+Speedup from 1 to 24 workers: **14.02x with OCR off, 6.09x with it on.**
+OCR roughly halves how well the pipeline parallelises.
+
+### Open, not glossed
+
+- **What binds at 32 workers is unknown.** CPU is 71% busy, GPUs are far
+  from saturated, `num_threads` is irrelevant, and the big-document tail
+  does not bind until ~35x.
+- **The 32 -> 48 reversal is 2.5% and not established.** Each point is a
+  single run; the 12 -> 32 trend is far outside noise, this is not.
+- **The OCR optimum was not found** -- swept only to 24 workers, where it
+  was still improving.
+- **One machine, one corpus.** The implied `cpus // 1.5` divisor may not
+  generalise, particularly to a CPU-only machine where the GPU is doing
+  none of the work.

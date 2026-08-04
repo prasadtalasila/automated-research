@@ -62,8 +62,8 @@ Drafts render to PDF or LaTeX through Pandoc/TeX Live, with a
 ### Built for a real corpus, on real hardware
 
 This runs over 501 PDFs / 13,400 pages, and the performance work is
-measured rather than asserted -- a full Docling parse went from **~1.6
-hours to 5m26s**:
+measured rather than asserted -- a full Docling parse went from **1h 56m
+to 5m 10s**, both ends measured over the whole corpus:
 
 - **Parallel parsing**, opt-in via `[parser].workers`, defaulting to
   serial. The worker count is clamped to what the machine can actually
@@ -126,7 +126,7 @@ and what it needs. Everything else lives in one document per question.
 | [docs/WRITING-STANDARDS.md](docs/WRITING-STANDARDS.md) | What prose standards do the genre skills follow, and where in the technical-communication literature do they come from? |
 | [docs/CITATION-PROVENANCE.md](docs/CITATION-PROVENANCE.md) | What does the provenance report say, and how do I read it? |
 | [docs/DESIGN.md](docs/DESIGN.md) | How is this put together, and what happens when two runs collide? |
-| [docs/PARALLELISM.md](docs/PARALLELISM.md) | How did the parse get 17x faster, and which conclusions along the way turned out to be wrong? |
+| [docs/PARALLELISM.md](docs/PARALLELISM.md) | How did the parse get 22x faster, and which conclusions along the way turned out to be wrong -- including the baseline itself? |
 
 **Working on the repository itself**
 
