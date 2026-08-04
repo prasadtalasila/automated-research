@@ -53,6 +53,13 @@ from src import config
 # have to be measured before moving it.
 _CPUS_PER_DOCLING_WORKER = 4
 
+# Docling's own default num_threads. Equal to the divisor above today,
+# and deliberately a separate constant: that one is a CPU budget and the
+# roadmap expects it to shrink, while this one tracks upstream's default.
+# Sharing a literal would have quietly changed the thread cap the first
+# time the budget moved.
+_DOCLING_DEFAULT_THREADS = 4
+
 # How long a worker gets to honour SIGTERM before being killed outright.
 _TERMINATE_GRACE_SECONDS = 2.0
 
@@ -580,7 +587,7 @@ def docling_threads(workers: int) -> int:
     correct thing to do when workers x threads would exceed the machine,
     not because it buys measurable throughput.
     """
-    return max(1, min(_CPUS_PER_DOCLING_WORKER, allowed_cpus() // max(workers, 1)))
+    return max(1, min(_DOCLING_DEFAULT_THREADS, allowed_cpus() // max(workers, 1)))
 
 
 class BackendUnavailable(RuntimeError):

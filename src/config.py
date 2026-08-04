@@ -161,7 +161,8 @@ PARSER = _get("PARSER", "parser", "backend", default="pdftotext")
 # free win. Measured over the full corpus, OCR costs 2.08x serially but
 # 3.91x at 12 workers and 4.79x at 24: it is CPU-bound, so it competes
 # with the parallelism. (An older 2.46x figure came from a 16-PDF serial
-# sample.) Turning it off changed the extracted text of 8 of 16 sampled,
+# sample.) Turning it off changed the extracted text of 8 of 16 sampled
+# documents,
 # because OCR is what reads text embedded as *bitmaps*. Mostly that text
 # is publisher furniture and figure captions; on one document it was two
 # whole tables. See config.toml's [parser].ocr comment, or README's
