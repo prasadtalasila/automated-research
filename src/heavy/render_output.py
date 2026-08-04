@@ -451,6 +451,16 @@ def main() -> int:
     except subprocess.CalledProcessError as exc:
         print(f"[error] pandoc failed: {exc.stderr or exc}")
         return 1
+    except KeyError as exc:
+        # `--format md` builds its reference list from the ledger, so a
+        # cited key that isn't there stops it (references.build_section's
+        # own error names the keys and what to run). Reported the same way
+        # as any other render failure rather than as a traceback: a genre
+        # skill's documented reaction to `[error]` is to warn and carry on
+        # presenting the draft, which is right here too -- the draft is
+        # fine, only this one derived copy could not be built.
+        print(f"[error] {exc.args[0] if exc.args else exc}")
+        return 1
 
     print(str(out_path))
     return 0

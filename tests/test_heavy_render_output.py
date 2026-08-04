@@ -310,6 +310,22 @@ class TestRenderMarkdown:
         assert "csl-" not in text, "no citeproc span classes"
         assert "[@" not in text, "no citekeys left inline"
 
+    def test_a_citekey_missing_from_the_ledger_is_reported_not_raised(
+        self, isolated_config, tmp_path, capsys, monkeypatch
+    ):
+        # The gate would normally catch this first, but render_output is a
+        # standalone CLI -- it must not answer with a traceback.
+        draft = tmp_path / "draft.md"
+        draft.write_text("Body [@never_synced_2024].\n")
+
+        monkeypatch.setattr(sys, "argv", ["render_output.py", str(draft), "--format", "md"])
+        rc = render_output.main()
+        out = capsys.readouterr().out
+
+        assert rc == 1
+        assert "[error]" in out
+        assert "never_synced_2024" in out
+
     def test_leaves_the_draft_untouched(self, isolated_config, tmp_path):
         con = ledger.connect()
         ledger.upsert_reference(con, make_reference(citekey="a_2024", title="A Paper", year="2024"))
