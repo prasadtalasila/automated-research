@@ -31,6 +31,10 @@ Four rules, each of which was learned by getting it wrong:
 4. **A baseline is a measurement, not an assumption.** Efficiency figures
    are only as good as the denominator, and the denominator is the number
    least likely to be re-measured.
+5. **Say what the instrument actually measures.** CPU busy comes from
+   `/proc/stat`, which is host-wide: it counts every process on the
+   machine, not this run. The JSONL keys say `host_` for that reason.
+   Sweep on an idle machine, or the number is an upper bound.
 
 ## Open questions
 
@@ -110,6 +114,6 @@ first.
 | Change | Blocked on |
 |---|---|
 | Derive `_CPUS_PER_DOCLING_WORKER` | open questions 1 and 2 |
-| Selective OCR (only bitmap-heavy documents) | a cheap page classifier, and question 3 |
+| Selective OCR (only bitmap-heavy documents) | a cheap page classifier, and question 2 |
 | Resident worker pool across runs | nothing measured; it is a design change, not a tuning one |
 | Batch inference across documents | upstream — docling exposes no batch API |

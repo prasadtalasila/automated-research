@@ -60,9 +60,9 @@ work is CPU-bound -- PDF backend, layout post-processing, and OCR (which
 runs on onnxruntime, on the CPU) -- with short GPU bursts for the layout
 and table models.
 
-That 1.79x is the entire benefit the GPU currently delivers. It is the
-reason the work did CPU-level
-parallelism first and GPU assignment second.
+That 1.79x is the entire benefit the GPU currently delivers, and it is
+why this work pursued CPU-level parallelism first and GPU assignment
+second.
 
 ## Three code facts behind the numbers
 
@@ -515,7 +515,7 @@ below.
 
 The single-run sweep above left two questions. Three runs per point, with
 `sweep_sync.py` timing each run's phases, settled both. Raw records:
-`results/sweep-knee.jsonl`.
+`results/2026-08-04b-repeats/sweep.jsonl`.
 
 | Workers | Runs (s) | Median | Spread |
 |---|---|---|---|
@@ -547,7 +547,7 @@ Timing each run's phases separates the three candidates:
 - **Startup is a growing tax, not a fixed one.** Every worker pays its
   own ~8.5s model load, so the cost of standing the pool up rises with
   the pool: 7.9% of the run at 24 workers, 12.7% at 48.
-- **The CPU is heading for saturation** — 56% to 78% across the same
+- **The CPU is heading for saturation** — 56% to 78% host-wide across the same
   range. Earlier the 71% figure at 32 workers was read as "the CPU is not
   the limit"; against 56% at 24 and 78% at 48 it is clearly *becoming*
   one.

@@ -49,7 +49,8 @@ from src import config
 #
 # Left at 4 deliberately: changing it alters what every run does on every
 # machine, and it has been validated on exactly one machine and one
-# corpus. See bench/PARALLELISM-PLAN.md's Phase 5 for what to do next.
+# corpus. See bench/PARALLELISM-PLAN.md's open questions for what would
+# have to be measured before moving it.
 _CPUS_PER_DOCLING_WORKER = 4
 
 # How long a worker gets to honour SIGTERM before being killed outright.

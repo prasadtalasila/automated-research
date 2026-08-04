@@ -138,10 +138,14 @@ class ResourceSampler:
             n = min(len(row) for row in self._gpu_samples)
             per_gpu = [round(sum(row[i] for row in self._gpu_samples) / len(self._gpu_samples), 1)
                        for i in range(n)]
+        # Named "host_" because that is what /proc/stat measures: every
+        # process on the box, not this run. On an otherwise-idle machine
+        # the two coincide; on a shared one this is an upper bound, and
+        # can exceed 100% when another tenant uses CPUs we may not.
         return {
-            "cpu_busy_cores": round(busy_cpus, 1) if busy_cpus is not None else None,
-            "cpu_pct_of_allowed": (round(100 * busy_cpus / allowed_cpus(), 1)
-                                   if busy_cpus is not None else None),
+            "host_cpu_busy_cores": round(busy_cpus, 1) if busy_cpus is not None else None,
+            "host_cpu_pct_of_allowed": (round(100 * busy_cpus / allowed_cpus(), 1)
+                                        if busy_cpus is not None else None),
             "gpu_util_mean_per_card": per_gpu,
             "samples": len(self._cpu_samples),
         }
@@ -314,7 +318,7 @@ def main() -> int:
                 # this a `> sweep.log` shows nothing until the very end.
                 print(f"  workers={w:<3} gpus={g} ocr={'on ' if o else 'off'} "
                       f"{rec['seconds']:8.1f}s  parsed={rec['parsed']:<4}"
-                      f"  cpu={rec['cpu_pct_of_allowed']}%{extra}{clamp}{status}",
+                      f"  host_cpu={rec['host_cpu_pct_of_allowed']}%{extra}{clamp}{status}",
                       flush=True)
             runs.sort(key=lambda r: r["seconds"])
             records.append(runs[len(runs) // 2])
@@ -324,7 +328,7 @@ def main() -> int:
                      and r["gpus"] == max(gpus)), None)
     print(f"\nwrote {out_path}")
     print(f"\n{'req':>4} {'got':>4} {'gpus':>4} {'ocr':>4} {'wall':>9} "
-          f"{'speedup':>8} {'eff':>5} {'cpu%':>5}")
+          f"{'speedup':>8} {'eff':>5} {'host cpu%':>9}")
     for r in records:
         got = r["workers_resolved"] or "?"
         sp = eff = ""
@@ -333,7 +337,7 @@ def main() -> int:
             eff = f"{baseline['seconds']/r['seconds']/got:4.0%}"
         print(f"{r['workers_requested']:>4} {str(got):>4} {r['gpus']:>4} "
               f"{'on' if r['ocr'] else 'off':>4} {r['seconds']:8.1f}s {sp:>8} {eff:>5} "
-              f"{str(r['cpu_pct_of_allowed']):>5}")
+              f"{str(r['host_cpu_pct_of_allowed']):>9}")
     if not baseline:
         print("\n(no 1-worker OCR-off run in this sweep, so no speedup column -- "
               "add `1` to --workers for a baseline)")

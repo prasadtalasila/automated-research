@@ -178,6 +178,15 @@ only ~70% busy. With OCR off a worker uses closer to one CPU than four.
 (The 32-worker figure landed at 71% in one sweep and 70% in another; a
 run-to-run point is worth about a percentage point, not a decimal.)
 
+> **These CPU figures are host-wide.** `sweep_sync.py` samples
+> `/proc/stat`, which counts every process on the machine, and expresses
+> it against the 48 CPUs this process may use. On an otherwise-idle
+> machine that is the run; on a busy one it is an **upper bound** on what
+> the run used, and can exceed 100%. Treat them as "the machine was this
+> busy", not "the parse used this much" -- and note that the conclusion
+> below rests on the *trend* across configurations, not the absolute
+> level.
+
 ### What flattens the curve past ~24 workers
 
 Timing each run's phases separates the candidates:
