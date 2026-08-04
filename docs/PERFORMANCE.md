@@ -331,7 +331,7 @@ Measured end to end on 2026-08-04, rather than extrapolated:
 | Baseline: serial, OCR on | -- | **1h 56m** |
 | OCR off | not parallelism | 55m 30s |
 | 12 workers, 4 GPUs (today's cap) | CPU + GPU | 5m 10s |
-| 32 workers, 4 GPUs (needs the clamp raised) | CPU | **3m 41s** |
+| 32 workers, 4 GPUs (needs the clamp raised) | CPU | **3m 43s** |
 
 **22x with the shipped defaults, 31x with the clamp raised.** Earlier
 editions of this table read `~1.6 h -> ~39 min -> 8.8 min -> 5m26s`; the
