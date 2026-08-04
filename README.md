@@ -185,7 +185,7 @@ python3 -m src.ledger
 # 6. Manually re-run any step of that chain yourself (no venv needed for any of these)
 python3 -m src.citation_gate path/to/draft.md
 python3 -m src.references path/to/draft.md --heading "References"    # --heading default: "References"
-python3 -m src.heavy.render_output path/to/draft.md --format pdf     # also: --documentclass, --fontsize, --margin (--help for all)
+python3 -m src.heavy.render_output path/to/draft.md --format pdf     # also: --csl, --no-collapse-citations, --documentclass, --fontsize, --margin (--help for all)
 ```
 
 Exporting from Zotero in detail, including the attachment-path trap that
@@ -268,7 +268,8 @@ extension of job 2:
           v
 +---------------------------------------+
 | src/ledger.py                         |
-|   -> content/ledger.sqlite            |   per-citekey status tracking
+|   -> content/ledger.sqlite            |   per-citekey status + the fields a
+|                                       |   reference entry is built from
 +---------------------------------------+
           |
           v

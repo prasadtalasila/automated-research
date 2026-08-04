@@ -135,6 +135,13 @@ docs/                     reference docs that ship in the release zip -- everyth
   DESIGN.md                 architecture and design decisions
   CITATION-PROVENANCE.md    what src/citation_provenance.py reports and how to read it
 LICENSE                   MIT
+assets/                   data files the pipeline reads at runtime, tracked and shipped
+  csl/ieee.csl              the CSL style pandoc formats citations with ([render].csl default).
+                          Vendored byte-identical to the CSL project's own release (CC BY-SA 3.0)
+                          so it can be re-fetched and diffed -- do not edit it in place; the one
+                          attribute this project needs is injected into a temp copy at render
+                          time (see assets/csl/README.md and render_output._collapsed_csl)
+  csl/README.md             the vendoring policy, upstream URL and sha256
 .github/workflows/        ci.yml (test suite + coverage + poetry check, on push/PR) and release.yml
                           (on a v* tag: verifies tag matches pyproject.toml's version, builds
                           scripts/release.py's zip, publishes it to a GitHub Release)
@@ -159,7 +166,9 @@ src/                      core pipeline (needs bibtexparser; citation_gate/refer
                           staleness check and readers are never blocked
   bib_reader.py             parses bibliography.bib -- the only citekey source
   ledger.py                 per-citekey status tracking (content/ledger.sqlite); find_stale/prune_missing
-                          detect/remove rows for citekeys no longer in the bib file
+                          detect/remove rows for citekeys no longer in the bib file. Also persists each
+                          entry's formatting-relevant BibTeX fields (bib_fields, JSON), so references.py
+                          can build a full bibliography entry without reading the bib file itself
   pdf_text.py               PDF text extraction, dispatched to pdftotext/docling by config.PARSER; also the parse-quality guard
   sync.py                   orchestrates the above -- the "job 1" entrypoint; --remove-stale opts into
                           deleting stale ledger rows (default: report only, see README's "Removing a paper")
@@ -172,7 +181,9 @@ src/                      core pipeline (needs bibtexparser; citation_gate/refer
   citation_coverage.py      ad-hoc review aid: retrieval-candidates-vs-actually-cited report, not a gate
   citation_provenance.py    ad-hoc review aid: what in each cited source supports the claim citing it, not a gate
                             (scores claims against passages.py's ladder; see docs/CITATION-PROVENANCE.md)
-  references.py             auto-generates a draft's "## References" section from its own cited citekeys
+  references.py             auto-generates a draft's "## References" section from its own cited citekeys,
+                          as numbered IEEE entries ordered by first appearance -- the same order (and
+                          so the same numbers) pandoc's citeproc assigns when the draft is rendered
 src/heavy/                optional heavier pipeline (pyproject.toml's "heavy" Poetry group)
   corpus.py                 unifies ledger items + [source_pdfs].dir's raw PDFs (doc: prefixed, non-citable)
   docling_parse.py, embed_index.py, topic_model.py
