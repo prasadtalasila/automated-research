@@ -1,4 +1,4 @@
-# PDF parser tradeoffs for automated-research
+# PDF parser tradeoffs for chitragupta
 
 ## Short summary
 

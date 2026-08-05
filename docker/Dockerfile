@@ -12,18 +12,18 @@
 # Treat this as a starting point to validate, not a tested artifact.
 #
 # Build:
-#   docker build -t research-pipeline -f docker/Dockerfile .
+#   docker build -t chitragupta -f docker/Dockerfile .
 # Run (mount persistent volumes -- see note at the bottom):
 #   docker run -it --rm \
-#     -v "$(pwd)":/workspace/automated-research \
-#     -v research-pipeline-content:/workspace/automated-research/content \
-#     research-pipeline
+#     -v "$(pwd)":/workspace/chitragupta \
+#     -v chitragupta-content:/workspace/chitragupta/content \
+#     chitragupta
 
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-WORKDIR /workspace/automated-research
+WORKDIR /workspace/chitragupta
 
 # Single script also used on a bare host -- one source of truth for
 # dependency versions/order/logic instead of separate, divergent copies

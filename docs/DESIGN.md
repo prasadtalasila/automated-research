@@ -1,4 +1,4 @@
-# Design review for automated-research
+# Design review for chitragupta
 
 ## Repository constraints and operating model
 

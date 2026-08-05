@@ -86,6 +86,33 @@ At 24 workers with OCR on, 93% of the available CPU is busy -- the one
 configuration measured where this machine is genuinely full. docling's
 OCR runs on the CPU (RapidOCR on onnxruntime), which is why.
 
+**And it cannot be moved to the GPU by configuration alone**, which is
+worth knowing before you go looking for the setting. Two things are in the
+way, either of which is enough on its own:
+
+- The `onnxruntime` wheel this project installs is the CPU build.
+  `onnxruntime.get_available_providers()` returns
+  `['AzureExecutionProvider', 'CPUExecutionProvider']` -- no
+  `CUDAExecutionProvider` to select.
+- docling's `RapidOcrModel` sets `use_cuda` on the *paddle* and *torch*
+  engine configs but not on the onnxruntime one, so the default backend
+  never asks for CUDA even where it is available.
+
+So `[parser].ocr = true` is a CPU cost that the `device` a worker is given
+does not touch. Measured here on one PDF, one worker, `cuda:0`: **5.31s
+with OCR on against 1.13s with it off** -- OCR is 79% of the wall clock,
+all of it on the CPU.
+
+That 79% is also the size of the prize, and it is not small. Getting OCR
+onto a card would mean `RapidOcrOptions(backend="torch")` -- the one
+backend docling wires `use_cuda` into -- plus a config key to select it.
+Do not size that work against the 1.79x above: that figure is what the
+GPU is worth *while OCR stays on the CPU*, not a ceiling on moving OCR
+itself. The stages that already run on a GPU go 4.70x faster there
+(above), and OCR is the larger share of an OCR-enabled run, so the
+plausible gain is a good deal more than 1.79x. Measure it before
+believing any particular number, including this reasoning.
+
 An earlier figure of **2.46x** appears in older documents and in
 `bench/RESULTS.md`. It came from a 16-PDF serial sample and is a
 reasonable estimate of the *serial* cost (measured: 2.08x); it is not the
@@ -108,7 +135,9 @@ matter more than parse time. **The parse-quality guard will not catch a
 wrong choice here** -- it looks for run-together words, not for content
 that never arrived.
 
-## GPU vs CPU -- less than it looks
+## GPU vs CPU -- it depends entirely on OCR
+
+**With OCR on, 1.79x:**
 
 | | s/page | Extrapolated to the corpus |
 |---|---|---|
@@ -116,13 +145,40 @@ that never arrived.
 | One process, CPU only, OCR on | 1.37 | ~5.1 hours |
 | Like for like, same 6 PDFs | | **1.79x** |
 
-**1.79x is the entire benefit the GPU delivers on this workload.** During
-that run the GPU averaged **~7% SM utilisation** and 1.7 GB of 46 GB,
-while the process held ~300% CPU -- three of the 48 available cores.
+During that run the GPU averaged **~7% SM utilisation** and 1.7 GB of
+46 GB, while the process held ~300% CPU -- three of the 48 available
+cores.
 
-docling is CPU-bound here (PDF backend, layout post-processing, and OCR
-on the CPU). A GPU helps; it is not the answer, and the numbers below are
-why the parallelism work went after CPU-level document concurrency first.
+**With OCR off -- the default -- 4.70x**, measured 2026-08-05 over 100
+documents / 2,529 pages, serial, one process, converters warmed so model
+loading is excluded, the same PDFs through both devices:
+
+| Documents | Pages | GPU | CPU | Aggregate |
+|---|---|---|---|---|
+| 10 | 75 | 0.222 s/page | 0.975 s/page | 4.39x |
+| 25 | 394 | 0.174 s/page | 0.948 s/page | 5.43x |
+| 50 | 798 | 0.211 s/page | 0.985 s/page | 4.67x |
+| **100** | **2,529** | **0.205 s/page** | **0.965 s/page** | **4.70x** |
+
+Per document: median 4.31x, quartiles 3.46x and 6.56x, range 1.74x to
+17.35x. Only one document of the hundred came in under 2x. The benefit
+grows with document size -- 3.49x aggregate under 10 pages against 5.78x
+at 30 pages or more -- because layout and table inference are the stages
+that scale with page count while the fixed per-document costs do not.
+
+**The two figures are not in conflict, and the difference is the point.**
+OCR runs on the CPU either way, so it adds the same seconds to *both*
+sides of the comparison and drags the ratio toward 1. It is not that the
+GPU does less when OCR is on; it is that the run contains much more work
+the GPU cannot touch. Read 1.79x as "what a GPU is worth on an OCR run"
+and 4.70x as "what it is worth on a default run" -- and note that the
+default is the one most people will measure.
+
+docling is still CPU-bound overall (PDF backend, layout post-processing,
+and OCR when enabled), one worker still leaves ~93% of a card idle, and
+the numbers below are still why the parallelism work went after CPU-level
+document concurrency first. A GPU is worth having; it is not what makes
+a corpus parse fast.
 
 ## `[parser].workers` -- document-level parallelism
 

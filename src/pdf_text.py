@@ -71,6 +71,15 @@ _MAX_DOCLING_ERRORS = 3
 # otherwise have run on the CPU.
 _NVIDIA_SMI_TIMEOUT = 10.0
 
+# Free device memory below which a card is not worth giving a worker.
+#
+# Measured on this project's own corpus: a docling worker holding the
+# layout, table and OCR models sits at ~1.7 GiB of device memory, on top
+# of a CUDA context of its own. 2.5 GiB is that figure with room to be
+# wrong in the direction that costs a little speed rather than the one
+# that costs the run.
+_GPU_MIN_FREE_MIB = 2560
+
 
 def allowed_cpus() -> int:
     """How many CPUs this *process* may run on -- not how many the
@@ -231,15 +240,24 @@ class interrupt_guard:
         os._exit(130)
 
 
-def _visible_devices(total: int) -> int:
-    """`total` narrowed by CUDA_VISIBLE_DEVICES, which nvidia-smi ignores
-    and every CUDA process obeys.
+def _parse_visible_devices(total: int) -> "tuple[int, list[int] | None]":
+    """(how many devices this process sees, which physical cards they
+    are) after CUDA_VISIBLE_DEVICES, which nvidia-smi ignores and every
+    CUDA process obeys.
 
-    Without this, restricting a run to one card would still hand worker 3
-    a `cuda:3` that does not exist in its view, and the worker would die
-    on the first convert. torch.cuda.device_count() applies the same
-    filter internally, so this is what keeps the nvidia-smi count
+    Without the count, restricting a run to one card would still hand
+    worker 3 a `cuda:3` that does not exist in its view, and the worker
+    would die on the first convert. torch.cuda.device_count() applies the
+    same filter internally, so this is what keeps the nvidia-smi count
     interchangeable with the torch one.
+
+    The second element is the mapping the *count* alone can't give:
+    `CUDA_VISIBLE_DEVICES=2,5` makes physical card 2 into `cuda:0` and
+    physical card 5 into `cuda:1`, so anything reading per-device figures
+    out of nvidia-smi -- which reports physical indices -- has to go
+    through it to name the right card. It is None when a UUID was named,
+    because resolving one to an index needs torch; usable_devices then
+    declines to filter rather than guessing at which card is which.
 
     Follows CUDA's own documented parsing: enumeration stops at the first
     entry that is not a valid device, so "0,foo,1" means one device, not
@@ -247,8 +265,8 @@ def _visible_devices(total: int) -> int:
     """
     spec = os.environ.get("CUDA_VISIBLE_DEVICES")
     if spec is None:
-        return total
-    count = 0
+        return total, list(range(total))
+    count, order, resolvable = 0, [], True
     for entry in spec.split(","):
         entry = entry.strip()
         # UUIDs (GPU-..., MIG-...) are accepted as named devices: this
@@ -256,13 +274,116 @@ def _visible_devices(total: int) -> int:
         # than the pre-nvidia-smi behaviour.
         if entry.startswith(("GPU-", "MIG-")):
             count += 1
+            resolvable = False
         elif entry.isdigit() and int(entry) < total:
             count += 1
+            order.append(int(entry))
         else:
             break
     # Clamped because a UUID cannot be checked against anything: six of
     # them named on a four-card host would otherwise hand out a cuda:5.
-    return min(count, total)
+    return min(count, total), (order if resolvable else None)
+
+
+def _visible_devices(total: int) -> int:
+    """`total` narrowed by CUDA_VISIBLE_DEVICES."""
+    return _parse_visible_devices(total)[0]
+
+
+def _gpu_free_mib_nvidia_smi() -> "dict[int, int] | None":
+    """Free memory per *physical* CUDA device in MiB, or None if
+    nvidia-smi can't say.
+
+    Same forgiving contract as _gpu_count_nvidia_smi, and the same reason
+    for preferring the driver's own tool to torch: this runs in the
+    parent, which must be able to hand a usable CUDA context to a forked
+    child, and importing torch here would take that away.
+    """
+    smi = shutil.which("nvidia-smi")
+    if smi is None:
+        return None
+    try:
+        result = subprocess.run(
+            [smi, "--query-gpu=index,memory.free",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True,
+            timeout=_NVIDIA_SMI_TIMEOUT, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    free = {}
+    for line in result.stdout.splitlines():
+        index, _, mib = line.partition(",")
+        try:
+            free[int(index)] = int(mib)
+        except ValueError:
+            # A card the driver can't currently report on prints "[N/A]"
+            # rather than a number. Leaving it out of the mapping is what
+            # makes usable_devices treat it as "can't tell", which is the
+            # same answer it gives when nvidia-smi is missing entirely.
+            continue
+    return free or None
+
+
+def usable_devices() -> "tuple[list[int], str | None]":
+    """(the CUDA device numbers worth giving a worker, a complaint).
+
+    Round-robin over `range(gpu_count())` assumes every card has room for
+    a worker. The run this was written for found GPU 0 already holding
+    44.4 GiB of a previous run's orphaned workers: the four workers
+    assigned to it could not load a model at all, and -- because a worker
+    that fails takes about 19s where a working one takes minutes -- those
+    four went on to claim, and fail, 334 of the corpus's 456 documents. A
+    poisoned worker is not merely useless, it is *faster* than a working
+    one, so the pool feeds it preferentially. Skipping a full card up
+    front is the difference between a slower run and a ruined one.
+
+    Forgiving in exactly the way gpu_count is: no nvidia-smi, a reading
+    it won't give, or a device list this can't map back to physical cards
+    all mean "assume every device is usable". Refusing a GPU on the
+    strength of a measurement we don't have would be worse than the
+    occasional bad assignment, which _extract_docling now recovers from
+    anyway.
+    """
+    n_gpus = gpu_count()
+    if n_gpus <= 0:
+        return [], None
+    free = _gpu_free_mib_nvidia_smi()
+    if free is None:
+        return list(range(n_gpus)), None
+    # nvidia-smi numbers physical cards from 0 without gaps, so the
+    # highest index it reported is the last card -- which is what
+    # _parse_visible_devices needs to range-check a CUDA_VISIBLE_DEVICES
+    # entry. A card omitted above (an "[N/A]" reading) can make this an
+    # undercount, which shortens the mapping and so leaves the devices
+    # past it unfiltered: the forgiving answer again.
+    _, physical = _parse_visible_devices(max(free) + 1)
+    if physical is None:
+        return list(range(n_gpus)), None
+    usable, skipped = [], []
+    for device in range(n_gpus):
+        mib = free.get(physical[device]) if device < len(physical) else None
+        if mib is None or mib >= _GPU_MIN_FREE_MIB:
+            usable.append(device)
+        else:
+            skipped.append(f"cuda:{device} ({mib / 1024:.1f} GiB free)")
+    if not skipped:
+        return usable, None
+    detail = ", ".join(skipped)
+    if usable:
+        return usable, (
+            f"  WARNING skipping {detail} -- under "
+            f"{_GPU_MIN_FREE_MIB / 1024:.1f} GiB free, which is not enough for a "
+            f"docling worker. Parsing on cuda:"
+            + ",".join(str(d) for d in usable) + ".")
+    # Every card is full. The CPU is slower -- measured 4.7x over 100
+    # documents with OCR off, and 1.8x with it on, since OCR is CPU work
+    # either way -- but it is a run that finishes, which is more than the
+    # alternative.
+    return [], (
+        f"  WARNING every GPU is busy ({detail}) -- parsing on the CPU. "
+        "Free a card or wait, then re-run to get the GPUs back.")
 
 
 def _gpu_count_nvidia_smi() -> "int | None":
@@ -546,7 +667,7 @@ def _reset_worker_device() -> None:
     _reset_docling_converter()
 
 
-def init_worker(counter, lock, n_gpus: int) -> None:
+def init_worker(counter, lock, devices) -> None:
     """Pool initialiser: claim one GPU for this worker, round-robin.
 
     Docling's `AcceleratorDevice.AUTO` resolves to `cuda:0` in *every*
@@ -555,6 +676,11 @@ def init_worker(counter, lock, n_gpus: int) -> None:
     pinned at 100% while GPUs 1-3 sat at 0%, and 12 workers were no
     faster than 4.
 
+    `devices` is usable_devices()'s list rather than a device *count*,
+    so a card with no memory free is never handed out -- the round-robin
+    walks the cards that can actually take a worker, and an empty list
+    leaves docling's own AUTO resolution alone.
+
     The index comes from a shared counter rather than the worker's PID or
     position, because a ProcessPoolExecutor neither numbers its workers
     nor guarantees it starts all of them -- it creates them lazily, as
@@ -562,13 +688,14 @@ def init_worker(counter, lock, n_gpus: int) -> None:
     that gives each *live* worker a distinct index.
     """
     global _WORKER_DEVICE
-    if n_gpus <= 0:
+    devices = list(devices)
+    if not devices:
         _WORKER_DEVICE = None
         return
     with lock:
         index = counter.value
         counter.value += 1
-    _WORKER_DEVICE = f"cuda:{index % n_gpus}"
+    _WORKER_DEVICE = f"cuda:{devices[index % len(devices)]}"
 
 
 def docling_threads(workers: int) -> int:
@@ -784,6 +911,44 @@ def check_docling_status(result) -> None:
     )
 
 
+def is_cuda_oom(exc: BaseException) -> bool:
+    """Does this exception mean the GPU had no memory left?
+
+    Matched on the message rather than the type because the two shapes it
+    arrives in are different classes: `torch.OutOfMemoryError` for an
+    allocation torch made itself ("CUDA out of memory. Tried to allocate
+    20.00 MiB"), and a bare `RuntimeError` for one the driver refused
+    underneath it ("CUDA error: out of memory"), which has no dedicated
+    type to catch. The run this comes from had 240 of the second and 94
+    of the first, so matching only the type with a name would have missed
+    the larger half.
+    """
+    text = str(exc)
+    return "CUDA out of memory" in text or "CUDA error: out of memory" in text
+
+
+def _demote_to_cpu() -> None:
+    """Give up on this worker's GPU and carry on without one.
+
+    A worker that cannot get device memory fails a document in about 19s
+    where a working one takes minutes, so the pool -- which hands the
+    next document to whichever worker is free first -- feeds the broken
+    one preferentially. In the run this comes from, four workers of 24
+    were on a card another process had filled, and they claimed and
+    failed 334 of 456 documents between them. Falling back to the CPU
+    turns that worker from an attractor for the whole queue back into a
+    worker that is merely slower.
+
+    No cache to clear: _docling_converter is keyed on _WORKER_DEVICE, so
+    moving the device is what rebuilds it.
+    """
+    global _WORKER_DEVICE
+    _WORKER_DEVICE = "cpu"
+    print("  WARNING a parse worker ran out of GPU memory -- it has fallen back "
+          "to the CPU for the rest of this run, which is slower but finishes. "
+          "Another process is most likely holding the card.", file=sys.stderr)
+
+
 def _extract_docling(pdf_path: str, out_path: Path, threads: int | None = None) -> None:
     converter = _docling_converter(threads)
     try:
@@ -799,7 +964,21 @@ def _extract_docling(pdf_path: str, out_path: Path, threads: int | None = None) 
         # is in this one PDF, not in the models, and throwing it away
         # would charge the next document a full reload for its neighbour's
         # bad luck.
-        raise ExtractionError(str(exc)) from exc
+        if is_cuda_oom(exc) and _WORKER_DEVICE != "cpu":
+            # Recursion is bounded by that guard: the retry runs with
+            # _WORKER_DEVICE == "cpu", where this branch cannot be taken
+            # again. `None` is included deliberately -- it means docling's
+            # own AUTO resolution, which is cuda:0, so a serial run has
+            # the same card to fall off.
+            _demote_to_cpu()
+            return _extract_docling(pdf_path, out_path, threads)
+        error = ExtractionError(str(exc))
+        if is_cuda_oom(exc):
+            # Caused by the machine at this moment, not by the PDF, so it
+            # must come back next run rather than being written off as a
+            # document that cannot be parsed.
+            error.transient = True
+        raise error from exc
     out_path.write_text(result.document.export_to_markdown(), encoding="utf-8")
 
 

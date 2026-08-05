@@ -371,6 +371,6 @@ succeeded -- not merely started:
 7. Tag `v<version>` (matching what's now in `main`'s `pyproject.toml`) and
    push the tag.
 8. Confirm `.github/workflows/release.yml` completed and the resulting
-   GitHub Release has its `automated-research-<version>.zip` asset
+   GitHub Release has its `chitragupta-<version>.zip` asset
    attached -- this is the actual deliverable, not the tag or the merge
    by itself.

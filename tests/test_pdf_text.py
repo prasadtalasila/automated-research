@@ -101,11 +101,24 @@ class FakeDoclingConverter:
     def __init__(self, format_options=None):
         FakeDoclingConverter.build_count += 1
         FakeDoclingConverter.last_format_options = format_options
+        options = getattr((format_options or {}).get("pdf"), "pipeline_options", None)
+        accelerator = getattr(options, "accelerator_options", None)
+        self.device = getattr(accelerator, "device", None)
 
     def convert(self, pdf_path):
         FakeDoclingConverter.last_convert_path = pdf_path
         if "explode" in str(pdf_path):
             raise RuntimeError("simulated docling failure")
+        # A card with no memory left. Raised on a CUDA device -- and on
+        # None, which is docling's own AUTO resolution, i.e. cuda:0 --
+        # but not on the CPU, so a test can watch the fallback actually
+        # produce a parse rather than just change a string.
+        if "cudaoom" in str(pdf_path) and self.device != "cpu":
+            raise RuntimeError("CUDA error: out of memory")
+        # The other half of the pair: an allocation torch made itself,
+        # which fails everywhere, so the CPU fallback runs out of road.
+        if "alwaysoom" in str(pdf_path):
+            raise RuntimeError("CUDA out of memory. Tried to allocate 20.00 MiB")
         return FakeDoclingResult(f"# Parsed content of {pdf_path}")
 
     @staticmethod
@@ -740,6 +753,249 @@ class TestVisibleDevices:
         assert pdf_text._visible_devices(4) == 2
 
 
+def _fake_gpus(monkeypatch, free, listed=None, returncode=0, found=True, raises=None):
+    """nvidia-smi answering both questions this module puts to it:
+    `--list-gpus` for the count, `--query-gpu=index,memory.free` for how
+    much room each card has.
+
+    `free` maps *physical* device index to the free-memory field as a
+    string, so a test can hand back "[N/A]" the way a card in a bad state
+    really does. `listed` decouples the card count from that mapping,
+    which is the only way to reach the case where nvidia-smi reports
+    memory for fewer cards than it lists.
+    """
+    monkeypatch.setattr(
+        shutil, "which", lambda name: "/usr/bin/nvidia-smi" if found else None)
+    n_listed = len(free) if listed is None else listed
+
+    def fake_run(cmd, **kwargs):
+        if any("--query-gpu" in part for part in cmd):
+            if raises is not None:
+                raise raises
+            body = "".join(f"{i}, {mib}\n" for i, mib in free.items())
+            return subprocess.CompletedProcess(cmd, returncode, stdout=body, stderr="")
+        body = "".join(
+            f"GPU {i}: NVIDIA A40 (UUID: GPU-{i})\n" for i in range(n_listed))
+        return subprocess.CompletedProcess(cmd, 0, stdout=body, stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+
+_FULL = 46068     # an A40, in MiB -- the card this was measured on
+_ROOMY = 45000    # comfortably over _GPU_MIN_FREE_MIB
+_CRAMPED = 600    # what the 44.4 GiB-occupied GPU 0 actually had left
+
+
+class TestUsableDevices:
+    """A card another process has filled must not be handed to a worker.
+
+    The run this comes from found GPU 0 holding 44.4 GiB of a previous
+    run's orphaned workers. Four of 24 workers were assigned to it, could
+    not load a model, and -- being ~19s per failure against minutes per
+    success -- were fed 334 of the corpus's 456 documents by a pool that
+    hands work to whoever is free first."""
+
+    @pytest.fixture(autouse=True)
+    def _docling_and_no_device_mask(self, monkeypatch):
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+
+    def test_no_gpus_means_no_devices_and_nothing_to_say(self, monkeypatch):
+        monkeypatch.setattr(config, "PARSER", "pdftotext")
+        assert pdf_text.usable_devices() == ([], None)
+
+    def test_every_card_free_is_every_card_used(self, monkeypatch):
+        _fake_gpus(monkeypatch, {i: _ROOMY for i in range(4)})
+        assert pdf_text.usable_devices() == ([0, 1, 2, 3], None)
+
+    def test_a_full_card_is_skipped_and_named(self, monkeypatch):
+        _fake_gpus(monkeypatch, {0: _CRAMPED, 1: _ROOMY, 2: _ROOMY, 3: _ROOMY})
+        devices, complaint = pdf_text.usable_devices()
+        assert devices == [1, 2, 3]
+        assert "cuda:0 (0.6 GiB free)" in complaint
+        # The survivors are named too: "which card is it using?" is the
+        # question a user asks next, and the answer is otherwise invisible.
+        assert "cuda:1,2,3" in complaint
+
+    def test_a_card_exactly_at_the_threshold_is_kept(self, monkeypatch):
+        """The boundary is >=, so a card with precisely enough room is
+        used rather than left idle."""
+        _fake_gpus(monkeypatch, {0: pdf_text._GPU_MIN_FREE_MIB, 1: _ROOMY})
+        assert pdf_text.usable_devices() == ([0, 1], None)
+
+    def test_a_card_one_MiB_short_is_skipped(self, monkeypatch):
+        _fake_gpus(monkeypatch, {0: pdf_text._GPU_MIN_FREE_MIB - 1, 1: _ROOMY})
+        devices, complaint = pdf_text.usable_devices()
+        assert devices == [1]
+        assert "cuda:0" in complaint
+
+    def test_every_card_full_falls_back_to_the_cpu(self, monkeypatch):
+        """Slower -- measured 4.7x with OCR off, 1.8x with it on -- but
+        a run that finishes, which beats 456 failures."""
+        _fake_gpus(monkeypatch, {0: _CRAMPED, 1: _CRAMPED})
+        devices, complaint = pdf_text.usable_devices()
+        assert devices == []
+        assert "every GPU is busy" in complaint
+        assert "parsing on the CPU" in complaint
+
+    def test_no_memory_reading_assumes_every_card_is_usable(self, monkeypatch):
+        """Forgiving in the same way gpu_count is: refusing a GPU on the
+        strength of a measurement we don't have is the worse mistake, and
+        _demote_to_cpu recovers from the assignment if it was wrong."""
+        _fake_gpus(monkeypatch, {i: _ROOMY for i in range(2)}, returncode=9)
+        assert pdf_text.usable_devices() == ([0, 1], None)
+
+    def test_an_unreadable_card_is_assumed_usable(self, monkeypatch):
+        """A driver that can't report on one card prints "[N/A]" for it."""
+        _fake_gpus(monkeypatch, {0: "[N/A]", 1: _ROOMY})
+        assert pdf_text.usable_devices() == ([0, 1], None)
+
+    def test_every_card_unreadable_is_no_reading_at_all(self, monkeypatch):
+        _fake_gpus(monkeypatch, {0: "[N/A]", 1: "[N/A]"})
+        assert pdf_text.usable_devices() == ([0, 1], None)
+
+    def test_a_card_nvidia_smi_did_not_report_on_is_kept(self, monkeypatch):
+        """nvidia-smi listed four cards but gave memory for three, so the
+        physical mapping runs out before the device list does."""
+        _fake_gpus(monkeypatch, {0: _ROOMY, 1: _ROOMY, 2: _ROOMY}, listed=4)
+        assert pdf_text.usable_devices() == ([0, 1, 2, 3], None)
+
+    def test_cuda_visible_devices_are_checked_by_physical_card(self, monkeypatch):
+        """The trap this mapping exists for: with CUDA_VISIBLE_DEVICES=3,1
+        the process's cuda:0 *is* physical card 3, so reading free memory
+        at index 0 would check the wrong card and skip the wrong one."""
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "3,1")
+        _fake_gpus(
+            monkeypatch,
+            {0: _ROOMY, 1: _ROOMY, 2: _ROOMY, 3: _CRAMPED})
+        devices, complaint = pdf_text.usable_devices()
+        assert devices == [1]
+        assert "cuda:0" in complaint
+
+    def test_a_uuid_device_list_is_not_filtered(self, monkeypatch):
+        """A UUID can't be resolved to nvidia-smi's index without torch,
+        and guessing which card is which would skip an arbitrary one."""
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "GPU-abc,GPU-def")
+        _fake_gpus(monkeypatch, {0: _CRAMPED, 1: _CRAMPED, 2: _ROOMY, 3: _ROOMY})
+        assert pdf_text.usable_devices() == ([0, 1], None)
+
+    def test_a_hanging_nvidia_smi_does_not_hang_the_sync(self, monkeypatch):
+        """A wedged driver makes nvidia-smi block rather than answer.
+        Costing the run its GPUs would be bad; costing it the whole sync
+        would be worse, so this falls through to "assume usable"."""
+        _fake_gpus(
+            monkeypatch, {0: _ROOMY, 1: _ROOMY},
+            raises=subprocess.TimeoutExpired(["nvidia-smi"], 10))
+        assert pdf_text.usable_devices() == ([0, 1], None)
+
+    def test_no_nvidia_smi_means_no_filtering(self, monkeypatch):
+        """torch answered the count; nothing can answer the memory."""
+        _fake_gpus(monkeypatch, {}, found=False)
+        monkeypatch.setitem(
+            sys.modules, "torch",
+            types.SimpleNamespace(cuda=types.SimpleNamespace(device_count=lambda: 2)))
+        assert pdf_text.usable_devices() == ([0, 1], None)
+
+
+class TestParseVisibleDevices:
+    """_visible_devices' counting is covered above; this is the mapping
+    back to physical cards that per-device memory readings need."""
+
+    def test_unset_maps_each_device_to_itself(self, monkeypatch):
+        monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+        assert pdf_text._parse_visible_devices(3) == (3, [0, 1, 2])
+
+    def test_a_reordered_subset_keeps_its_order(self, monkeypatch):
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "3,1")
+        assert pdf_text._parse_visible_devices(4) == (2, [3, 1])
+
+    def test_a_uuid_makes_the_mapping_unknowable(self, monkeypatch):
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,GPU-abc")
+        assert pdf_text._parse_visible_devices(4) == (2, None)
+
+    def test_enumeration_still_stops_at_the_first_invalid_entry(self, monkeypatch):
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2,nonsense,1")
+        assert pdf_text._parse_visible_devices(4) == (1, [2])
+
+
+class TestCudaOomRecovery:
+    """A worker that can't get device memory fails a document in ~19s
+    where a working one takes minutes, so a ProcessPoolExecutor -- which
+    hands the next document to whoever is free first -- feeds the broken
+    one preferentially. Four such workers out of 24 took 334 of 456
+    documents down with them."""
+
+    @pytest.fixture(autouse=True)
+    def _reset(self):
+        pdf_text._reset_worker_device()
+        yield
+        pdf_text._reset_worker_device()
+
+    def test_recognises_the_driver_level_message(self):
+        """240 of the 334 failures in the run this comes from. A bare
+        RuntimeError -- there is no dedicated type to catch."""
+        assert pdf_text.is_cuda_oom(RuntimeError("CUDA error: out of memory")) is True
+
+    def test_recognises_the_torch_allocator_message(self):
+        """The other 94. torch.OutOfMemoryError, in the real thing."""
+        assert pdf_text.is_cuda_oom(
+            RuntimeError("CUDA out of memory. Tried to allocate 20.00 MiB")) is True
+
+    def test_an_ordinary_failure_is_not_an_oom(self):
+        assert pdf_text.is_cuda_oom(RuntimeError("simulated docling failure")) is False
+
+    def test_an_oom_falls_back_to_the_cpu_and_the_document_parses(
+        self, isolated_config, fake_docling, tmp_path, capsys
+    ):
+        """The whole point: the document that triggered the fallback is
+        still parsed, not counted as a failure."""
+        pdf_text.init_worker(_FakeCounter(), _FakeLock(), [0, 1])
+        out = pdf_text.extract_text(str(tmp_path / "cudaoom.pdf"), "key")
+        assert "Parsed content" in out.read_text()
+        assert pdf_text.worker_device() == "cpu"
+        assert "fallen back" in capsys.readouterr().err
+
+    def test_the_fallback_sticks_for_the_rest_of_the_run(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        """Demoting per document would put the worker back on the full
+        card for the next one, which is the failure loop this replaces."""
+        pdf_text.init_worker(_FakeCounter(), _FakeLock(), [0])
+        pdf_text.extract_text(str(tmp_path / "cudaoom.pdf"), "one")
+        pdf_text.extract_text(str(tmp_path / "b.pdf"), "two")
+        assert fake_docling.pipeline_options().accelerator_options.device == "cpu"
+
+    def test_a_serial_run_falls_back_too(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        """No pool means no assigned device, which means docling's own
+        AUTO -- and that resolves to cuda:0, the same card."""
+        assert pdf_text.worker_device() is None
+        out = pdf_text.extract_text(str(tmp_path / "cudaoom.pdf"), "key")
+        assert "Parsed content" in out.read_text()
+        assert pdf_text.worker_device() == "cpu"
+
+    def test_an_oom_the_cpu_cannot_escape_is_reported_as_transient(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        """Caused by the machine at this moment rather than by the PDF,
+        so the ledger must retry it next run instead of writing it off."""
+        pdf_text.init_worker(_FakeCounter(), _FakeLock(), [0])
+        with pytest.raises(pdf_text.ExtractionError) as caught:
+            pdf_text.extract_text(str(tmp_path / "alwaysoom.pdf"), "key")
+        assert getattr(caught.value, "transient", False) is True
+
+    def test_an_ordinary_backend_failure_stays_deterministic(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        """A PDF docling genuinely cannot read is the same next run, and
+        retrying it forever would be the bug this guards against."""
+        pdf_text.init_worker(_FakeCounter(), _FakeLock(), [0])
+        with pytest.raises(pdf_text.ExtractionError) as caught:
+            pdf_text.extract_text(str(tmp_path / "explode.pdf"), "key")
+        assert getattr(caught.value, "transient", False) is False
+
+
 class TestCudaIsInitialised:
     def test_false_when_torch_was_never_imported(self, monkeypatch):
         """Asking the question must never be what makes the answer true,
@@ -1065,20 +1321,30 @@ class TestWorkerDevice:
         counter, lock = _FakeCounter(), _FakeLock()
         seen = []
         for _ in range(6):
-            pdf_text.init_worker(counter, lock, 4)
+            pdf_text.init_worker(counter, lock, [0, 1, 2, 3])
             seen.append(pdf_text._WORKER_DEVICE)
         assert seen == ["cuda:0", "cuda:1", "cuda:2", "cuda:3", "cuda:0", "cuda:1"]
+
+    def test_the_round_robin_walks_only_the_usable_cards(self):
+        """A device *list* rather than a count, so a card usable_devices
+        skipped is never handed out -- not even to worker 0."""
+        counter, lock = _FakeCounter(), _FakeLock()
+        seen = []
+        for _ in range(4):
+            pdf_text.init_worker(counter, lock, [1, 2, 4])
+            seen.append(pdf_text._WORKER_DEVICE)
+        assert seen == ["cuda:1", "cuda:2", "cuda:4", "cuda:1"]
 
     def test_no_gpus_means_no_device_override(self):
         """Leave docling to its own AUTO resolution rather than forcing
         a device that doesn't exist."""
-        pdf_text.init_worker(_FakeCounter(), _FakeLock(), 0)
+        pdf_text.init_worker(_FakeCounter(), _FakeLock(), [])
         assert pdf_text._WORKER_DEVICE is None
 
     def test_the_assigned_device_reaches_the_pipeline(
         self, isolated_config, fake_docling, tmp_path
     ):
-        pdf_text.init_worker(_FakeCounter(), _FakeLock(), 4)
+        pdf_text.init_worker(_FakeCounter(), _FakeLock(), [0, 1, 2, 3])
         pdf_text.extract_text(str(tmp_path / "a.pdf"), "a", threads=2)
         opts = fake_docling.pipeline_options().accelerator_options
         assert opts.device == "cuda:0"
@@ -1090,9 +1356,9 @@ class TestWorkerDevice:
         """Two workers in one process (the thread-pool path, and tests)
         must not share a converter pinned to someone else's GPU."""
         counter, lock = _FakeCounter(), _FakeLock()
-        pdf_text.init_worker(counter, lock, 4)
+        pdf_text.init_worker(counter, lock, [0, 1, 2, 3])
         pdf_text.extract_text(str(tmp_path / "a.pdf"), "a")
-        pdf_text.init_worker(counter, lock, 4)
+        pdf_text.init_worker(counter, lock, [0, 1, 2, 3])
         pdf_text.extract_text(str(tmp_path / "b.pdf"), "b")
         assert fake_docling.build_count == 2
         assert fake_docling.pipeline_options().accelerator_options.device == "cuda:1"

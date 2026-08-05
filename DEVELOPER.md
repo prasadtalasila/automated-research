@@ -194,7 +194,7 @@ scripts/
   install_full_pipeline.sh  single staged install path (os-deps/python-deps/dev-deps/all) for host + Docker
   full_pipeline.py           orchestrates src/heavy/* stages
   verbatim_check.py          ad-hoc review aid: verbatim-overlap and page-locating checks against sources
-  release.py                 bundles a distributable release/automated-research-<version>.zip, dev files excluded
+  release.py                 bundles a distributable release/chitragupta-<version>.zip, dev files excluded
 tests/                    pytest suite -- unit tests per module + end-to-end feature tests (see "Running tests")
 content/                  generated, gitignored (regenerate with sync)
   ledger.sqlite, parsed/<citekey>.txt, provenance/,
@@ -316,5 +316,5 @@ the following tasks need to be completed in priority order:
    unread.
 6. **Cron's minimal environment.** A crontab entry needs the venv's
    Python invoked by absolute path
-   (`/workspace/git/automated-research/.venv-full/bin/python`) -- cron
+   (`/workspace/git/chitragupta/.venv-full/bin/python`) -- cron
    doesn't source your shell profile or activate venvs.

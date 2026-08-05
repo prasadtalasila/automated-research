@@ -65,11 +65,19 @@ def _executor_for(workers: int):
         ctx, complaint = pdf_text.process_pool_context()
         if complaint:
             print(complaint, file=sys.stderr)
+        # Asked here rather than passed in because this is the one place
+        # a docling pool is built, and because the answer is only true
+        # for as long as it takes to start the workers -- another process
+        # can fill a card a second later, which is what _demote_to_cpu is
+        # for.
+        devices, gpu_complaint = pdf_text.usable_devices()
+        if gpu_complaint:
+            print(gpu_complaint, file=sys.stderr)
         return ProcessPoolExecutor(
             max_workers=workers,
             mp_context=ctx,
             initializer=pdf_text.init_worker,
-            initargs=(ctx.Value("i", 0), ctx.Lock(), pdf_text.gpu_count()),
+            initargs=(ctx.Value("i", 0), ctx.Lock(), devices),
         )
     return ThreadPoolExecutor(max_workers=workers)
 
