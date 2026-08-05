@@ -86,6 +86,25 @@ At 24 workers with OCR on, 93% of the available CPU is busy -- the one
 configuration measured where this machine is genuinely full. docling's
 OCR runs on the CPU (RapidOCR on onnxruntime), which is why.
 
+**And it cannot be moved to the GPU by configuration alone**, which is
+worth knowing before you go looking for the setting. Two things are in the
+way, either of which is enough on its own:
+
+- The `onnxruntime` wheel this project installs is the CPU build.
+  `onnxruntime.get_available_providers()` returns
+  `['AzureExecutionProvider', 'CPUExecutionProvider']` -- no
+  `CUDAExecutionProvider` to select.
+- docling's `RapidOcrModel` sets `use_cuda` on the *paddle* and *torch*
+  engine configs but not on the onnxruntime one, so the default backend
+  never asks for CUDA even where it is available.
+
+So `[parser].ocr = true` is a CPU cost that the `device` a worker is given
+does not touch. Measured here on one PDF, one worker, `cuda:0`: **10.8s
+with OCR on against 2.2s with it off** -- four fifths of the wall clock,
+all of it on the CPU. Getting it onto a card would mean
+`RapidOcrOptions(backend="torch")` and a config key to select it; the
+1.79x ceiling above is the most it could be worth.
+
 An earlier figure of **2.46x** appears in older documents and in
 `bench/RESULTS.md`. It came from a 16-PDF serial sample and is a
 reasonable estimate of the *serial* cost (measured: 2.08x); it is not the

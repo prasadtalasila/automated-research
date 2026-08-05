@@ -324,6 +324,27 @@ Restrict which cards are used with `CUDA_VISIBLE_DEVICES`; the pool only
 ever sees what that leaves visible. Figures in
 [PERFORMANCE.md](PERFORMANCE.md#multi-gpu----nothing-to-configure).
 
+**A card someone else is already using is skipped**, and the run says so
+on stderr:
+
+```
+  WARNING skipping cuda:0 (0.6 GiB free) -- under 2.5 GiB free, which is
+  not enough for a docling worker. Parsing on cuda:1,2,3.
+```
+
+That threshold is a worker's ~1.7 GiB of models plus its CUDA context.
+The check matters more than it sounds: a worker that cannot get device
+memory fails a document in seconds where a working one takes minutes, and
+the pool hands the next document to whichever worker is free first — so
+without this, the broken workers take most of the corpus. If every card
+is busy the run parses on the CPU (slower, but it finishes), and a worker
+that runs out of device memory *during* a run falls back to the CPU for
+its remaining documents rather than failing them.
+
+Nothing to configure here either — but if you would rather wait for a
+card than parse on the CPU, the warning is your cue to stop and re-run
+later.
+
 ### Why `fork` is not an option
 
 Not an oversight. By the time the pool is built, the process holds two

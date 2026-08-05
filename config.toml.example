@@ -149,7 +149,16 @@ ocr = false
 # multi-GPU machine uses all its cards instead of stacking every worker
 # on cuda:0 (which is what docling's own AUTO resolution does in every
 # process). Restrict that with CUDA_VISIBLE_DEVICES; there is no separate
-# setting for it.                                              Default: 1
+# setting for it.
+#
+# A card with under 2.5 GiB free -- one another process is already using
+# -- is left out of that rotation and said so on stderr, because a worker
+# that cannot load a model fails documents far faster than a working
+# worker parses them, and the pool then feeds it most of the corpus. If
+# every card is busy the run parses on the CPU instead, and a worker that
+# runs out of device memory mid-run falls back to the CPU rather than
+# failing the rest of its documents. docs/PARALLELISM.md has the detail.
+#                                                              Default: 1
 workers = 1
 
 # How that pool creates its worker processes. Consulted only when

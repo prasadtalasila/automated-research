@@ -196,18 +196,65 @@ torch/docling import overlaps work that has to happen anyway.
 Declines when no pool is coming: not docling, `workers = 1`, or a machine
 whose ceiling is 1 regardless of what was asked for.
 
-### `init_worker(counter, lock, n_gpus)`
+### `init_worker(counter, lock, devices)`
 
 Pool initialiser. Each worker claims one CUDA device round-robin:
 
 ```
-   shared counter ──(under lock)──► i ──► cuda:(i % n_gpus)
+   shared counter ──(under lock)──► i ──► cuda:devices[i % len(devices)]
 ```
 
 From a shared counter rather than a PID or position, because a pool
 creates workers lazily and numbers none of them. Without this, docling's
 `AcceleratorDevice.AUTO` resolves to `cuda:0` in *every* process and every
 worker piles onto one card.
+
+`devices` is a **list of cards**, not a count, which is what keeps a card
+that has no memory free out of the rotation entirely.
+
+### `usable_devices()`
+
+`gpu_count()` narrowed to the cards with at least 2.5 GiB free
+(`nvidia-smi --query-gpu=index,memory.free`), which is a docling worker's
+~1.7 GiB of models plus its CUDA context, plus room to be wrong.
+
+This exists because of a real run. GPU 0 was holding 44.4 GiB of a
+previous run's orphaned workers when a 24-worker sync started. Four
+workers were assigned to it, could not load a model at all, and — because
+a worker that fails takes ~19s where a working one takes minutes, and the
+pool hands the next document to whoever is free first — **those four
+claimed and failed 334 of the corpus's 456 documents**. A poisoned worker
+is not merely useless; it is an attractor for the whole queue.
+
+Two details that matter:
+
+- **`CUDA_VISIBLE_DEVICES` is applied to the mapping, not just the
+  count.** nvidia-smi reports *physical* indices; `CUDA_VISIBLE_DEVICES=3,1`
+  makes physical card 3 into this process's `cuda:0`. Checking free memory
+  at index 0 would read the wrong card and skip the wrong one.
+- **Every unknown means "usable".** No nvidia-smi, a reading it won't
+  give, or a device list naming UUIDs (which can't be resolved to an index
+  without torch) all leave the full list in place. Refusing a GPU on the
+  strength of a measurement we don't have is the worse mistake, and the
+  fallback below recovers from a bad assignment anyway.
+
+If *every* card is full the list is empty and the run parses on the CPU —
+measured 1.79x slower on this workload, which is a run that finishes.
+
+### CUDA-OOM fallback — `_extract_docling()`
+
+The backstop for what `usable_devices()` can't see: another process can
+fill a card in the second between the check and the model load. A parse
+that fails with either OOM message shape — `CUDA out of memory` (torch's
+own allocator) or `CUDA error: out of memory` (the driver refusing
+underneath it; 240 of the 334 failures above, and the one with no
+dedicated exception type) — demotes that worker to `cpu` for the rest of
+the run and retries the document immediately. The converter cache is keyed
+on the device, so moving it is what rebuilds it.
+
+A CUDA OOM that survives the CPU retry is marked `transient`, so the
+ledger retries it next run rather than writing the document off as
+unparseable. It was the machine's fault, not the PDF's.
 
 ### `gpu_count()`
 

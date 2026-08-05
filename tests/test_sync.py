@@ -858,18 +858,45 @@ class TestGpuAssignment:
         cuda:0 in every process, so without an explicit per-worker device
         N workers contend for one card while the rest idle."""
         monkeypatch.setattr(config, "PARSER", "docling")
-        monkeypatch.setattr(pdf_text, "gpu_count", lambda: 4)
+        monkeypatch.setattr(
+            pdf_text, "usable_devices", lambda: ([0, 1, 2, 3], None))
         captured = self._capture(monkeypatch)
 
         with sync._executor_for(2):
             pass
 
         assert captured["initializer"] is pdf_text.init_worker
-        counter, _lock, n_gpus = captured["initargs"]
-        assert n_gpus == 4
+        counter, _lock, devices = captured["initargs"]
+        assert devices == [0, 1, 2, 3]
         # A shared counter, not a per-process guess: a pool creates
         # workers lazily and numbers none of them.
         assert counter.value == 0
+
+    def test_a_card_with_no_room_never_reaches_a_worker(self, monkeypatch):
+        """usable_devices decides; this asserts sync passes its answer
+        through rather than re-deriving a count of its own."""
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(pdf_text, "usable_devices", lambda: ([1, 2, 3], None))
+        captured = self._capture(monkeypatch)
+
+        with sync._executor_for(2):
+            pass
+
+        assert captured["initargs"][2] == [1, 2, 3]
+
+    def test_a_skipped_card_is_reported_to_the_user(self, monkeypatch, capsys):
+        """A run quietly using five cards instead of six looks exactly
+        like one using all six, until it is 20% slower for no stated
+        reason."""
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(
+            pdf_text, "usable_devices", lambda: ([1], "  WARNING skipping cuda:0"))
+        self._capture(monkeypatch)
+
+        with sync._executor_for(2):
+            pass
+
+        assert "WARNING skipping cuda:0" in capsys.readouterr().err
 
     def test_the_start_method_is_pdf_texts_to_choose(self, monkeypatch):
         """One decision, in one place: sync and src/heavy/docling_parse
@@ -886,7 +913,7 @@ class TestGpuAssignment:
         to exist on the machine running the test.
         """
         monkeypatch.setattr(config, "PARSER", "docling")
-        monkeypatch.setattr(pdf_text, "gpu_count", lambda: 4)
+        monkeypatch.setattr(pdf_text, "usable_devices", lambda: ([0, 1, 2, 3], None))
         chosen = multiprocessing.get_context()
         monkeypatch.setattr(
             pdf_text, "process_pool_context", lambda: (chosen, None))
@@ -902,7 +929,7 @@ class TestGpuAssignment:
         the ledger open as live sqlite connections, and SQLite says not
         to carry an open connection across fork()."""
         monkeypatch.setattr(config, "PARSER", "docling")
-        monkeypatch.setattr(pdf_text, "gpu_count", lambda: 4)
+        monkeypatch.setattr(pdf_text, "usable_devices", lambda: ([0, 1, 2, 3], None))
         captured = self._capture(monkeypatch)
 
         with sync._executor_for(2):
@@ -914,7 +941,7 @@ class TestGpuAssignment:
         """A pool that quietly fell back to spawn looks exactly like one
         that got what was configured, and is ~1.5s slower to start."""
         monkeypatch.setattr(config, "PARSER", "docling")
-        monkeypatch.setattr(pdf_text, "gpu_count", lambda: 0)
+        monkeypatch.setattr(pdf_text, "usable_devices", lambda: ([], None))
         monkeypatch.setattr(
             pdf_text, "process_pool_context",
             lambda: (multiprocessing.get_context("spawn"), "  NOTE fell back"))
@@ -927,13 +954,13 @@ class TestGpuAssignment:
 
     def test_a_cpu_only_host_still_builds_a_working_pool(self, monkeypatch):
         monkeypatch.setattr(config, "PARSER", "docling")
-        monkeypatch.setattr(pdf_text, "gpu_count", lambda: 0)
+        monkeypatch.setattr(pdf_text, "usable_devices", lambda: ([], None))
         captured = self._capture(monkeypatch)
 
         with sync._executor_for(2):
             pass
 
-        assert captured["initargs"][2] == 0
+        assert captured["initargs"][2] == []
 
     def test_pdftotext_pool_has_no_gpu_initialiser(self, monkeypatch):
         from concurrent.futures import ThreadPoolExecutor
