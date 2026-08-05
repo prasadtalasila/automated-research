@@ -830,8 +830,8 @@ class TestUsableDevices:
         assert "cuda:0" in complaint
 
     def test_every_card_full_falls_back_to_the_cpu(self, monkeypatch):
-        """Slower -- 1.79x on this workload, measured -- but a run that
-        finishes, which beats 456 failures."""
+        """Slower -- measured 4.7x with OCR off, 1.8x with it on -- but
+        a run that finishes, which beats 456 failures."""
         _fake_gpus(monkeypatch, {0: _CRAMPED, 1: _CRAMPED})
         devices, complaint = pdf_text.usable_devices()
         assert devices == []

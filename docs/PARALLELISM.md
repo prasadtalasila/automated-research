@@ -65,7 +65,7 @@ Two entry points reach it, sharing the same machinery:
                            ▼
                    src/pdf_text.py
         resolve_workers · worker_ceiling · docling_threads
-        process_pool_context · prestart_pool · init_worker · gpu_count
+   process_pool_context · prestart_pool · init_worker · usable_devices
 ```
 
 `src/heavy/docling_parse.py` keeps its own `_executor_for` rather than
@@ -94,11 +94,11 @@ method, which GPU" is answered in exactly one place.
                                            ▼
    ┌──────────────────── ProcessPoolExecutor ───────────────────────┐
    │ mp_context   = forkserver (or spawn)                           │
-   │ initializer  = init_worker(counter, lock, n_gpus)              │
+   │ initializer  = init_worker(counter, lock, usable_devices())    │
    │                                                                │
    │  ┌──────────┐  ┌──────────┐  ┌──────────┐    ┌──────────┐      │
    │  │ worker 0 │  │ worker 1 │  │ worker 2 │ …  │ worker N │      │
-   │  │ cuda:0   │  │ cuda:1   │  │ cuda:2   │    │cuda:N%G  │      │
+   │  │ cuda:d[0]│  │ cuda:d[1]│  │ cuda:d[2]│    │cuda:d[N%G│      │
    │  │converter │  │converter │  │converter │    │converter │      │
    │  │built once│  │built once│  │built once│    │built once│      │
    │  └────┬─────┘  └────┬─────┘  └────┬─────┘    └────┬─────┘      │
@@ -239,7 +239,8 @@ Two details that matter:
   fallback below recovers from a bad assignment anyway.
 
 If *every* card is full the list is empty and the run parses on the CPU —
-measured 1.79x slower on this workload, which is a run that finishes.
+measured 4.7x slower with OCR off, 1.8x with it on (OCR is CPU work
+either way, so it narrows the gap). Slower, but a run that finishes.
 
 ### CUDA-OOM fallback — `_extract_docling()`
 

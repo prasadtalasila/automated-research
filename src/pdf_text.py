@@ -377,9 +377,10 @@ def usable_devices() -> "tuple[list[int], str | None]":
             f"{_GPU_MIN_FREE_MIB / 1024:.1f} GiB free, which is not enough for a "
             f"docling worker. Parsing on cuda:"
             + ",".join(str(d) for d in usable) + ".")
-    # Every card is full. The CPU is slower (measured 1.79x on this
-    # workload, not the order of magnitude a GPU suggests) but it is a
-    # run that finishes, which is more than the alternative.
+    # Every card is full. The CPU is slower -- measured 4.7x over 100
+    # documents with OCR off, and 1.8x with it on, since OCR is CPU work
+    # either way -- but it is a run that finishes, which is more than the
+    # alternative.
     return [], (
         f"  WARNING every GPU is busy ({detail}) -- parsing on the CPU. "
         "Free a card or wait, then re-run to get the GPUs back.")
