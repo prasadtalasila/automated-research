@@ -872,6 +872,30 @@ class TestGpuAssignment:
         # workers lazily and numbers none of them.
         assert counter.value == 0
 
+    def test_the_initargs_actually_work_as_init_worker_arguments(self, monkeypatch):
+        """Calls init_worker with what the pool would have handed it.
+
+        Every other test here substitutes the executor, so the
+        initializer is never invoked and a pool builder passing the wrong
+        *shape* is invisible -- which is exactly how the heavy pipeline
+        went on passing an int after init_worker started wanting a list
+        (PR #40 review). Asserting on a captured literal cannot catch
+        that; calling across the seam can.
+        """
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(pdf_text, "usable_devices", lambda: ([2, 3], None))
+        captured = self._capture(monkeypatch)
+
+        with sync._executor_for(2):
+            pass
+
+        pdf_text._reset_worker_device()
+        try:
+            pdf_text.init_worker(*captured["initargs"])
+            assert pdf_text.worker_device() == "cuda:2"
+        finally:
+            pdf_text._reset_worker_device()
+
     def test_a_card_with_no_room_never_reaches_a_worker(self, monkeypatch):
         """usable_devices decides; this asserts sync passes its answer
         through rather than re-deriving a count of its own."""

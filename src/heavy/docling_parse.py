@@ -359,15 +359,23 @@ def _executor_for(workers: int):
     Kept as its own function here rather than imported from sync so that
     src/heavy/ doesn't depend on the core entrypoint -- the dependency
     runs the other way everywhere else in this repo.
+
+    That duplication is the reason this takes `usable_devices()` rather
+    than a device count: the two builders have to agree about what
+    init_worker is handed, and a count here would skip the free-card
+    check that sync does -- which is the whole of what it is for.
     """
     ctx, complaint = pdf_text.process_pool_context()
     if complaint:
         print(complaint)
+    devices, gpu_complaint = pdf_text.usable_devices()
+    if gpu_complaint:
+        print(gpu_complaint)
     return ProcessPoolExecutor(
         max_workers=workers,
         mp_context=ctx,
         initializer=pdf_text.init_worker,
-        initargs=(ctx.Value("i", 0), ctx.Lock(), pdf_text.gpu_count()),
+        initargs=(ctx.Value("i", 0), ctx.Lock(), devices),
     )
 
 

@@ -818,25 +818,71 @@ class TestParallelHelpers:
             captured.update(kwargs)
             return contextlib.nullcontext()
 
-        monkeypatch.setattr(pdf_text, "gpu_count", lambda: 4)
+        monkeypatch.setattr(
+            pdf_text, "usable_devices", lambda: ([0, 1, 2, 3], None))
         monkeypatch.setattr(docling_parse, "ProcessPoolExecutor", record)
         with docling_parse._executor_for(2):
             pass
 
         assert captured["max_workers"] == 2
         assert captured["initializer"] is pdf_text.init_worker
-        assert captured["initargs"][2] == 4
+        assert captured["initargs"][2] == [0, 1, 2, 3]
         # Whichever start method pdf_text picked -- asserted against that
         # rather than a literal, so this stays one source of truth with
         # src/sync.py's pool rather than two that can drift apart.
         assert captured["mp_context"].get_start_method() == pdf_text.start_method()[0]
+
+    def test_a_full_card_is_kept_out_of_this_pool_too(self, monkeypatch):
+        """Two pool builders, one contract. This one skipped the check
+        until PR #40 review caught it."""
+        captured = {}
+        monkeypatch.setattr(pdf_text, "usable_devices", lambda: ([1, 2], "  WARNING"))
+        monkeypatch.setattr(
+            docling_parse, "ProcessPoolExecutor",
+            lambda **kwargs: captured.update(kwargs) or contextlib.nullcontext())
+        with docling_parse._executor_for(2):
+            pass
+
+        assert captured["initargs"][2] == [1, 2]
+
+    def test_the_initargs_actually_work_as_init_worker_arguments(self, monkeypatch):
+        """The regression this pool actually had: it passed
+        pdf_text.gpu_count() -- an int -- where init_worker wants a list
+        of cards, so every worker would have died with "'int' object is
+        not iterable" at startup. Invisible to a test that only compares
+        initargs to a literal, because the initializer is never run."""
+        captured = {}
+        monkeypatch.setattr(pdf_text, "usable_devices", lambda: ([2, 3], None))
+        monkeypatch.setattr(
+            docling_parse, "ProcessPoolExecutor",
+            lambda **kwargs: captured.update(kwargs) or contextlib.nullcontext())
+        with docling_parse._executor_for(2):
+            pass
+
+        pdf_text._reset_worker_device()
+        try:
+            pdf_text.init_worker(*captured["initargs"])
+            assert pdf_text.worker_device() == "cuda:2"
+        finally:
+            pdf_text._reset_worker_device()
+
+    def test_a_skipped_card_is_reported_not_swallowed(self, monkeypatch, capsys):
+        monkeypatch.setattr(
+            pdf_text, "usable_devices",
+            lambda: ([1], "  WARNING skipping cuda:0"))
+        monkeypatch.setattr(docling_parse, "ProcessPoolExecutor",
+                            lambda **kwargs: contextlib.nullcontext())
+        with docling_parse._executor_for(2):
+            pass
+
+        assert "WARNING skipping cuda:0" in capsys.readouterr().out
 
     def test_a_start_method_complaint_is_printed_not_swallowed(
         self, monkeypatch, capsys
     ):
         """A pool that quietly falls back to spawn looks identical to one
         that got what was configured, and is ~1.5s slower to start."""
-        monkeypatch.setattr(pdf_text, "gpu_count", lambda: 0)
+        monkeypatch.setattr(pdf_text, "usable_devices", lambda: ([], None))
         monkeypatch.setattr(
             pdf_text, "process_pool_context",
             lambda: (multiprocessing.get_context("spawn"), "  NOTE fell back"))
