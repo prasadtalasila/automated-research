@@ -1,12 +1,18 @@
-# Chitragupta
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)"
+            srcset="docs/logo.svg">
+    <img src="docs/logo-dark.svg" alt="chitragupta" height="72">
+  </picture>
+</p>
 
 Turns a BibTeX bibliography into grounded survey papers, thesis chapters,
 undergraduate textbook chapters and hands-on tutorials, with every citation
 traceable back to a paper the bibliography actually holds.
 
 Named for the Hindu god who keeps the ledger of every deed and audits
-souls against it -- which is what this does to citations. `NAME` has the
-longer justification.
+souls against it -- which is what this does to citations.
+[See more](docs/NAME.md).
 
 ## About
 

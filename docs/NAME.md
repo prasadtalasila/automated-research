@@ -1,6 +1,6 @@
 # Chitragupta
 
-A divine record-keeper of Hindu tradition.
+A divine record keeper who keeps the ledger of deeds and audits souls against it.
 
 ## The figure
 
@@ -57,12 +57,8 @@ theme:
    the record does not just establish *that* a source exists, it can
    produce *what in it* supports the claim.
 
-
-Named for the Hindu god who keeps the ledger of deeds and audits souls against it.
-
 - **Effortless iconography.** Pen, inkpot, and ledger make a
   distinctive, meaningful logo.
 
-**TODO**: As a CLI name, `chitragupta` is long but tab-completes; `cg` is a
-  plausible alias.
-
+**TODO**: As a CLI name, `chitragupta` is long but tab-completes;
+  `cg` is a plausible alias.
