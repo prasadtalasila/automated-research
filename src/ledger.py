@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from src import config
+from src import config, passages
 
 if TYPE_CHECKING:
     # Only for the upsert_reference type hint -- citation_gate.py imports
@@ -182,6 +182,39 @@ def _bib_fields_json(ref: Reference) -> str | None:
     return json.dumps(kept, sort_keys=True) if kept else None
 
 
+def _parse_outputs_present(citekey: str, parsed_path: str | None) -> bool:
+    """Every file a successful parse leaves behind, not just the row.
+
+    The ledger records *that* a parse happened. It cannot notice that the
+    output has since been deleted, or that a file this project only
+    started writing later was never there at all -- and either way the row
+    still says "parsed", so every subsequent run skips the document and
+    the gap stays open forever.
+
+    Two things must be on disk for a citekey the ledger calls parsed:
+
+    - the parsed text itself; and
+    - the passage sidecar, when `[parser].backend` is one that resolves
+      reading order. `pdf_text.extract_text` writes it for every such
+      parse, empty included, so its absence means the text was produced by
+      a backend (or a version of this project) that could not write one.
+
+    That second clause is what upgrades an existing corpus: switch to
+    `docling`, or install a version that keeps Docling's document model,
+    and the next `sync` re-parses the documents that predate it instead of
+    quietly leaving them without quotable passages. It costs one re-parse
+    per affected document, once.
+
+    Directly mirrors `src/enrich/docling_parse.py`'s `_outputs_present`,
+    which exists for the same reason on the other layer's artefacts.
+    """
+    if not parsed_path or not Path(parsed_path).exists():
+        return False
+    if config.PARSER == "docling" and not passages.sidecar_path(citekey).exists():
+        return False
+    return True
+
+
 def upsert_reference(con: sqlite3.Connection, ref: Reference, force: bool = False) -> bool:
     """Insert or update a reference's bibliographic fields.
 
@@ -190,7 +223,7 @@ def upsert_reference(con: sqlite3.Connection, ref: Reference, force: bool = Fals
     now = datetime.now(timezone.utc).isoformat()
 
     row = con.execute(
-        "SELECT pdf_hash, pdf_size, pdf_mtime_ns, status, failure_kind "
+        "SELECT pdf_hash, pdf_size, pdf_mtime_ns, status, failure_kind, parsed_path "
         "FROM items WHERE citekey = ?",
         (ref.citekey,),
     ).fetchone()
@@ -235,12 +268,16 @@ def upsert_reference(con: sqlite3.Connection, ref: Reference, force: bool = Fals
              _bib_fields_json(ref)),
         )
     else:
-        old_hash, _old_size, _old_mtime_ns, old_status, old_kind = row
+        old_hash, _old_size, _old_mtime_ns, old_status, old_kind, old_parsed_path = row
         if force and pdf_hash is not None:
             new_status = "discovered"
         elif pdf_hash != old_hash:
             needs_parse = pdf_hash is not None
             new_status = "discovered" if pdf_hash else "no_pdf"
+        elif old_status == "parsed" and pdf_hash is not None and not _parse_outputs_present(
+                ref.citekey, old_parsed_path):
+            needs_parse = True
+            new_status = "discovered"
         elif (old_status == "parse_failed" and pdf_hash is not None
                 and old_kind != "deterministic"):
             # Retry a *transient* failed parse even though the PDF is

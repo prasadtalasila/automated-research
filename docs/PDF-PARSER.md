@@ -17,7 +17,7 @@ The main candidates are:
 |---|---|---|---|---|---|
 | `pdftotext` | Plain text extraction | Very fast, simple, stable, low dependency footprint | Weak on layout, tables, headings, and reading order | 1x | Best lightweight baseline |
 | `markitdown` | General file-to-Markdown conversion | Flexible normalization, multi-format support | Fuses adjacent words on this corpus (4.19% of tokens), which breaks whitespace-tokenized retrieval | ~17x slower (measured, 5 real bib PDFs) | **Removed 2026-08-01** -- see below |
-| `docling` | Layout-aware PDF parsing | Better reading order, sections, tables, and structured Markdown | Heavy, slower, model/runtime complexity | ~42x slower (measured, 5 real bib PDFs, OCR on -- see note below) | Best quality parser for the enrichment path |
+| `docling` | Layout-aware PDF parsing | Better reading order, sections, tables, and structured Markdown -- and the only backend whose reading order is *kept*, as the passage sidecar a claim can be quoted from | Heavy, slower, model/runtime complexity | ~42x slower (measured, 5 real bib PDFs, OCR on -- see note below) | Best quality parser for either layer; required if you want quotable passages |
 | `grobid` | Scholarly structure and references | Excellent for title, abstract, sections, and references | Not a general-purpose plain-text extractor; needs a JDK 21 build and a long-running service | Separate from the main speed scale | **Removed 2026-08-01** -- see below |
 
 ## Likely behavior in practice

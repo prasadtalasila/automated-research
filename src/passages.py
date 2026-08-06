@@ -6,18 +6,23 @@ One ladder, tried best-first, for any consumer that needs to point at
 
 1. `content/docling/<citekey>.passages.json`, if the enrichment layer's
    Docling stage has run. Real reading-ordered paragraphs, semantically labelled.
-2. `content/parsed/<citekey>.txt` split on form feeds -- page-level only.
-3. `pdftotext -layout` on the PDF the ledger recorded, same shape as (2),
+2. `content/parsed/<citekey>.passages.json`, if the corpus layer parsed
+   this citekey with `[parser].backend = "docling"`. Same records, from
+   the same `passage_records()` below.
+3. `content/parsed/<citekey>.txt` split on form feeds -- page-level only.
+4. `pdftotext -layout` on the PDF the ledger recorded, same shape as (3),
    for a citekey parsed by a backend that left no page breaks.
 
-Rung 2 works for `[parser].backend = "pdftotext"` and never for
-`docling`: that backend writes Markdown, which carries no form feeds, so
-the split yields a single page and the ladder moves on. A docling-parsed
-citekey with no enrichment stage therefore lands on rung 3 every time --
-see
-`src/pdf_text.py`'s `_extract_docling`.
+Rungs 1 and 2 are the same data from two independent parses, and they are
+separate files rather than one because the two layers own different
+directories and run on their own schedules. The corpus layer must be able
+to invalidate *its* sidecar on every re-parse -- including a switch back
+to `pdftotext`, which leaves no passages at all -- without deleting an
+enrichment sidecar it did not write and cannot reproduce. Rung 1 wins when
+both exist: the enrichment stage parses the PDF a second time, under its
+own OCR and figure settings, and is the richer of the two.
 
-The difference between (1) and (2)/(3) is not cosmetic, and it is the
+The difference between (1)/(2) and (3)/(4) is not cosmetic, and it is the
 reason this module exists as its own seam. `pdftotext -layout` preserves
 a page's *visual* arrangement rather than its reading order, so on a
 two-column paper each output line splices together two unrelated columns
@@ -31,6 +36,14 @@ So the guarantee is structural rather than advisory: a page-level
 `Passage` carries `text=None`, and a caller that wants to quote has
 nothing to quote. `quotable` reports that fact; it does not gate a field
 that is sitting there anyway.
+
+`passage_records()` lives here rather than beside either writer for the
+same reason the ladder does: this module is stdlib-only and is already
+the sidecar's reader, so both producers -- `src/pdf_text.py` in the
+corpus layer and `src/enrich/docling_parse.py` in the enrichment layer --
+share one definition of what a passage is. It takes a Docling document by
+duck-typing (`getattr` only, no import), which is what lets a module with
+no venv dependency describe a document only a venv can build.
 
 Extracted from src/citation_provenance.py, which owned this ladder when
 it was the only consumer, and kept as its own seam for a second one that
@@ -83,10 +96,87 @@ class Passage:
         return self.text is not None
 
 
+# Docling labels each text item. Running heads, page numbers and figure
+# captions are not prose a claim can be supported by, so they are left
+# out of the passage sidecar -- keeping them would let a claim "match"
+# a journal name repeated on all 17 pages.
+PASSAGE_LABELS = frozenset({"text", "list_item", "section_header", "title"})
+
+
+def passage_records(dl_doc) -> list[dict]:
+    """One record per prose text item: what it says and where it sits.
+
+    This is what makes a *quotable* passage possible. `pdftotext -layout`
+    preserves a page's visual arrangement rather than its reading order,
+    so on a two-column paper each output line splices together two
+    unrelated columns (82%-89% of long lines, measured over this
+    project's own sample). Any excerpt drawn from that text is a
+    two-argument collage. Docling resolves reading order, so an item here
+    is a real paragraph that can be shown to a reviewer verbatim.
+
+    The bounding box rides along because Docling already has it, and it
+    is what a future click-through highlight would need; nothing in this
+    repo consumes it yet.
+
+    `dl_doc` is a Docling `DoclingDocument`, read entirely through
+    `getattr` so that this module -- which must import under a bare
+    `python3` -- never names the library. Both writers pass one in: the
+    corpus layer's `pdf_text._extract_docling` and the enrichment layer's
+    `docling_parse.parse_doc`.
+    """
+    records = []
+    for item in getattr(dl_doc, "texts", []):
+        label = str(getattr(item, "label", "")).split(".")[-1].lower()
+        text = (getattr(item, "text", "") or "").strip()
+        if label not in PASSAGE_LABELS or not text:
+            continue
+        prov = item.prov[0] if getattr(item, "prov", None) else None
+        record = {"text": text, "label": label,
+                  "page": getattr(prov, "page_no", None) if prov else None}
+        bbox = getattr(prov, "bbox", None) if prov else None
+        if bbox is not None:
+            record["bbox"] = [getattr(bbox, side, None) for side in ("l", "t", "r", "b")]
+        records.append(record)
+    return records
+
+
+def sidecar_path(citekey: str) -> Path:
+    """The corpus layer's passage sidecar for `citekey` (rung 2).
+
+    Built from the citekey in one place, so the writer in
+    `src/pdf_text.py` and the reader below cannot drift apart. The
+    enrichment layer's own sidecar (rung 1) is *not* this path -- it lives
+    under `config.DOCLING_DIR` and is keyed by doc_id, which covers
+    `papers/pdfs/` documents that have no citekey at all.
+    """
+    return config.PARSED_DIR / f"{citekey}.passages.json"
+
+
+def write_sidecar(citekey: str, records: list[dict]) -> Path:
+    path = sidecar_path(citekey)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(records, indent=2), encoding="utf-8")
+    return path
+
+
+def clear_sidecar(citekey: str) -> None:
+    """Drop any corpus-layer sidecar for `citekey`.
+
+    Called before every re-parse rather than after a failed one. A
+    sidecar quotes the PDF *as parsed at the time it was written*, so it
+    outlives its own truth in three ways: the backend changes to one that
+    produces no passages, the parse of an edited PDF fails outright, or
+    the same backend re-runs and produces different text. Removing it up
+    front makes all three land on "no sidecar" instead of "last week's
+    sentences, attributed to today's document".
+    """
+    sidecar_path(citekey).unlink(missing_ok=True)
+
+
 def _page_number(raw) -> int | None:
     """A sidecar's `page` as a 1-based page number, or None.
 
-    `_passage_records` writes Docling's own `page_no` here, so the
+    `passage_records` writes Docling's own `page_no` here, so the
     machine-written case is always an int -- but the file is JSON on
     disk, it may have been hand-edited, and `Passage.page` is both
     rendered straight into "p.{page}" and typed `int | None` for callers
@@ -109,8 +199,7 @@ def _ledger_row(con, citekey: str):
     return row
 
 
-def _from_sidecar(citekey: str) -> list[Passage] | None:
-    path = config.DOCLING_DIR / f"{citekey}.passages.json"
+def _from_sidecar(path: Path) -> list[Passage] | None:
     try:
         records = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
@@ -155,9 +244,15 @@ def _from_pages(raw: str) -> list[Passage]:
 def source_passages(con, citekey: str) -> tuple[list[Passage], str | None]:
     """Best available passages for `citekey`, plus a reason if there are
     none."""
-    sidecar = _from_sidecar(citekey)
-    if sidecar:
-        return sidecar, None
+    # Rung 1 before rung 2: both hold the same kind of record, but the
+    # enrichment layer's is a second, independent parse of the PDF under
+    # its own OCR and figure settings, so it is the richer of the two
+    # whenever a run has paid for it.
+    for path in (config.DOCLING_DIR / f"{citekey}.passages.json",
+                 sidecar_path(citekey)):
+        sidecar = _from_sidecar(path)
+        if sidecar:
+            return sidecar, None
 
     row = _ledger_row(con, citekey)
     if row is None:
@@ -169,6 +264,9 @@ def source_passages(con, citekey: str) -> tuple[list[Passage], str | None]:
         found = _from_pages(raw)
         # A backend that emits no form feeds yields exactly one "page",
         # which would report every hit as p.1. Fall through to the PDF.
+        # Both shipped backends do emit them, so this now catches a
+        # genuinely single-page source (where rung 4 says the same thing)
+        # rather than every docling parse.
         if len(found) > 1:
             return found, None
 

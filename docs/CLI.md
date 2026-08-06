@@ -6,6 +6,7 @@ short path; this is the full set.
 
 ## Table of contents
 
+- [Upgrading a corpus parsed by an earlier version](#upgrading-a-corpus-parsed-by-an-earlier-version)
 - [Upgrading from 2.x](#upgrading-from-2x)
 - [Which interpreter](#which-interpreter)
 - [The full first run, step by step](#the-full-first-run-step-by-step)
@@ -22,6 +23,24 @@ short path; this is the full set.
   - [`scripts/install_full_pipeline.sh`](#scriptsinstall_full_pipelinesh)
   - [`scripts/release.py`](#scriptsreleasepy)
 - [Environment variables](#environment-variables)
+
+## Upgrading a corpus parsed by an earlier version
+
+If you already ran `sync` with `[parser].backend = "docling"`, those
+citekeys were parsed before this project kept Docling's page breaks and
+passage records, and their PDFs haven't changed -- so the ledger would
+normally skip them forever.
+
+It doesn't. `sync` now treats a document it calls `parsed` whose passage
+sidecar is missing as one that needs parsing again, so the next run
+upgrades exactly those documents and nothing else. It costs one re-parse
+each, once (6.65s per PDF serial, 0.62s at twelve workers -- see
+[PERFORMANCE.md](PERFORMANCE.md)), and the run reports them the way it
+reports any other parse. The same check restores a `.txt` or a sidecar
+you delete by hand.
+
+Nothing to do, in other words -- but if you would rather force it all at
+once, `python -m src.sync --reparse` still re-extracts everything.
 
 ## Upgrading from 2.x
 
@@ -368,9 +387,13 @@ python3 scripts/verbatim_check.py overlap content/drafts/survey.md talasila_comp
 ```
 
 `locate` reports page numbers by splitting on the form-feed characters
-`pdftotext` emits between pages. A citekey parsed with the `docling`
-backend has none, so every hit reports `pdf p.1` -- see
-[CONFIG.md](CONFIG.md#backend-pdftotext-or-docling).
+between pages. Both backends emit them, so a page number here is a page
+you can turn to whichever one parsed the citekey -- see
+[CONFIG.md](CONFIG.md#backend-pdftotext-or-docling). One limit: `docling`
+writes a break between consecutive pages that carry text, so a page with
+no extracted items at all shifts the numbering after it. The passage
+sidecar records each item's own page and is not affected; where the two
+disagree, believe `python3 -m src.citation_provenance`.
 
 ### `scripts/install_full_pipeline.sh`
 

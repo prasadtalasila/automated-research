@@ -6,6 +6,7 @@ at module top), so these stay fast and don't need real model weights.
 
 import contextlib
 import json
+import os
 import multiprocessing
 import re
 import sys
@@ -14,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from src import config, pdf_text
+from src import config, passages, pdf_text
 from src.enrich import docling_parse
 from src.enrich.corpus import CorpusDoc
 
@@ -376,6 +377,184 @@ class TestImageExtraction:
         records = json.loads((images_on.DOCLING_DIR / "doc_extra.figures.json").read_text())
         assert "[@" not in records[0]["cite"]
         assert "not citable" in records[0]["cite"]
+
+
+class TestReusingTheCorpusLayersParse:
+    """The dependency this repository allows: the enrichment layer reads
+    the corpus layer's artefacts, never the reverse.
+
+    Nothing in these cases reaches into `src/` to make it work -- the
+    corpus layer writes what it writes for its own reasons, and this
+    stage either finds it or parses the PDF itself.
+    """
+
+    def _doc(self, tmp_path, citekey="a2024", parsed_text=None):
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        text_path = None
+        if parsed_text is not None:
+            config.PARSED_DIR.mkdir(parents=True, exist_ok=True)
+            text_path = config.PARSED_DIR / f"{citekey}.txt"
+            text_path.write_text(parsed_text, encoding="utf-8")
+            text_path = str(text_path)
+        return CorpusDoc(doc_id=citekey, citekey=citekey, source="bib", title="t",
+                         pdf_path=str(pdf), text_path=text_path)
+
+    def _corpus_parsed(self, tmp_path, citekey="a2024", pages=("page one", "page two")):
+        """A citekey the corpus layer has already parsed with docling.
+
+        Pages are joined the way real Docling writes them -- the
+        placeholder sits inside the blank line between two blocks, not
+        flush against the text (checked against docling_core 2.89.0).
+        """
+        doc = self._doc(tmp_path, citekey, parsed_text="\n\n\f\n\n".join(pages))
+        passages.write_sidecar(citekey, [
+            {"text": "A reading-ordered paragraph.", "label": "text", "page": 1},
+        ])
+        return doc
+
+    def test_no_second_parse_happens(self, isolated_config, fake_docling, tmp_path):
+        doc = self._corpus_parsed(tmp_path)
+        docling_parse.parse_doc(doc)
+        assert FakeDocumentConverter.call_count == 0
+
+    def test_the_markdown_drops_the_form_feeds(self, isolated_config, fake_docling, tmp_path):
+        """The corpus layer asks Docling for page breaks; this layer does
+        not. Removing them, and the blank run each leaves behind, gives
+        back what a plain export would have produced."""
+        doc = self._corpus_parsed(tmp_path, pages=("page one", "page two"))
+        out = docling_parse.parse_doc(doc)
+        assert out.read_text() == "page one\n\npage two"
+
+    def test_a_form_feed_flush_against_the_text_does_not_fuse_words(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        """Deleting the form feed outright would run the last word of one
+        page into the first word of the next, inventing a token that is
+        in neither."""
+        doc = self._doc(tmp_path, parsed_text="ends here\fbegins there")
+        passages.write_sidecar("a2024", [{"text": "p", "label": "text", "page": 1}])
+        out = docling_parse.parse_doc(doc)
+        assert "herebegins" not in out.read_text()
+        assert out.read_text() == "ends here\n\nbegins there"
+
+    def test_the_passage_sidecar_is_carried_over(self, isolated_config, fake_docling, tmp_path):
+        doc = self._corpus_parsed(tmp_path)
+        docling_parse.parse_doc(doc)
+        records = json.loads((isolated_config.DOCLING_DIR / "a2024.passages.json").read_text())
+        assert [r["text"] for r in records] == ["A reading-ordered paragraph."]
+
+    def test_the_result_is_cached_like_a_real_parse(self, isolated_config, fake_docling, tmp_path):
+        doc = self._corpus_parsed(tmp_path)
+        docling_parse.parse_doc(doc)
+        cache = json.loads(config.DOCLING_CACHE_PATH.read_text())
+        assert doc.doc_id in cache["items"]
+
+    def test_a_pdftotext_corpus_parse_is_not_reused(self, isolated_config, fake_docling, tmp_path):
+        """No sidecar means the corpus text is column-spliced flat text,
+        not Docling Markdown -- adopting it would quietly replace this
+        stage's output with something it must never quote from."""
+        doc = self._doc(tmp_path, parsed_text="page one\fpage two")
+        docling_parse.parse_doc(doc)
+        assert FakeDocumentConverter.call_count == 1
+
+    def test_a_source_pdf_is_never_reused(self, isolated_config, fake_docling, tmp_path):
+        """`papers/pdfs/` documents have no citekey, so the corpus layer
+        has never seen them."""
+        pdf = tmp_path / "extra.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        doc = CorpusDoc(doc_id="doc:extra", citekey=None, source="source-pdfs",
+                        title="t", pdf_path=str(pdf))
+        docling_parse.parse_doc(doc)
+        assert FakeDocumentConverter.call_count == 1
+
+    def test_images_on_forces_a_real_parse(self, isolated_config, monkeypatch, fake_docling, tmp_path):
+        """The corpus layer writes no figure bitmaps, so adopting its
+        parse would leave this stage's own output incomplete."""
+        monkeypatch.setattr(config, "DOCLING_IMAGES", True)
+        doc = self._corpus_parsed(tmp_path)
+        docling_parse.parse_doc(doc)
+        assert FakeDocumentConverter.call_count == 1
+
+    def test_a_pdf_newer_than_the_corpus_text_forces_a_real_parse(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        doc = self._corpus_parsed(tmp_path)
+        pdf_mtime = os.stat(doc.pdf_path).st_mtime_ns
+        for path in (Path(doc.text_path), passages.sidecar_path(doc.citekey)):
+            os.utime(path, ns=(pdf_mtime - 10**9, pdf_mtime - 10**9))
+
+        docling_parse.parse_doc(doc)
+        assert FakeDocumentConverter.call_count == 1
+
+    def test_a_torn_sidecar_falls_back_to_a_real_parse(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        """A sidecar truncated mid-write by a killed process can split a
+        multi-byte character. Declining the reuse costs one parse; raising
+        would report a hard error for a document whose PDF is fine."""
+        doc = self._corpus_parsed(tmp_path)
+        # Cut inside the two bytes of "é", leaving a lone continuation
+        # byte -- the write is truncated, not merely invalid JSON.
+        torn = '[{"text": "café'.encode("utf-8")[:-1]
+        assert torn.endswith(b"\xc3")
+        passages.sidecar_path(doc.citekey).write_bytes(torn)
+
+        out = docling_parse.parse_doc(doc)
+
+        assert FakeDocumentConverter.call_count == 1
+        assert "Parsed content" in out.read_text()
+
+    def test_an_unreadable_sidecar_leaves_no_half_written_markdown(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        """Both reads happen before either write, so a reuse that
+        declines has written nothing for the real parse to clean up."""
+        doc = self._corpus_parsed(tmp_path)
+        passages.sidecar_path(doc.citekey).unlink()
+        Path(doc.text_path).write_text("corpus text that must not be adopted")
+        # No sidecar at all is the ordinary "not a docling parse" case,
+        # so force the read to fail on a sidecar that does exist.
+        passages.sidecar_path(doc.citekey).mkdir()
+
+        assert docling_parse._reuse_corpus_parse(
+            doc, config.DOCLING_DIR / "a2024.md", "a2024") is False
+        assert not (config.DOCLING_DIR / "a2024.md").exists()
+
+    def test_reused_docs_never_reach_a_worker(
+        self, isolated_config, monkeypatch, fake_docling, tmp_path
+    ):
+        """parse_corpus must not dispatch them: a worker costs a process
+        and a model load to discover there was nothing to parse.
+
+        Deliberately run with enough un-reusable documents alongside to
+        put the pool on the parallel path -- with only the reusable one,
+        `pending` would be empty, parse_corpus would take the serial
+        branch, and this would pass even with the exclusion removed.
+        """
+        dispatched = []
+
+        def fake_map(jobs_fn, jobs):
+            dispatched.extend(d.doc_id for d, _threads in jobs)
+            return [(d.doc_id, "ok: parsed", [1, 2]) for d, _threads in jobs]
+
+        monkeypatch.setattr(docling_parse, "_executor_for", lambda workers: types.SimpleNamespace(
+            map=fake_map, shutdown=lambda **kw: None))
+        monkeypatch.setattr(pdf_text, "resolve_workers", lambda n: (4, None))
+
+        reusable = self._corpus_parsed(tmp_path)
+        others = []
+        for i in range(3):
+            pdf = tmp_path / f"other{i}.pdf"
+            pdf.write_bytes(b"%PDF-1.4")
+            others.append(CorpusDoc(doc_id=f"other{i}", citekey=f"other{i}", source="bib",
+                                    title="t", pdf_path=str(pdf)))
+
+        status = docling_parse.parse_corpus([reusable, *others])
+
+        assert reusable.doc_id not in dispatched
+        assert sorted(dispatched) == ["other0", "other1", "other2"]
+        assert status[reusable.doc_id].startswith("ok:")
 
 
 class TestPassageSidecar:

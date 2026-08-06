@@ -11,6 +11,7 @@ source with no reading order yields a page number and never a quotation.
 import json
 import subprocess
 import sys
+import types
 
 import pytest
 
@@ -136,6 +137,114 @@ class TestSourcePassages:
         assert [p.page for p in found] == [1, 3], (
             "page numbers stay tied to the source's own pagination"
         )
+
+
+class TestPassageRecords:
+    """The one definition of "what is a passage", shared by both writers.
+
+    Read entirely through getattr, so these fakes stand in for a real
+    DoclingDocument without this module ever importing docling -- which
+    is what lets a stdlib-only module describe a document only a venv can
+    build.
+    """
+
+    @staticmethod
+    def _item(text, label="text", page=1, bbox=None):
+        prov = types.SimpleNamespace(page_no=page, bbox=bbox)
+        return types.SimpleNamespace(text=text, label=label, prov=[prov])
+
+    def test_keeps_prose_with_its_page(self, isolated_config):
+        doc = types.SimpleNamespace(texts=[self._item("A real paragraph.", page=4)])
+        assert passages.passage_records(doc) == [
+            {"text": "A real paragraph.", "label": "text", "page": 4}
+        ]
+
+    def test_drops_labels_that_are_not_prose(self, isolated_config):
+        """A running head repeated on every page would otherwise let a
+        claim "match" the journal's name seventeen times."""
+        doc = types.SimpleNamespace(texts=[
+            self._item("Journal of Things, Vol 3", label="page_header"),
+            self._item("Real prose.", label="text"),
+            self._item("Figure 1. A diagram.", label="caption"),
+        ])
+        assert [r["text"] for r in passages.passage_records(doc)] == ["Real prose."]
+
+    def test_accepts_a_dotted_enum_label(self, isolated_config):
+        """Docling's labels stringify as `DocItemLabel.TEXT`, not `text`."""
+        doc = types.SimpleNamespace(texts=[self._item("Prose.", label="DocItemLabel.TEXT")])
+        assert [r["label"] for r in passages.passage_records(doc)] == ["text"]
+
+    def test_drops_empty_text(self, isolated_config):
+        doc = types.SimpleNamespace(texts=[self._item("   "), self._item("Kept.")])
+        assert [r["text"] for r in passages.passage_records(doc)] == ["Kept."]
+
+    def test_carries_the_bounding_box_when_there_is_one(self, isolated_config):
+        bbox = types.SimpleNamespace(l=1.0, t=2.0, r=3.0, b=4.0)
+        doc = types.SimpleNamespace(texts=[self._item("Prose.", bbox=bbox)])
+        assert passages.passage_records(doc)[0]["bbox"] == [1.0, 2.0, 3.0, 4.0]
+
+    def test_a_document_with_no_texts_yields_nothing(self, isolated_config):
+        assert passages.passage_records(types.SimpleNamespace()) == []
+
+
+class TestCorpusLayerSidecar:
+    """Rung 2: the sidecar the corpus layer writes beside its parsed text."""
+
+    def test_is_used_when_the_enrichment_layer_has_not_run(self, isolated_config):
+        _add_item("smith_2024", parsed_text="page one\fpage two")
+        passages.write_sidecar("smith_2024", [
+            {"text": "A reading-ordered paragraph.", "label": "text", "page": 7},
+        ])
+        con = ledger.connect()
+        try:
+            found, reason = passages.source_passages(con, "smith_2024")
+        finally:
+            con.close()
+        assert reason is None
+        assert [(p.page, p.text, p.quotable) for p in found] == [
+            (7, "A reading-ordered paragraph.", True)
+        ]
+
+    def test_the_enrichment_sidecar_still_wins_when_both_exist(self, isolated_config):
+        """Rung 1 is a second, independent parse under its own OCR and
+        figure settings, so it outranks the corpus layer's."""
+        _add_item("smith_2024", parsed_text="page one\fpage two")
+        _sidecar("smith_2024", [{"text": "From the enrichment layer.", "page": 1}])
+        passages.write_sidecar("smith_2024", [{"text": "From the corpus layer.", "page": 1}])
+        con = ledger.connect()
+        try:
+            found, _ = passages.source_passages(con, "smith_2024")
+        finally:
+            con.close()
+        assert [p.text for p in found] == ["From the enrichment layer."]
+
+    def test_a_corrupt_one_falls_through_to_the_page_rung(self, isolated_config):
+        _add_item("smith_2024", parsed_text="page one\fpage two")
+        passages.sidecar_path("smith_2024").write_text("{ not json")
+        con = ledger.connect()
+        try:
+            found, reason = passages.source_passages(con, "smith_2024")
+        finally:
+            con.close()
+        assert reason is None
+        assert [p.page for p in found] == [1, 2]
+        assert not any(p.quotable for p in found)
+
+    def test_clear_removes_it_and_tolerates_its_absence(self, isolated_config):
+        passages.write_sidecar("smith_2024", [{"text": "Gone soon.", "page": 1}])
+        assert passages.sidecar_path("smith_2024").exists()
+        passages.clear_sidecar("smith_2024")
+        assert not passages.sidecar_path("smith_2024").exists()
+        passages.clear_sidecar("smith_2024")  # second call must not raise
+
+    def test_lives_beside_the_parsed_text_not_in_the_enrichment_directory(
+        self, isolated_config
+    ):
+        """The two writers must not share a path: the corpus layer
+        invalidates its own sidecar on every re-parse, and doing that to
+        an enrichment sidecar would delete a parse it cannot reproduce."""
+        assert passages.sidecar_path("k").parent == config.PARSED_DIR
+        assert passages.sidecar_path("k") != config.DOCLING_DIR / "k.passages.json"
 
 
 class TestSidecarRobustness:

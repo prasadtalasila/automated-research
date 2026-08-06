@@ -251,36 +251,53 @@ strange timeout.
 function plus one entry -- and two candidates were added and later
 removed through that same seam.
 
-| Backend | Dependency | Page boundaries? | Speed |
-|---|---|---|---|
-| `pdftotext` (default) | `poppler-utils` on `PATH` | **Yes** -- form feeds between pages | Fastest |
-| `docling` | `docling`, `enrich` group | No -- one continuous document | ~42x slower; see [PERFORMANCE.md](PERFORMANCE.md#parserbackend----pdftotext-or-docling) |
+| Backend | Dependency | Page boundaries? | Quotable passages? | Speed |
+|---|---|---|---|---|
+| `pdftotext` (default) | `poppler-utils` on `PATH` | **Yes** -- form feeds between pages | No -- reading order is lost | Fastest |
+| `docling` | `docling`, `enrich` group | **Yes** -- form feeds between pages | **Yes** -- writes a passage sidecar | ~42x slower; see [PERFORMANCE.md](PERFORMANCE.md#parserbackend----pdftotext-or-docling) |
 
-**Losing page boundaries is not cosmetic.**
-`scripts/verbatim_check.py` reports which PDF page a verbatim run came
-from by splitting on those form feeds, so a citekey parsed with `docling`
-reports `pdf p.1` for every hit regardless of where the text sits. The
-same missing form feeds drop the citation-provenance passage ladder to its
-bottom rung, where it re-runs `pdftotext` on the PDF anyway -- so choosing
-`docling` here, without also running the enrichment layer's `docling`
-stage, buys worse quotations at the highest parse cost. The mechanism and what to do about
-it are in
-[CITATION-PROVENANCE.md](CITATION-PROVENANCE.md#what-the-corpus-layer-discards-when-it-uses-docling).
+**Page boundaries are not cosmetic, which is why both backends now keep
+them.** `scripts/verbatim_check.py` reports which PDF page a verbatim run
+came from by splitting on those form feeds; before `docling` asked for
+them, a citekey parsed that way reported `pdf p.1` for every hit
+regardless of where the text sat.
+
+**What separates the two backends now is quoting, not paging.**
+`pdftotext -layout` preserves a page's visual arrangement rather than its
+reading order, so an excerpt cut from it can splice two columns together;
+the passage ladder therefore refuses to quote from it and reports a page
+number instead. `docling` resolves reading order, and the corpus layer
+keeps that resolution as `content/parsed/<citekey>.passages.json` -- so
+choosing it here buys real quotable passages without running the
+enrichment layer at all. The mechanism is in
+[CITATION-PROVENANCE.md](CITATION-PROVENANCE.md#what-the-corpus-layer-keeps-when-it-uses-docling),
+and the ladder it feeds is in [LADDERS.md](LADDERS.md#ladder-1-evidence-passages).
 
 [PDF-PARSER.md](PDF-PARSER.md) has the full fidelity comparison.
 
 **Setting `backend = "docling"` does not fold docling into the
 enrichment layer, and does not make `src/enrich/docling_parse.py` redundant.**
-They are two independent consumers of the same library:
+They are two consumers of the same library, with different scopes:
 
 - **`src/pdf_text.py`** (the corpus layer, on `sync`) extracts plain text per
-  citekey into `content/parsed/<citekey>.txt` for BM25 retrieval. docling
-  here is a higher-fidelity substitute for `pdftotext`'s job.
+  citekey into `content/parsed/<citekey>.txt` for BM25 retrieval, plus the
+  passage sidecar beside it. docling here is a higher-fidelity substitute
+  for `pdftotext`'s job.
 - **`src/enrich/docling_parse.py`** (the enrichment layer, opt-in) produces
   structured
   Markdown for the whole corpus into `content/docling/`, feeding the
   embedding and topic stages that need real reading order and section
-  boundaries. It **always** uses docling regardless of this setting.
+  boundaries. It **always** uses docling regardless of this setting, and
+  it covers `papers/pdfs/` documents that have no ledger row at all.
+
+They no longer duplicate the parse, though. When this setting is
+`docling`, the enrichment stage adopts the corpus layer's output for a
+citekey instead of parsing the PDF a second time -- a file copy in place
+of 6.65s per document. It falls back to a real parse for a `papers/pdfs/`
+document, for a run with `[enrich].docling_images` on, or when the
+artefacts are older than the PDF. The dependency only ever runs that way
+round: the enrichment layer reads the corpus layer's files, and the
+corpus layer is not shaped by this at all.
 
 ### `workers`, and how it is clamped
 

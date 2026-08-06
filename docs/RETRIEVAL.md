@@ -84,8 +84,9 @@ Two properties matter when you compare it with the alternative:
   `content/docling/` is not on its read path. The only way Docling's output reaches keyword
   retrieval is `[parser].backend = "docling"` in the corpus layer, which
   changes what
-  `sync` writes into `content/parsed/`. (That choice has a cost of its own:
-  see [CITATION-PROVENANCE.md](CITATION-PROVENANCE.md#what-the-corpus-layer-discards-when-it-uses-docling).)
+  `sync` writes into `content/parsed/`. (That choice also decides whether
+  a claim can be quoted from a real paragraph or only located to a page:
+  see [CITATION-PROVENANCE.md](CITATION-PROVENANCE.md#what-the-corpus-layer-keeps-when-it-uses-docling).)
 
 Term-frequency statistics are cached to `content/retrieval_index.json`,
 keyed by a cheap per-document fingerprint (the parsed file's size and

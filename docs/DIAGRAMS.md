@@ -336,7 +336,8 @@ flowchart TB
     subgraph L1["written by <code>src.sync</code> — the corpus layer"]
       direction LR
       LED[("content/ledger.sqlite")]
-      TXT[/"content/parsed/&lt;citekey&gt;.txt"/]
+      TXT[/"content/parsed/&lt;citekey&gt;.txt<br/><small>form feeds between pages, either backend</small>"/]
+      CPS[/"content/parsed/&lt;citekey&gt;.passages.json<br/><small>only with <code>[parser].backend = docling</code>;<br/>cleared before every re-parse</small>"/]
     end
 
     subgraph L2["written by the enrichment layer — opt-in"]
@@ -367,10 +368,12 @@ flowchart TB
 
   BIB -- "src/bib_reader.py" --> LED
   PDF -- "src/pdf_text.py" --> TXT
+  PDF -- "src/pdf_text.py<br/><small>docling backend only</small>" --> CPS
   LED -- "which PDFs need a parse" --> TXT
   RAW -- "src/enrich/corpus.py<br/><small>doc:&lt;stem&gt;, never a citekey</small>" --> DOC
   TXT -- "src/enrich/embed_index.py" --> CHR
   PDF -- "src/enrich/docling_parse.py" --> DOC
+  CPS -. "<b>src/enrich/docling_parse.py</b><br/><small>adopts the corpus layer's parse<br/>instead of repeating it</small>" .-> DOC
   DOC --> CHR
   TXT -- "src/enrich/topic_model.py<br/><small>whole-doc embeddings — its own cache,<br/>not the Chroma collection</small>" --> TOP
 
@@ -378,7 +381,8 @@ flowchart TB
 
   RIX -- "<b>src/retrieval.py</b> · BM25 hits<br/><small>the default path</small>" --> DRF
   CHR -. "<b>src/enrich/embed_index.py</b> · semantic hits<br/><small><b>either this or BM25 — never both.</b> Only<br/>survey-writer and deep-research name it.</small>" .-> DRF
-  DOC -- "src/passages.py<br/>quotable passages" --> DRF
+  DOC -- "src/passages.py<br/>quotable passages — rung 1" --> DRF
+  CPS -- "src/passages.py<br/>quotable passages — rung 2" --> DRF
   LED -- "src/references.py<br/>bib_fields → IEEE entries" --> DRF
   DRF == "<b>src.citation_gate</b> — FAIL rewrites the draft in place,<br/>and the skill re-runs it until it exits 0" ==> DRF
   DRF -- "src.render_output<br/><small>only after the gate passes</small>" --> REN
@@ -392,7 +396,7 @@ flowchart TB
   classDef lock fill:#fefce8,stroke:#a16207,color:#422006
 
   class BIB,PDF,RAW,CFG mine
-  class LED,TXT corpus
+  class LED,TXT,CPS corpus
   class DOC,CHR,TOP heavy
   class RIX,DCA,TCA cache
   class DRF,REN,PRV draft
