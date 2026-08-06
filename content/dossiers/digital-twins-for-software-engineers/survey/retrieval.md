@@ -8,9 +8,12 @@
      a measurement for a particular draft. -->
 
 *These rows are real `--log` output, not written by hand -- but read the
-`chars` column with one caveat. The checkout that produced them has a
-ledger with citekeys and titles and **no parsed PDF text**
-(`content/parsed/` is per-host and gitignored), so BM25 ranked titles
+`chars` column with one caveat. The ledger that produced them was seeded
+by hand for this demonstration, not built by `python -m src.sync`: it
+holds the citekeys and titles scraped out of these example drafts' own
+`## References` sections and **no parsed PDF text** (`content/parsed/` is
+per-host and gitignored). Re-run these calls against a real synced corpus
+and the numbers will differ by roughly an order of magnitude. BM25 ranked titles
 alone and every snippet is a title-length fragment rather than a window
 of a paper. On a real synced corpus the same eight calls return roughly
 an order of magnitude more: a triage row lands near `15 x 160 = 2400`
