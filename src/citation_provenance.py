@@ -73,6 +73,72 @@ def _paragraph_spans(lines: list[str]) -> list[tuple[int, int, str]]:
     return spans
 
 
+# Markdown block openers. A table row is a block by itself (a row cannot
+# span lines); a list item or a heading opens one that runs until the next
+# opener or the end of the paragraph, so a hard-wrapped bullet stays whole.
+_TABLE_ROW = re.compile(r"^\s*\|")
+_LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
+_HEADING = re.compile(r"^\s*#{1,6}\s+")
+_OPENS_BLOCK = re.compile(r"^\s*(?:\||[-*+]\s|\d+[.)]\s|#{1,6}\s)")
+# A row and a heading are complete in one line: whatever follows starts
+# its own block, so prose under a heading is not glued to the heading.
+_STANDS_ALONE = re.compile(r"^\s*(?:\||#{1,6}\s)")
+# A cell of the |---|:--:|---| separator row: alignment, not content.
+_SEPARATOR_CELL = re.compile(r":?-{2,}:?")
+# Split a row on its unescaped pipes only -- `\|` is markdown's way of
+# putting a literal pipe inside a cell, and splitting there would cut a
+# cell in half.
+_ROW_SPLIT = re.compile(r"(?<!\\)\|")
+
+
+def _row_prose(row: str) -> str:
+    """A table row as something quotable: cells joined with " -- ".
+
+    Cells are phrases, not sentences, and the row's own pipes would reach
+    the report as a `> | a | b |` blockquote -- and pandoc renders each one
+    as `\\textbar{}`, so a cited table arrived as a wall of escapes.
+    """
+    cells = [cell.strip() for cell in _ROW_SPLIT.split(row.strip().strip("|"))]
+    return " -- ".join(c for c in cells if c and not _SEPARATOR_CELL.fullmatch(c))
+
+
+def _claim_spans(lines: list[str]) -> list[tuple[int, int, str]]:
+    """(first line, last line, text) per *block*, subdividing paragraphs.
+
+    A paragraph of prose comes back as one span, exactly as before. A
+    paragraph that is a table or a list comes back as one span per row or
+    item, because those carry no sentence boundary for `_sentence_around`
+    to find and so would otherwise be quoted and scored whole.
+    """
+    spans = []
+    for start, end, _ in _paragraph_spans(lines):
+        block: list[str] = []
+        block_start = start
+        for index in range(start, end + 1):
+            line = lines[index - 1]
+            if block and _OPENS_BLOCK.match(line):
+                spans.append((block_start, index - 1, _block_text(block)))
+                block, block_start = [], index
+            block.append(line)
+            if _STANDS_ALONE.match(line):
+                spans.append((block_start, index, _block_text(block)))
+                block, block_start = [], index + 1
+        if block:
+            spans.append((block_start, end, _block_text(block)))
+    return spans
+
+
+def _block_text(block: list[str]) -> str:
+    """The block's text as prose: a row flattened, a marker dropped."""
+    if _TABLE_ROW.match(block[0]):
+        return _row_prose(block[0])
+    joined = " ".join(line.strip() for line in block)
+    for marker in (_LIST_ITEM, _HEADING):
+        if marker.match(block[0]):
+            return marker.sub("", joined, count=1)
+    return joined
+
+
 def claims(draft_text: str) -> list[tuple[int, str, str]]:
     """(line number, citekey, the sentence carrying it) for every citation.
 
@@ -88,16 +154,24 @@ def claims(draft_text: str) -> list[tuple[int, str, str]]:
     paragraph citing three papers would otherwise be scored identically
     against all three, which tells a reviewer nothing about which
     citation is the weak one.
+
+    "Paragraph" means a *block*, not everything between two blank lines.
+    A table or a list is one blank-line block containing no sentence
+    boundary at all, so reading it whole quoted the entire table back as
+    the claim -- once per citekey in it -- and scored each row against the
+    whole table's vocabulary, which is the same identical-claims failure
+    one level up. `_claim_spans` splits those into rows and items;
+    ordinary prose is unaffected.
     """
     lines = draft_text.splitlines()
-    spans = _paragraph_spans(lines)
+    spans = _claim_spans(lines)
     out = []
     for line_no, citekey in citation_gate.extract_citekeys(draft_text):
-        paragraph = next(
+        block = next(
             (text for start, end, text in spans if start <= line_no <= end),
             lines[line_no - 1] if 0 < line_no <= len(lines) else "",
         )
-        out.append((line_no, citekey, _sentence_around(paragraph, citekey)))
+        out.append((line_no, citekey, _sentence_around(block, citekey)))
     return out
 
 

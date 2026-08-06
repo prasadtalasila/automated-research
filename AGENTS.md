@@ -112,10 +112,12 @@ non-empty ledger, for the same reason at the extreme -- see
   draft, never invoked automatically, never gate anything.
 
 These three were called "job 1", "job 2" and "the heavy pipeline" until
-2026-08-06. The word *heavy* is now reserved for what it literally names:
-the `enrich` Poetry group, `src/enrich/`, and `config.toml`'s `[enrich]`
-table. That is a separate axis -- `src/render_output.py` is in the
-drafting layer and needs no package from the group at all.
+2026-08-06, and the code followed in 3.0.0: the word *heavy* now names
+nothing here, since the Poetry group, the package and the `config.toml`
+table are all `enrich`. What a part *does* and what it *costs to install*
+remain separate axes, though -- `src/render_output.py` is drafting-layer
+code that needs no package from that group, which is why it sits in
+`src/` rather than `src/enrich/`.
 
 ## Config lives in `config.toml`
 

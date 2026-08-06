@@ -114,7 +114,7 @@ For each citing passage in the draft, emit:
 
 | Field | Meaning |
 |---|---|
-| Draft location | Line number and the citing sentence |
+| Draft location | Line number and the citing sentence -- or, in a table or a list, that row or item alone |
 | Citekey | The key cited there |
 | Best-matching source passage | The span of that paper's text closest to the claim |
 | Page | Where that passage sits in the PDF |
@@ -397,9 +397,12 @@ absolute threshold that meant the same thing for both sources would
 require normalising by passage length, which buys precision the tool
 does not claim to have.
 
-## One thing the build got wrong first
+## Two things the build got wrong first
 
-Worth recording, because it is the kind of defect only a real run finds.
+Worth recording, because both are the kind of defect only a real run
+finds -- and the second was caused by the fix for the first.
+
+### Too narrow: the citing line
 
 The first implementation read the citing **line** to recover the claim.
 Every draft this project produces is hard-wrapped, so a sentence spans
@@ -412,6 +415,38 @@ Claims are now reconstructed from the whole paragraph, then split into
 sentences with an abbreviation-aware splitter (so `Fig. 1` and `e.g.`
 don't create the same problem one level down). The same draft went from
 5 spurious "no support found" to 0.
+
+### Too wide: the whole table (issue #19)
+
+Widening the unit from a line to a blank-line paragraph had no upper
+bound, and a markdown table has no blank lines in it. A citation in a
+table cell therefore took the **entire table** as its claim -- and a
+table citing seven papers quoted that table seven times. Measured on
+`digital-twins-tutorial.md`: 9 of 100 citations sat in a table, they
+produced only 2 distinct claims between them, each 105 or 179 words
+against a 40-word prose median, and 271 pipe characters reached the
+report's blockquotes, where pandoc renders every one as `\textbar{}`.
+
+The damage was not only cosmetic. Scoring divides by the claim's own
+distinctive words, so a whole-table claim inflated the denominator from a
+row's 15-23 words to 61 or 91 -- cutting the *maximum achievable* score
+to roughly a quarter and pushing genuinely supported citations under the
+band thresholds. That is the same false "no support found" the paragraph
+change was made to remove, reappearing one level up. It also defeated the
+reason claims are sentences rather than paragraphs: five citekeys in one
+table shared a single claim, so the report could not say which of them
+was the weak one.
+
+The unit is now the **block**, not everything between two blank lines: a
+table row and a list item are each their own claim, a row is flattened to
+`cell -- cell -- cell` prose so no pipe reaches the report, and a heading
+is not glued to the paragraph beneath it. Prose is unaffected -- it is
+one block, read exactly as before. The same draft now yields 9 distinct
+claims of ~27 words and 0 pipe characters.
+
+The general lesson, since it is the second instance: the claim unit has a
+*correct size*, and both failures came from choosing that size by
+document syntax the code did not actually model.
 
 ## Sizing (as built)
 
