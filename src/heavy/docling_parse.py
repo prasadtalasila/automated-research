@@ -1,7 +1,7 @@
 """Stage 1: Docling PDF parsing.
 
 Layout-aware parsing (headings, tables, reading order) -- a step up from
-the core pipeline's plain pdftotext. Needs `docling` from
+the corpus layer's plain pdftotext. Needs `docling` from
 pyproject.toml's "heavy" Poetry group, in a venv; heavy (its own
 layout/OCR models), so this is the stage most likely to be slow or fail
 on a small/CPU-only host. Output is Markdown, written per-doc so a
@@ -14,8 +14,9 @@ structured Markdown plus the `<doc>.passages.json` sidecar for the whole
 corpus, always, whatever that setting says. It also reads the **PDF**
 rather than content/parsed/, so it is a second independent extraction and
 not a refinement of the first -- including for `papers/pdfs/` documents,
-which have no ledger row and so are never parsed by job 1 at all. The two
-share no cache; DEVELOPER.md's "Job 1 throws away Docling's document
+which have no ledger row and so are never parsed by the corpus layer at
+all. The two
+share no cache; DEVELOPER.md's "The corpus layer throws away Docling's document
 model" is the standing note on what that costs.
 
 With config.DOCLING_IMAGES on, each doc also gets its figure bitmaps

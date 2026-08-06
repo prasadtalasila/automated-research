@@ -10,7 +10,7 @@ never invents its own.
 
 Needs `bibtexparser` (pyproject.toml's main dependency group, installed
 via scripts/install_full_pipeline.sh) -- the one dependency the
-otherwise stdlib-only core pipeline requires, because hand-rolling a
+otherwise stdlib-only corpus layer requires, because hand-rolling a
 correct BibTeX parser (nested braces, LaTeX escapes, multi-line values)
 is a worse bet than using a maintained library for something
 citation-critical.

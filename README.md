@@ -27,14 +27,10 @@ This pipeline is built to make that impossible rather than unlikely:
 > **A citekey may only be used if it appears in your own `.bib` export
 > *and* was picked up into the ledger by a real parse of a real PDF.**
 
-Everything else in this repository -- the shape of the workflow, which
-step is allowed to fail, what the writing skills are permitted to see --
-follows from that one rule.
-
 - [How it works](#how-it-works)
 - [Quickstart](#quickstart)
+- [The enrichment layer](#the-enrichment-layer)
 - [Hardware requirements](#hardware-requirements)
-- [The heavy pipeline](#the-heavy-pipeline)
 - [Documentation](#documentation)
 - [Acknowledgements](#acknowledgements)
 
@@ -48,9 +44,9 @@ flowchart LR
 
   P0["<b>0 · CURATE</b><br/><i>you, in Zotero</i><br/><br/>Add papers, export<br/>BibTeX + Export Files<br/><br/><b>papers/bibliography.bib</b><br/><small>nothing else may invent a citekey</small>"]
 
-  P1["<b>1 · SYNC</b><br/><i>job 1 — deterministic, no LLM</i><br/><br/><code>python -m src.sync</code><br/>read bib → update ledger<br/>→ extract PDF text<br/><br/><b>content/ledger.sqlite</b><br/><b>content/parsed/*.txt</b><br/><small>idempotent · re-runs cost almost nothing</small>"]
+  P1["<b>1 · SYNC</b><br/><i>the corpus layer — deterministic, no LLM</i><br/><br/><code>python -m src.sync</code><br/>read bib → update ledger<br/>→ extract PDF text<br/><br/><b>content/ledger.sqlite</b><br/><b>content/parsed/*.txt</b><br/><small>idempotent · re-runs cost almost nothing</small>"]
 
-  P2["<b>2 · DRAFT</b><br/><i>job 2 — generative, you review</i><br/><br/>Ask a genre skill:<br/><i>“write a survey section on …”</i><br/>it retrieves only from<br/>the parsed corpus<br/><br/><b>content/drafts/&lt;slug&gt;.md</b>"]
+  P2["<b>2 · DRAFT</b><br/><i>the drafting layer — generative, you review</i><br/><br/>Ask a genre skill:<br/><i>“write a survey section on …”</i><br/>it retrieves only from<br/>the parsed corpus<br/><br/><b>content/drafts/&lt;slug&gt;.md</b>"]
 
   P3{{"<b>3 · VERIFY</b><br/><i>machine-enforced</i><br/><br/><code>src.citation_gate</code><br/>Is every citekey<br/>in the ledger?"}}
 
@@ -90,15 +86,7 @@ Two properties of that picture do all the work:
 
 Five genre skills sit behind phase 2 -- survey, thesis chapter,
 undergraduate textbook chapter, tutorial, and a heavier multi-perspective
-deep-research mode -- and all five obey the same grounding rules. What
-runs inside each phase, what it writes, which parts are optional, and what
-the pipeline deliberately does *not* do are in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-[docs/DIAGRAMS.md](docs/DIAGRAMS.md) draws the same workflow eleven times
-over: six views ordered by how much you already know (one glance, your
-first run, the full workflow, everything on disk, gates and exit codes,
-the inside of a single parallel parse), three showing how the genre skills
-differ in what they ask of the heavy pipeline, and two in the appendix.
+deep-research mode -- and all five obey the same grounding rules.
 
 ## Quickstart
 
@@ -118,7 +106,7 @@ cp config.toml.example config.toml
 pipx install poetry
 bash scripts/install_full_pipeline.sh all
 
-# 3. Sync the content layer from papers/bibliography.bib. A citekey that
+# 3. Sync the corpus layer from papers/bibliography.bib. A citekey that
 #    later drops out of the bib file (a paper removed from your reference
 #    manager) is only *reported* by default; re-run with --remove-stale
 #    to actually delete its ledger row once you've reviewed the reported
@@ -153,7 +141,7 @@ python3 -m src.citation_provenance path/to/draft.md                  # what in e
 python3 scripts/verbatim_check.py overlap path/to/draft.md <citekey> # wording shared with that source
 python3 -m src.citation_coverage path/to/draft.md --query "..."      # retrieval found it -- did the draft cite it?
 
-# 8. Optional, and only when you want it: the heavy pipeline. Layout-aware
+# 8. Optional, and only when you want it: the enrichment layer. Layout-aware
 #    parsing, semantic search and topic clustering over the whole corpus.
 #    Nothing above needs it, and no skill builds it for you -- see
 #    docs/RETRIEVAL.md for which stage is worth your time.
@@ -169,8 +157,8 @@ in [docs/CONFIG.md](docs/CONFIG.md). What each of these commands is part
 of, and why some need `.venv-full/bin/python` while others run on bare
 `python3`, is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-Two of those commands rewrite the shared content layer -- `sync` and the
-heavy pipeline -- and they share one lock, so the second to start exits
+Two of those commands rewrite the shared corpus layer -- `sync` and the
+enrichment layer -- and they share one lock, so the second to start exits
 `2` rather than interleaving. Everything else only reads, which is why
 `python3 -m src.ledger` and the citation gate work fine while a sync is in
 progress.
@@ -186,6 +174,34 @@ refuses if the bib file comes back completely empty against a non-empty
 ledger, for the same reason -- fix the export or path rather than
 deleting everything in one run.
 
+## The enrichment layer
+
+Everything above works without it. The enrichment layer is a second,
+optional pass over the same corpus that buys three things: layout-aware
+parsing that yields quotable passages, semantic search that finds a paper
+arguing your point in different words, and topic clustering over the whole
+corpus.
+
+```bash
+.venv-full/bin/python scripts/full_pipeline.py --stages docling,embed
+.venv-full/bin/python scripts/full_pipeline.py --stages render --input draft.md
+```
+
+It costs real time and disk -- a first full-corpus parse is measured in
+tens of minutes, and the heavy dependency group is several gigabytes -- so
+you build it deliberately. **No genre skill builds it for you.** The
+skills read what is already there and fall back to the lightweight default
+when it isn't.
+
+Which stage is worth that cost, and what each one actually answers, is in
+[docs/RETRIEVAL.md](docs/RETRIEVAL.md). How the stages fit into the rest
+of the system, including how to call them from your own script or skill,
+is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#the-enrichment-layer).
+
+No stage needs an LLM API key -- this repository intentionally has none.
+Every stage probes its own prerequisites and reports `ok`, `skipped` or
+`missing-binary` rather than assuming they are present.
+
 ## Hardware requirements
 
 The table below is what the pipeline needs, not what it was developed
@@ -199,7 +215,7 @@ and expect yours to differ**:
   to the process), 251GB RAM, driver 555.42.02, verified 2026-07-30.
 
 
-| Resource | Minimum (core pipeline only) | Recommended (`src/heavy/` in regular use) |
+| Resource | Minimum (corpus layer only) | Recommended (`src/heavy/` in regular use) |
 |---|---|---|
 | Disk | ~1GB (bibtexparser + content/) | **10-20GB+** -- the full venv alone is **6.0GB** (torch pulled in twice over via sentence-transformers/docling, plus docling's own layout/OCR models); TeX Live adds several GB more on top |
 | RAM | ~1-2GB (sync, citation_gate, keyword retrieval are all lightweight) | **8GB minimum, 16GB+ better**. At ~3GB free, Docling parsing a 17-page PDF pushed the process to 3.6GB RSS and the host swapped 6.3GB -- it still finished, just slowly. Bigger PDFs or a bigger corpus will make this worse |
@@ -225,34 +241,6 @@ Tips:
   If it still reports `False` after `bash scripts/install_full_pipeline.sh python-deps`,
   your driver may predate every CUDA wheel tag the script knows about --
   see that function's own comments for the manual fallback.
-
-## The heavy pipeline
-
-Everything above works without it. The heavy pipeline is a second,
-optional pass over the same corpus that buys three things: layout-aware
-parsing that yields quotable passages, semantic search that finds a paper
-arguing your point in different words, and topic clustering over the whole
-corpus.
-
-```bash
-.venv-full/bin/python scripts/full_pipeline.py --stages docling,embed
-.venv-full/bin/python scripts/full_pipeline.py --stages render --input draft.md
-```
-
-It costs real time and disk -- a first full-corpus parse is measured in
-tens of minutes, and the heavy dependency group is several gigabytes -- so
-you build it deliberately. **No genre skill builds it for you.** The
-skills read what is already there and fall back to the lightweight default
-when it isn't.
-
-Which stage is worth that cost, and what each one actually answers, is in
-[docs/RETRIEVAL.md](docs/RETRIEVAL.md). How the stages fit into the rest
-of the system, including how to call them from your own script or skill,
-is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#the-optional-heavy-branch).
-
-No stage needs an LLM API key -- this repository intentionally has none.
-Every stage probes its own prerequisites and reports `ok`, `skipped` or
-`missing-binary` rather than assuming they are present.
 
 ## Documentation
 

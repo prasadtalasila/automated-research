@@ -1,4 +1,4 @@
-"""BM25-ranked keyword retrieval over the shared content layer.
+"""BM25-ranked keyword retrieval over the shared corpus layer.
 
 This is the default retrieval implementation genre skills call against
 (AGENTS.md's "Retrieval" section) -- stdlib-only, no venv or model
@@ -13,10 +13,10 @@ other (docs/RETRIEVAL.md).
 
 Two boundaries worth knowing, because they're easy to assume otherwise.
 This module reads the ledger's `parsed_path` -- `content/parsed/*.txt` --
-and never `content/docling/`, so running the heavy Docling stage does not
-change what BM25 ranks or what its snippets say; only `[parser].backend`
+and never `content/docling/`, so running the enrichment layer's Docling
+stage does not change what BM25 ranks or what its snippets say; only `[parser].backend`
 does. And nothing in `scripts/full_pipeline.py` imports this module, so
-the heavy pipeline neither uses nor updates this index.
+the enrichment layer neither uses nor updates this index.
 
 Ranking is Okapi BM25 (stdlib-only: no rank_bm25 dependency), not raw
 term-frequency -- term-frequency alone has no document-length

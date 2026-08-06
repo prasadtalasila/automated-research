@@ -1,11 +1,11 @@
 """Stage 3: sentence-transformers embeddings persisted in a Chroma collection.
 
-This is the real embedding-based retrieval the core pipeline's
+This is the real embedding-based retrieval the corpus layer's
 src/retrieval.py deliberately deferred (keyword overlap only, pending a
 larger corpus). Needs `sentence-transformers` and `chromadb` from
 pyproject.toml's "heavy" Poetry group, in a venv.
 
-build_index() is incremental, mirroring the core pipeline's
+build_index() is incremental, mirroring the corpus layer's
 src/ledger.py: skip reprocessing whatever hasn't detectably changed
 since the last run. Here that means each chunk's stored
 metadata carries a hash of the *text that produced it* (not the PDF

@@ -8,8 +8,8 @@ tags: [tutorial, diataxis, hands-on, lesson, teaching]
 
 Genre-specific drafting agent for tutorial output, in the Diataxis sense: a
 **lesson**, in which a learner does something under your guidance and comes
-out with skill and confidence they didn't have before. Job 2 (generative,
-on-demand, user-reviewed) in the two-job pipeline split.
+out with skill and confidence they didn't have before. The drafting layer
+(generative, on-demand, user-reviewed).
 
 The governing analogy is a driving lesson. The point of a driving lesson is
 not to get from A to B; the point is that the student can drive afterwards.
@@ -56,7 +56,7 @@ strictest in this skill, and the structural rules below (single path, no
 options, minimal explanation) are *tutorial-only*. Do not carry them into any
 other genre -- in a survey they'd delete the deliverable.
 
-## Shared content layer (read, don't regenerate)
+## Shared corpus layer (read, don't regenerate)
 
 - `content/ledger.sqlite` -- per-citekey status, populated by `sync`
 - `content/parsed/<citekey>.txt` -- extracted PDF text

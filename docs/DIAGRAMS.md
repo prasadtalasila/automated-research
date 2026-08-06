@@ -60,9 +60,9 @@ flowchart LR
 
   P0["<b>0 · CURATE</b><br/><i>you, in Zotero</i><br/><br/>Add papers, export<br/>BibTeX + Export Files<br/><br/><b>papers/bibliography.bib</b><br/><small>nothing else may invent a citekey</small>"]
 
-  P1["<b>1 · SYNC</b><br/><i>job 1 — deterministic, no LLM</i><br/><br/><code>python -m src.sync</code><br/>read bib → update ledger<br/>→ extract PDF text<br/><br/><b>content/ledger.sqlite</b><br/><b>content/parsed/*.txt</b><br/><small>idempotent · re-runs cost almost nothing</small>"]
+  P1["<b>1 · SYNC</b><br/><i>the corpus layer — deterministic, no LLM</i><br/><br/><code>python -m src.sync</code><br/>read bib → update ledger<br/>→ extract PDF text<br/><br/><b>content/ledger.sqlite</b><br/><b>content/parsed/*.txt</b><br/><small>idempotent · re-runs cost almost nothing</small>"]
 
-  P2["<b>2 · DRAFT</b><br/><i>job 2 — generative, you review</i><br/><br/>Ask a genre skill:<br/><i>“write a survey section on …”</i><br/>it retrieves only from<br/>the parsed corpus<br/><br/><b>content/drafts/&lt;slug&gt;.md</b>"]
+  P2["<b>2 · DRAFT</b><br/><i>the drafting layer — generative, you review</i><br/><br/>Ask a genre skill:<br/><i>“write a survey section on …”</i><br/>it retrieves only from<br/>the parsed corpus<br/><br/><b>content/drafts/&lt;slug&gt;.md</b>"]
 
   P3{{"<b>3 · VERIFY</b><br/><i>machine-enforced</i><br/><br/><code>src.citation_gate</code><br/>Is every citekey<br/>in the ledger?"}}
 
@@ -173,12 +173,12 @@ from a draft to `content/rendered/`. And the `FAIL` edge does not leave
 the system: it runs back into the skill, which re-drafts and re-runs the
 gate until it exits 0.
 
-Note that the heavy pipeline's `docling` stage reads **the PDF itself**,
+Note that the enrichment layer's `docling` stage reads **the PDF itself**,
 not `content/parsed/`. It is a second, independent extraction of the same
 source, not a refinement of the first one -- which is why it can produce
 figures and layout-aware passages that `pdftotext` cannot.
 
-Dotted edges are optional or conditional: the heavy pipeline is opt-in,
+Dotted edges are optional or conditional: the enrichment layer is opt-in,
 and each consumer checks the stack exists before using it and degrades to
 the lightweight default when it doesn't.
 
@@ -197,7 +197,7 @@ flowchart TB
   end
 
   %% ─────────────── 1 · SYNC ───────────────
-  subgraph S1["<b>1 · SYNC</b> — job 1 · deterministic, no LLM, safe to run unattended · <code>python -m src.sync</code> · holds the run lock"]
+  subgraph S1["<b>1 · SYNC</b> — the corpus layer · deterministic, no LLM, safe to run unattended · <code>python -m src.sync</code> · holds the run lock"]
     direction TB
     BR["<b>src/bib_reader.py</b><br/><small>the only module that reads the .bib</small>"]
     LED[("<b>content/ledger.sqlite</b><br/><small>one row per citekey: status, bib_fields,<br/>PDF fingerprint — re-parse only what moved</small>")]
@@ -221,7 +221,7 @@ flowchart TB
   end
 
   %% ─────────────── 3 · DRAFT ───────────────
-  subgraph S3["<b>3 · DRAFT</b> — job 2 · generative, on demand, reviewed by you"]
+  subgraph S3["<b>3 · DRAFT</b> — the drafting layer · generative, on demand, reviewed by you"]
     direction TB
     SKILLS["<b>.claude/skills/</b> — five genre skills<br/>survey-writer · thesis-chapter-writer · textbook-chapter-writer<br/>tutorial-writer · deep-research"]
     DRAFT[/"<b>content/drafts/&lt;slug&gt;.md | .tex</b>"/]
@@ -242,8 +242,8 @@ flowchart TB
     REFS --> REND --> OUT
   end
 
-  %% ─────────────── HEAVY (side branch) ───────────────
-  subgraph SH["<b>OPTIONAL · HEAVY PIPELINE</b><br/><code>scripts/full_pipeline.py --stages …</code> · same run lock"]
+  %% ─────────────── ENRICHMENT (side branch) ───────────────
+  subgraph SH["<b>OPTIONAL · ENRICHMENT LAYER</b><br/><code>scripts/full_pipeline.py --stages …</code> · same run lock"]
     direction TB
     H1["<b>docling</b> — <i>reads the PDF itself, not content/parsed/</i><br/><small><b>content/docling/&lt;doc&gt;.md</b> — layout-aware text<br/><b>&lt;doc&gt;.passages.json</b> — the quotable-passage sidecar<br/><b>&lt;doc&gt;_artifacts/</b> — figure bitmaps, written by Docling<br/><b>&lt;doc&gt;.figures.json</b> — page, caption, cite string per figure<br/>the last two only when <code>[heavy].docling_images</code> is on</small>"]
     H2["<b>embed</b><br/><small>content/chroma/ — drop-in search(q,k)</small>"]
@@ -307,7 +307,7 @@ Same pipeline, but the files are the nodes and the modules are the edge
 labels -- the inverse of the full workflow diagram.
 
 The split that matters: everything under `content/` is disposable. Delete
-the directory and one `sync` plus one heavy run rebuilds all of it.
+the directory and one `sync` plus one enrichment run rebuilds all of it.
 Nothing under `papers/` is disposable, and neither is `config.toml`; both
 are gitignored and per-host, so they are also the only things a backup
 needs to contain.
@@ -333,13 +333,13 @@ flowchart TB
   subgraph GEN["<b>GENERATED</b> — <code>content/</code>, all of it disposable: delete it and re-run"]
     direction TB
 
-    subgraph L1["written by <code>src.sync</code> — job 1"]
+    subgraph L1["written by <code>src.sync</code> — the corpus layer"]
       direction LR
       LED[("content/ledger.sqlite")]
       TXT[/"content/parsed/&lt;citekey&gt;.txt"/]
     end
 
-    subgraph L2["written by the heavy pipeline — opt-in"]
+    subgraph L2["written by the enrichment layer — opt-in"]
       direction LR
       DOC[/"<b>content/docling/&lt;doc&gt;.md</b><br/>+ &lt;doc&gt;.passages.json<br/><b>+ &lt;doc&gt;_artifacts/*.png</b> — figure bitmaps<br/><b>+ &lt;doc&gt;.figures.json</b> — page, caption, cite string<br/><small>the last two only when <code>[heavy].docling_images</code><br/>is on; Docling reads the <b>PDF</b>, never content/parsed/</small>"/]
       CHR[("content/chroma/")]
@@ -385,14 +385,14 @@ flowchart TB
   DRF -- "src.citation_provenance" --> PRV
 
   classDef mine fill:#fff7ed,stroke:#c2410c,color:#431407
-  classDef job1 fill:#eef2ff,stroke:#4f46e5,color:#1e1b4b
+  classDef corpus fill:#eef2ff,stroke:#4f46e5,color:#1e1b4b
   classDef heavy fill:#faf5ff,stroke:#9333ea,color:#3b0764
   classDef cache fill:#f8fafc,stroke:#94a3b8,stroke-dasharray:4 3,color:#0f172a
   classDef draft fill:#f0fdf4,stroke:#16a34a,color:#052e16
   classDef lock fill:#fefce8,stroke:#a16207,color:#422006
 
   class BIB,PDF,RAW,CFG mine
-  class LED,TXT job1
+  class LED,TXT corpus
   class DOC,CHR,TOP heavy
   class RIX,DCA,TCA cache
   class DRF,REN,PRV draft
@@ -535,7 +535,7 @@ flowchart TB
     EXE{{"backend?"}}
     TP["<b>ThreadPoolExecutor</b> · <code>pdftotext</code><br/><small>external subprocess — releases the GIL.<br/>Processes would add pickling and spawn cost<br/>to buy the same OS-level concurrency.</small>"]
     PP["<b>ProcessPoolExecutor</b> · <code>docling</code><br/><small>runs in-process and holds the GIL.<br/><b>forkserver</b> or <b>spawn</b>, never plain fork —<br/>a forked child inherits a broken CUDA context.</small>"]
-    LPT["<b>submit biggest-file-first</b><br/><small>one 675-page document is 5% of the corpus's pages.<br/>Picked up last it would define the wall clock by itself.<br/>File size, not page count — counting pages needs a<br/>PDF library the core pipeline refuses to depend on.</small>"]
+    LPT["<b>submit biggest-file-first</b><br/><small>one 675-page document is 5% of the corpus's pages.<br/>Picked up last it would define the wall clock by itself.<br/>File size, not page count — counting pages needs a<br/>PDF library the corpus layer refuses to depend on.</small>"]
     DEV["<b>init_worker</b> — one CUDA card each<br/><small>a shared counter under a lock, round-robin over<br/><code>usable_devices()</code> (≥ 2.5 GiB free). Without this,<br/>docling's <code>AcceleratorDevice.AUTO</code> resolves to<br/><code>cuda:0</code> in <i>every</i> process.</small>"]
     EXE -- pdftotext --> TP
     EXE -- docling --> PP
@@ -591,14 +591,14 @@ flowchart TB
 
 The ladder above draws the pipeline as one thing. It isn't, quite -- the
 five genre skills in `.claude/skills/` use very different amounts of it.
-The heavy pipeline in particular is worth building for two of them,
+The enrichment layer in particular is worth building for two of them,
 largely wasted on two others, and reduced to a preview step for the fifth.
 
-| Genre | Skills | Retrieval | Heavy pipeline | `src.references` |
+| Genre | Skills | Retrieval | Enrichment stages | `src.references` |
 |---|---|---|---|---|
 | [Genre A: corpus-led](#genre-a-corpus-led) | `survey-writer`, `deep-research` | BM25 **or** `embed_index` | `docling` + `embed`, both worth it | yes |
-| [Genre B: teaching](#genre-b-teaching) | `tutorial-writer`, `textbook-chapter-writer` | BM25 only | `render` only | yes (custom heading) |
-| [Genre C: LaTeX-native](#genre-c-latex-native) | `thesis-chapter-writer` | BM25 only | `render`, as a throwaway preview | **no -- skipped** |
+| [Genre B: teaching](#genre-b-teaching) | `tutorial-writer`, `textbook-chapter-writer` | BM25 only | none | yes (custom heading) |
+| [Genre C: LaTeX-native](#genre-c-latex-native) | `thesis-chapter-writer` | BM25 only | none | **no -- skipped** |
 
 All five run the same gate, in the same loop, with the same wording.
 
@@ -607,7 +607,7 @@ All five run the same gate, in the same loop, with the same wording.
 **Skills:** `survey-writer`, `deep-research`
 
 **The corpus is the content.** Nearly every sentence is a cited claim, so
-these are the two skills that pay off the heavy pipeline: `docling` for
+these are the two skills that pay off the enrichment layer: `docling` for
 passages good enough to survive review, and `embed` for semantic recall --
 finding the paper that makes your point in words you didn't search for.
 They are also the only two skills whose SKILL.md names
@@ -631,7 +631,7 @@ flowchart LR
 
   P1["<b>1 · SYNC</b><br/><i>deterministic</i><br/><br/><code>python -m src.sync</code><br/><br/><b>content/ledger.sqlite</b><br/><b>content/parsed/*.txt</b>"]
 
-  HEAVY["<b>HEAVY — worth it for this genre</b><br/><code>full_pipeline.py --stages docling,embed</code><br/><br/><b>docling</b> → layout-aware .md + .passages.json<br/><small>better quotable passages, so claims survive review</small><br/><br/><b>embed</b> → content/chroma/<br/><small>semantic recall: finds the paper that argues the<br/>point in different words. <b>Both skills name<br/><code>embed_index.search()</code> by hand.</b></small>"]
+  HEAVY["<b>ENRICHMENT — worth it for this genre</b><br/><code>full_pipeline.py --stages docling,embed</code><br/><br/><b>docling</b> → layout-aware .md + .passages.json<br/><small>better quotable passages, so claims survive review</small><br/><br/><b>embed</b> → content/chroma/<br/><small>semantic recall: finds the paper that argues the<br/>point in different words. <b>Both skills name<br/><code>embed_index.search()</code> by hand.</b></small>"]
 
   P2["<b>2 · DRAFT</b><br/><i>every sentence is a cited claim</i><br/><br/><b>survey-writer</b> — over-fetch <code>k=15</code>,<br/>hand-cluster into 2-4 sub-themes,<br/>comparison table + gap analysis<br/><br/><b>deep-research</b> — perspectives,<br/>parallel interviews, contradiction map,<br/>then cited sections<br/><br/><b>content/drafts/&lt;slug&gt;.md</b>"]
 
@@ -683,10 +683,12 @@ deliberately confined: `tutorial-writer` bans them mid-lesson and allows
 them only in a closing "Where to go next", and `textbook-chapter-writer`
 uses them for motivation and background.
 
-So the heavy pipeline is mostly wasted here. Neither SKILL.md mentions
+So the enrichment layer is mostly wasted here. Neither SKILL.md mentions
 `embed_index`; both use `src.retrieval.search()`, which is stdlib BM25.
 Building a semantic index to place four citations is effort in the wrong
-place. `render` is the one stage they do want, and only at the very end.
+place. The rendering they do want at the end is not an enrichment stage
+at all -- `render_output` is the drafting layer's own publish step, and
+needs no package from the `heavy` group.
 
 This is also the one genre where **the gate can legitimately pass with
 zero citations**, and both SKILL.md files say so. An empty reference list
@@ -704,7 +706,7 @@ flowchart LR
 
   P1["<b>1 · SYNC</b><br/><i>deterministic</i><br/><br/><code>python -m src.sync</code><br/><br/><b>content/ledger.sqlite</b><br/><b>content/parsed/*.txt</b>"]
 
-  HEAVY["<b>HEAVY — skip the retrieval half</b><br/><br/><s>docling</s> · <s>embed</s> · <s>bertopic</s><br/><small>Neither SKILL.md mentions <code>embed_index</code>.<br/>Both use <code>src.retrieval.search()</code> — <b>BM25, stdlib</b> —<br/>and building a semantic index to place four<br/>citations is effort spent in the wrong place.</small><br/><br/><b>render</b> — the one stage they do need<br/><small>and only at the very end</small>"]
+  HEAVY["<b>ENRICHMENT — not worth it here</b><br/><br/><s>docling</s> · <s>embed</s> · <s>bertopic</s><br/><small>Neither SKILL.md mentions <code>embed_index</code>.<br/>Both use <code>src.retrieval.search()</code> — <b>BM25, stdlib</b> —<br/>and building a semantic index to place four<br/>citations is effort spent in the wrong place.</small><br/><br/><b>render</b> is <i>not</i> an enrichment stage<br/><small>it is the drafting layer's own publish step —<br/><code>full_pipeline.py --stages render</code> only wraps it</small>"]
 
   P2["<b>2 · DRAFT</b><br/><i>mostly original content</i><br/><br/><b>tutorial-writer</b> — one path, keyboard-first,<br/>verified to actually run. Citations are<br/><b>banned mid-lesson</b>; they live only in<br/>a closing “Where to go next”.<br/><br/><b>textbook-chapter-writer</b> — objectives,<br/>worked examples, exercises. Cites for<br/><b>motivation and background only</b>.<br/><br/><b>content/drafts/&lt;slug&gt;.md</b>"]
 
@@ -717,7 +719,7 @@ flowchart LR
   RISK["<b>the real failure mode here isn't a bad citekey</b><br/><small>It is writing the wrong genre: a tutorial that explains<br/>instead of instructing, or a chapter that instructs instead<br/>of explaining. Both SKILL.md files open by warning about<br/>exactly that — and no gate in this repository can catch it.<br/><b>You are the check.</b></small>"]
 
   P0 ==> P1 ==> P2 ==> P3
-  P1 -. "render only" .-> HEAVY
+  P1 -. "publish step only" .-> HEAVY
   HEAVY -.-> P4
   P3 == "PASS · exit 0<br/>(often trivially)" ==> P4
   P3 -- "FAIL · exit 1" --> FIX
@@ -750,8 +752,8 @@ flowchart LR
 
 **The output isn't the deliverable.** This skill emits a standalone `.tex`
 fragment with `\citep`/`\citet` and no preamble, meant to be `\input` by
-your own thesis document -- so the heavy pipeline's `render` stage
-produces a *preview*, not the artifact that matters. A rendering failure
+your own thesis document -- so rendering produces a *preview*, not the
+artifact that matters. A rendering failure
 never blocks presenting the draft.
 
 It is also the only skill that **deliberately skips `src.references`**.
@@ -771,7 +773,7 @@ flowchart LR
 
   P1["<b>1 · SYNC</b><br/><i>deterministic</i><br/><br/><code>python -m src.sync</code><br/><br/><b>content/ledger.sqlite</b><br/><b>content/parsed/*.txt</b>"]
 
-  HEAVY["<b>HEAVY — preview only</b><br/><br/><s>docling</s> · <s>embed</s> · <s>bertopic</s><br/><small>SKILL.md names <code>src/retrieval.py</code> alone —<br/><b>BM25, <code>k=15</code>, then filter by hand</b></small><br/><br/><b>render</b> — and even this is disposable<br/><small><code>--format md</code> and <code>--format pdf</code>,<br/>to <i>look</i> at the chapter. The artifact that<br/>matters is the .tex you <code>\\input</code>.<br/>“A rendering failure never blocks<br/>presenting the draft.”</small>"]
+  HEAVY["<b>ENRICHMENT — not worth it here</b><br/><br/><s>docling</s> · <s>embed</s> · <s>bertopic</s><br/><small>SKILL.md names <code>src/retrieval.py</code> alone —<br/><b>BM25, <code>k=15</code>, then filter by hand</b></small><br/><br/><b>render</b> is <i>not</i> an enrichment stage<br/><small>it is the drafting layer's own publish step, and here<br/>even that is disposable: <code>--format md</code>/<code>--format pdf</code><br/>to <i>look</i> at the chapter. The artifact that matters<br/>is the .tex you <code>\\input</code>. “A rendering failure<br/>never blocks presenting the draft.”</small>"]
 
   P2["<b>2 · DRAFT</b><br/><i>RQ-driven narrative</i><br/><br/>A standalone <b>.tex fragment</b> —<br/><code>\\citep</code> / <code>\\citet</code>, <b>no preamble</b>,<br/>meant to be <code>\\input</code> by your own<br/>thesis document.<br/><br/><b>content/drafts/&lt;slug&gt;.tex</b>"]
 
@@ -784,7 +786,7 @@ flowchart LR
   OUT["<b>the actual output</b><br/><code>\\input{chapter-4}</code><br/><small>into your own thesis, compiled by your own<br/>LaTeX toolchain against your own .bib</small>"]
 
   P0 ==> P1 ==> P2 ==> P3
-  P1 -. "render only" .-> HEAVY
+  P1 -. "publish step only" .-> HEAVY
   HEAVY -.-> P4
   P3 == "PASS · exit 0" ==> P4
   P3 -- "FAIL · exit 1" --> FIX
@@ -831,7 +833,7 @@ sequenceDiagram
     autonumber
     actor You as You
     participant Z as Zotero
-    participant Sync as src.sync<br/>(job 1)
+    participant Sync as src.sync<br/>(corpus layer)
     participant Led as content/<br/>ledger.sqlite
     participant Ret as src.retrieval<br/>+ src.passages
     participant Skill as genre skill<br/>(.claude/skills/)

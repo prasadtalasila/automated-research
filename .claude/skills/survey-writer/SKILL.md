@@ -7,11 +7,11 @@ tags: [survey, literature-review, citation]
 # survey-writer
 
 Genre-specific drafting agent for survey-style output. This is the "generative
-drafting" job (job 2) in the two-job pipeline split -- it runs on demand and its
-output is reviewed by the user, unlike `python -m src.sync` (job 1, deterministic,
-safe to run unattended).
+drafting" half of the pipeline (the drafting layer) -- it runs on demand and its
+output is reviewed by the user, unlike `python -m src.sync` (the corpus
+layer: deterministic, safe to run unattended).
 
-## Shared content layer (read, don't regenerate)
+## Shared corpus layer (read, don't regenerate)
 
 - `content/ledger.sqlite` -- per-citekey status, populated by `sync`
 - `papers/bibliography.bib` (gitignored, per-host) -- the source of truth for citekeys/metadata;

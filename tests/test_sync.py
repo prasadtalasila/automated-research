@@ -1,5 +1,5 @@
 """src/sync.py: the deterministic bib -> ledger -> parsed-text entrypoint
-("job 1" -- AGENTS.md). No LLM calls, must be idempotent."""
+(the corpus layer -- AGENTS.md). No LLM calls, must be idempotent."""
 
 import contextlib
 import multiprocessing
@@ -877,7 +877,7 @@ class TestGpuAssignment:
 
         Every other test here substitutes the executor, so the
         initializer is never invoked and a pool builder passing the wrong
-        *shape* is invisible -- which is exactly how the heavy pipeline
+        *shape* is invisible -- which is exactly how the enrichment layer
         went on passing an int after init_worker started wanting a list
         (PR #40 review). Asserting on a captured literal cannot catch
         that; calling across the seam can.

@@ -9,7 +9,7 @@ Architecture docs and [DOCKER.md](DOCKER.md) for the container build.
 
 - [Running tests](#running-tests)
 - [Benchmarking the parser](#benchmarking-the-parser)
-- [Writing a script that drives the heavy pipeline](#writing-a-script-that-drives-the-heavy-pipeline)
+- [Writing a script that drives the enrichment layer](#writing-a-script-that-drives-the-enrichment-layer)
 - [Repository layout](#repository-layout)
 - [Figures and copyright](#figures-and-copyright)
 - [Citation provenance](#citation-provenance)
@@ -25,7 +25,7 @@ bash scripts/install_full_pipeline.sh dev-deps
 .venv-full/bin/python -m pytest --cov=src --cov=scripts --cov-report=term-missing
 ```
 
-`tests/` covers both the core pipeline and `src/heavy/*` -- heavy
+`tests/` covers both the corpus layer and `src/heavy/*` -- heavy
 dependencies (docling, chromadb, bertopic,
 sentence-transformers) are mocked via `sys.modules` for fast,
 deterministic unit tests, so the
@@ -93,7 +93,7 @@ intermediate conclusions were wrong until the next measurement corrected
 them -- including two that sat in the code as stated fact. `bench/` exists so that the next one is
 checked too.
 
-## Writing a script that drives the heavy pipeline
+## Writing a script that drives the enrichment layer
 
 `src.heavy.docling_parse.parse_corpus` and `python -m src.sync` both use
 a worker pool when `[parser].workers` is above 1, and every start method
@@ -167,7 +167,8 @@ pyproject.toml            Poetry config (dependency/lockfile manager only, packa
 poetry.toml               project-local Poetry config: virtualenvs.create = false (installs into
                           whatever venv VIRTUAL_ENV points at, e.g. .venv-full/, instead of Poetry's own)
 poetry.lock               resolved dependency versions -- regenerate with `poetry lock` after editing pyproject.toml
-src/                      core pipeline (needs bibtexparser; citation_gate/references need nothing)
+src/                      the corpus and drafting layers (sync needs bibtexparser;
+                          citation_gate/references need nothing)
   config.py                 loads config.toml, env var overrides
   runlock.py                one-writer-at-a-time lock over content/, held by both entrypoints;
                           a dedicated sqlite file, so a killed holder releases it with no
@@ -178,14 +179,14 @@ src/                      core pipeline (needs bibtexparser; citation_gate/refer
                           entry's formatting-relevant BibTeX fields (bib_fields, JSON), so references.py
                           can build a full bibliography entry without reading the bib file itself
   pdf_text.py               PDF text extraction, dispatched to pdftotext/docling by config.PARSER; also the parse-quality guard
-  sync.py                   orchestrates the above -- the "job 1" entrypoint; --remove-stale opts into
+  sync.py                   orchestrates the above -- the corpus-layer entrypoint; --remove-stale opts into
                           deleting stale ledger rows (default: report only, see README's "Removing a paper")
   dedup.py                  advisory near-duplicate citekey detection (shared DOI/title), called from sync
-  retrieval.py              BM25 search over the content layer, backed by a cached term-frequency index
+  retrieval.py              BM25 search over the corpus layer, backed by a cached term-frequency index
   passages.py               where a citekey's supporting text comes from (docling sidecar -> form-feed
                           pages -> pdftotext) and whether it may be quoted -- shared by the consumers
                           that need to point at part of a source rather than all of it
-  citation_gate.py          hard citation-verification gate -- "job 2" must pass this
+  citation_gate.py          hard citation-verification gate -- the drafting layer must pass this
   citation_coverage.py      ad-hoc review aid: retrieval-candidates-vs-actually-cited report, not a gate
   citation_provenance.py    ad-hoc review aid: what in each cited source supports the claim citing it, not a gate
                             (scores claims against passages.py's ladder; see docs/CITATION-PROVENANCE.md)
@@ -207,7 +208,7 @@ tests/                    pytest suite -- unit tests per module + end-to-end fea
 content/                  generated, gitignored (regenerate with sync)
   ledger.sqlite, parsed/<citekey>.txt, provenance/,
   docling/, chroma/, topics.json, topic_embed_cache.json, rendered/  (src/heavy/ outputs)
-.claude/skills/           genre layer: survey-writer, thesis-chapter-writer,
+.claude/skills/           drafting layer: survey-writer, thesis-chapter-writer,
                           textbook-chapter-writer, tutorial-writer, deep-research
 .claude/agents/           deep-research's subagents: deep-research-interviewer, deep-research-writer, peer-reviewer
 .claude/hooks/            citation_gate_hook.py -- PostToolUse hook, mechanically enforces citation_gate on
@@ -272,7 +273,7 @@ never be cited (AGENTS.md's citekey invariant).
 every citation in a draft, what in the cited source supports it and where
 -- ordered worst match first. It writes
 `content/provenance/<slug>.provenance.md` plus `.tex`/`.pdf` renders, and
-is also a heavy-pipeline stage (`--stages provenance --input <draft>`).
+is also an enrichment stage (`--stages provenance --input <draft>`).
 
 A **review aid, not a gate**, deliberately: matching is lexical, so it
 cannot tell "the source doesn't say this" from "the source says it in
@@ -298,7 +299,7 @@ the following tasks need to be completed in priority order:
    continuous auto-export, `bibliography.bib` is a manual, point-in-time
    snapshot -- a cron job watching only its mtime does nothing until a
    human re-exports it.
-2. ~~The heavy stages have no incremental skip logic.~~ **Done.**
+2. ~~The enrichment stages have no incremental skip logic.~~ **Done.**
    `src/heavy/embed_index.py`'s `build_index()` skips `model.encode()`
    for docs whose text hash is unchanged since the last call;
    `src/heavy/topic_model.py` caches per-doc whole-text embeddings the
@@ -327,7 +328,7 @@ the following tasks need to be completed in priority order:
    (`/workspace/git/chitragupta/.venv-full/bin/python`) -- cron
    doesn't source your shell profile or activate venvs.
 
-### Job 1 throws away Docling's document model
+### The corpus layer throws away Docling's document model
 
 With `[parser].backend = "docling"`, `pdf_text._extract_docling` builds a
 full `DoclingDocument` -- page numbers, bounding boxes, semantic labels on
@@ -335,7 +336,7 @@ every text item -- and keeps only `export_to_markdown()`, writing that to
 `content/parsed/<citekey>.txt`. Everything else is garbage-collected.
 
 The user-visible consequence is in
-[docs/CITATION-PROVENANCE.md](docs/CITATION-PROVENANCE.md#what-job-1-discards-when-it-uses-docling):
+[docs/CITATION-PROVENANCE.md](docs/CITATION-PROVENANCE.md#what-the-corpus-layer-discards-when-it-uses-docling):
 the passage ladder falls past rung 2 (Markdown has no form feeds, so the
 split yields one page) to rung 3, which re-runs `pdftotext` on the PDF.
 The best parser therefore produces the worst passages, and a later
@@ -349,7 +350,8 @@ Two mitigations, in increasing order of size:
    This alone restores rung 2 and fixes `verbatim_check.py locate`
    reporting `pdf p.1` for every hit. `\f` is whitespace, so BM25
    tokenisation and `run_together_ratio` are unaffected.
-2. **Write the `<citekey>.passages.json` sidecar from job 1**, from the
+2. **Write the `<citekey>.passages.json` sidecar from the corpus layer**,
+   from the
    document it already holds. The obstacle is the dependency direction --
    `src/heavy/` imports the core, never the reverse (see
    `docling_parse._executor_for`'s docstring) -- so `pdf_text.py` must not
@@ -361,13 +363,14 @@ Two mitigations, in increasing order of size:
    invalidate it -- a `--reparse` back to `pdftotext` leaves a sidecar
    nothing will refresh.
 
-Going further -- letting a job-1 Docling parse satisfy the heavy stage's
+Going further -- letting a corpus-layer Docling parse satisfy the
+enrichment stage's
 cache outright -- is a bigger change than it looks. With
 `[heavy].docling_images` off the two produce byte-identical Markdown
-(both call `export_to_markdown()` with no arguments), but job 1 knows
+(both call `export_to_markdown()` with no arguments), but the corpus layer knows
 nothing of `_CACHE_VERSION` or `DOCLING_IMAGES`, works in the `citekey`
 namespace rather than `doc_id`, and never sees the `papers/pdfs/`
-documents the heavy corpus includes. `embed_index.get_text`'s
+documents the enrichment corpus includes. `embed_index.get_text`'s
 docling-first ladder is the precedent that the reuse pattern already
 exists; the cache-key reconciliation is the work.
 

@@ -6,8 +6,8 @@ tags: [textbook, teaching, undergraduate, pedagogy, explanation]
 
 # textbook-chapter-writer
 
-Genre-specific drafting agent for undergraduate textbook-chapter output. Job 2
-(generative, on-demand, user-reviewed) in the two-job pipeline split.
+Genre-specific drafting agent for undergraduate textbook-chapter output. The
+drafting layer (generative, on-demand, user-reviewed).
 
 Its register is teaching, not persuading a reviewer, which is what separates
 it from `survey-writer` and `thesis-chapter-writer`. Its reader is *studying*
@@ -17,7 +17,7 @@ producing a working result. Both are teaching genres; they are not
 interchangeable, and the most common failure is writing this genre when the
 user asked for the other one. See "When to invoke".
 
-## Shared content layer (read, don't regenerate)
+## Shared corpus layer (read, don't regenerate)
 
 - `content/ledger.sqlite` -- per-citekey status, populated by `sync`
 - `content/parsed/<citekey>.txt` -- extracted PDF text, useful for pulling a

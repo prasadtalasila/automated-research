@@ -7,11 +7,12 @@ A citekey that drops out of the bib file is only *reported* by default --
 pass --remove-stale to actually delete its content/ledger.sqlite row (see
 "Removing a paper" in README.md and src/ledger.py's find_stale/prune_missing).
 
-This is "job 1" of the two-job split: no generation, no LLM calls, just
-bringing the shared content layer up to date with the bibliography (see
+This is the corpus layer: no generation, no LLM calls, just
+bringing the shared corpus layer up to date with the bibliography (see
 src/bib_reader.py -- the BibTeX-exported .bib file is the source of
 truth for citekeys, not something this pipeline generates). Genre-specific
-drafting (job 2) is invoked separately, on demand, via the Claude Code
+drafting (the drafting layer) is invoked separately, on demand, via the
+Claude Code
 skills in .claude/skills/.
 
 Needs `bibtexparser` installed -- run scripts/install_full_pipeline.sh
@@ -176,7 +177,7 @@ def _parse_parallel(refs, workers: int, threads: int | None):
     document in this project's own corpus is 5% of all its pages; picked
     up last it would define the wall clock single-handedly. File size
     rather than page count on purpose -- counting pages needs a PDF
-    library, and the core pipeline deliberately has no such dependency.
+    library, and the corpus layer deliberately has no such dependency.
     """
     jobs = [(r.pdf_path, r.citekey, threads)
             for r in sorted(refs, key=lambda r: -_pdf_size(r.pdf_path))]
@@ -487,7 +488,8 @@ def run(remove_stale: bool = False, reparse: bool = False) -> int:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Sync content/ledger.sqlite from the bib file (job 1 -- deterministic pipeline)."
+        description="Sync content/ledger.sqlite from the bib file "
+                    "(the corpus layer -- deterministic)."
     )
     parser.add_argument(
         "--reparse", action="store_true",

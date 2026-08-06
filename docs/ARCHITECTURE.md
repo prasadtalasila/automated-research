@@ -3,8 +3,8 @@
 What actually runs, what each part writes, and which parts are optional.
 
 **Written for** someone who has the pipeline working and now wants to
-change something: pick a parser backend, decide whether the heavy stack is
-worth building, wire a new script into the chain, or work out why a
+change something: pick a parser backend, decide whether the enrichment
+layer is worth building, wire a new script into the chain, or work out why a
 command needs a virtual environment when the one next to it doesn't.
 
 **Assumed** you have run [the Quickstart](../README.md#quickstart) at least
@@ -16,10 +16,10 @@ work on the repository itself ([DEVELOPER.md](../DEVELOPER.md)).
 ## Table of contents
 
 - [The three layers](#the-three-layers)
-- [Layer 1: the content layer (job 1)](#layer-1-the-content-layer-job-1)
-- [Layer 2: the genre layer (job 2)](#layer-2-the-genre-layer-job-2)
-- [The optional heavy branch](#the-optional-heavy-branch)
-- [Review aids: neither job](#review-aids-neither-job)
+- [Layer 1: the corpus layer](#layer-1-the-corpus-layer)
+- [Layer 2: the drafting layer](#layer-2-the-drafting-layer)
+- [The enrichment layer](#the-enrichment-layer)
+- [Review aids: in no layer](#review-aids-in-no-layer)
 - [Incremental by default, honest about failure](#incremental-by-default-honest-about-failure)
 - [What this architecture does not do](#what-this-architecture-does-not-do)
 - [What each capability requires](#what-each-capability-requires)
@@ -29,36 +29,38 @@ work on the repository itself ([DEVELOPER.md](../DEVELOPER.md)).
 
 ## The three layers
 
-Two jobs -- job 1 (deterministic) and job 2 (generative) in
-[AGENTS.md](../AGENTS.md)'s terms -- plus an optional heavy extension of
-job 2. The diagram below adds the axis the workflow diagrams leave out:
-**which interpreter each part needs, and who holds the write lock.**
+Three layers: a deterministic **corpus layer**, a generative **drafting
+layer**, and an optional **enrichment layer** that deepens the corpus for
+whoever wants it. (These were called "job 1", "job 2" and "the heavy
+pipeline" before 2026-08-06; older content and commit messages still use
+those names.) The diagram below adds the axis the workflow diagrams leave
+out: **which interpreter each part needs, and who holds the write lock.**
 
 ```mermaid
 flowchart TB
 
-  subgraph J1["<b>JOB 1 · CONTENT LAYER</b> — deterministic, no LLM, safe unattended"]
+  subgraph J1["<b>CORPUS LAYER</b> — deterministic, no LLM, safe unattended"]
     direction TB
     SYNC["<code>python -m src.sync</code><br/><small><b>needs the venv</b> — bibtexparser<br/>holds the write lock · exit 0 / 1 / 2</small>"]
     OUT1[/"<b>content/ledger.sqlite</b> · <b>content/parsed/&lt;citekey&gt;.txt</b>"/]
     SYNC --> OUT1
   end
 
-  subgraph J2["<b>JOB 2 · GENRE LAYER</b> — generative, on demand, you review it"]
+  subgraph J2["<b>DRAFTING LAYER</b> — generative, on demand, you review it"]
     direction TB
-    SKILL["<b>.claude/skills/</b> — five genre skills<br/><small>read the content layer · never write the ledger</small>"]
+    SKILL["<b>.claude/skills/</b> — five genre skills<br/><small>read the corpus layer · never write the ledger</small>"]
     CHAIN["<b>the chain, on every draft</b><br/><code>python3 -m src.citation_gate</code> — <b>hard gate</b><br/><code>python3 -m src.references</code><br/><code>python3 -m src.heavy.render_output</code><br/><small><b>bare python3, no venv</b> — by design</small>"]
     SKILL --> CHAIN
   end
 
-  subgraph JH["<b>OPTIONAL · HEAVY BRANCH</b> — you run it, no skill does"]
+  subgraph JH["<b>OPTIONAL · ENRICHMENT LAYER</b> — you run it, no skill does"]
     direction TB
     FULL["<code>python scripts/full_pipeline.py --stages …</code><br/><small><b>needs the venv + the heavy group</b><br/>takes the <b>same write lock</b> as sync</small>"]
     OUT3[/"content/docling/ · content/chroma/ · content/topics.json"/]
     FULL --> OUT3
   end
 
-  subgraph AID["<b>REVIEW AIDS</b> — neither job · never automatic · never a gate"]
+  subgraph AID["<b>REVIEW AIDS</b> — in no layer · never automatic · never a gate"]
     direction LR
     A["<code>python3 -m src.citation_provenance</code><br/><code>python3 -m src.citation_coverage</code><br/><code>python3 scripts/verbatim_check.py</code><br/><small>bare python3</small>"]
   end
@@ -95,7 +97,7 @@ Two properties carry the safety argument, and both are visible above:
   `content/ledger.sqlite` and nothing else, so a citekey no `sync` ever put
   there cannot survive into a rendered draft.
 
-## Layer 1: the content layer (job 1)
+## Layer 1: the corpus layer
 
 One command: `python -m src.sync`. It reads `papers/bibliography.bib`,
 updates one ledger row per citekey, resolves each PDF from the entry's
@@ -111,7 +113,7 @@ not re-parsed -- which is what makes the second run nearly free. Exit
 codes: `0` clean, `1` at least one parse failed, `2` another writer holds
 the lock.
 
-## Layer 2: the genre layer (job 2)
+## Layer 2: the drafting layer
 
 Five Claude Code skills in `.claude/skills/`, one set of grounding rules
 between them:
@@ -129,7 +131,7 @@ explains, a tutorial is verified to run. The prose standards all five
 share, and where in the technical-communication literature they come from,
 are in [WRITING-STANDARDS.md](WRITING-STANDARDS.md).
 
-Each skill retrieves from the content layer, drafts into
+Each skill retrieves from the corpus layer, drafts into
 `content/drafts/`, then runs the same three commands on its own output:
 
 1. `python3 -m src.citation_gate <draft>` -- the hard gate. The skill
@@ -150,7 +152,7 @@ hook runs it on every write under `content/drafts/`, so a draft cannot be
 saved with an unverifiable citation even if a skill forgets to check, and
 the skill runs it again before presenting anything.
 
-**What the skills do and do not run for you.** They read the content
+**What the skills do and do not run for you.** They read the corpus
 layer; they never write `content/ledger.sqlite` themselves. Three of the
 five (`survey-writer`, `thesis-chapter-writer`, `deep-research`) will run
 `python -m src.sync` on your behalf when the ledger is empty or stale, and
@@ -158,15 +160,22 @@ say what it found. The two teaching genres don't, because a chapter or a
 tutorial cites little enough that an empty ledger isn't a blocker for
 them.
 
-**No skill runs the heavy pipeline.** They consume its output when a human
+**No skill runs the enrichment layer.** They consume its output when a human
 has already built it -- `deep-research` checks for `content/chroma/`
 before reaching for embedding search, `peer-reviewer` reads
 `content/docling/<citekey>.md` if it exists -- and fall back to the
 lightweight default when it isn't there. Building that stack is your
-decision, not a side effect of asking for a draft. See [the heavy
-branch](#the-optional-heavy-branch) below.
+decision, not a side effect of asking for a draft. See [the enrichment
+layer](#the-enrichment-layer) below.
 
-## The optional heavy branch
+## The enrichment layer
+
+**It extends the corpus layer, not the drafting one.** That is worth
+saying plainly, because the old name for it -- "the heavy pipeline" --
+suggested otherwise. Nothing in it is generative and no skill runs it;
+every artefact it writes is a deeper reading of the same corpus, which is
+also why it takes the *same write lock* as `sync`. The drafting layer only
+ever reads what it produced.
 
 `scripts/full_pipeline.py` is the entry point, and it is the only one:
 
@@ -180,8 +189,8 @@ branch](#the-optional-heavy-branch) below.
 | `docling` | `content/docling/<doc>.md` plus a `<doc>.passages.json` sidecar of quotable, reading-ordered passages (and figure bitmaps under `[heavy].docling_images`) | no |
 | `embed` | `content/chroma/` -- sentence-transformers vectors per 200-word chunk | no |
 | `bertopic` | `content/topics.json` -- one cluster assignment per document | no |
-| `provenance` | the citation-provenance report; the same code as `python3 -m src.citation_provenance` | **yes** |
-| `render` | the rendered draft; the same code as `python3 -m src.heavy.render_output` | **yes** |
+| `provenance` | the citation-provenance report -- the same code as `python3 -m src.citation_provenance`, wrapped for convenience rather than enrichment work | **yes** |
+| `render` | the rendered draft -- likewise the drafting layer's own `python3 -m src.heavy.render_output`, wrapped here | **yes** |
 
 Each stage probes its own prerequisites and reports `ok`, `partial`,
 `skipped`, `missing-binary` or `error`, so a missing TeX Live is a correct
@@ -189,7 +198,7 @@ answer rather than a crash. No stage needs an LLM API key -- this
 repository intentionally has none. (An earlier revision had PaperQA2 and
 STORM stages that required `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`; they
 were removed to keep it key-free. LLM-backed synthesis happens only in the
-genre layer, through a Claude Code session.)
+drafting layer, through a Claude Code session.)
 
 What the three build stages are *for*, and which one to build first, is in
 [RETRIEVAL.md](RETRIEVAL.md).
@@ -199,7 +208,7 @@ What the three build stages are *for*, and which one to build first, is in
 no `__main__` block, so `python -m src.heavy.docling_parse` imports the
 module, does nothing, and exits 0 -- a silent no-op, not an error.
 `src/heavy/render_output.py` is the exception: it has a CLI, needs no
-package from the heavy group, and is what the genre layer calls directly.
+package from the heavy group, and is what the drafting layer calls directly.
 
 **Calling it from a skill or an agent.** A skill runs inline with the same
 Bash access as the session that invoked it, so it *can* shell out to
@@ -208,12 +217,13 @@ the one the existing skills use: check the stack exists before calling
 into it (`content/chroma/` for embeddings, `content/docling/` for
 passages, `.venv-full/` for anything in the heavy group), and degrade to
 the lightweight default rather than erroring when it doesn't. Bear in mind
-what that costs: the heavy branch takes the same write lock as `sync`, and
+what that costs: the enrichment layer takes the same write lock as `sync`,
+and
 a first full-corpus Docling parse is measured in tens of minutes.
 
-## Review aids: neither job
+## Review aids: in no layer
 
-Three commands sit outside both jobs. Nothing invokes them automatically,
+Three commands sit outside all three layers. Nothing invokes them automatically,
 and none of them gates anything:
 
 | Command | Answers |
@@ -317,7 +327,7 @@ the first rung, and falls to the next when that one can't answer. A
 | Ladder | Rungs, best first | Where |
 |---|---|---|
 | Evidence passages | docling `.passages.json` -> parsed text split on page breaks -> a fresh `pdftotext` run | `src/passages.py` |
-| Heavy text source | `content/docling/<id>.md` -> the ledger's parsed `.txt` -> a fresh `pdftotext` run | `embed_index.get_text` |
+| Enrichment text source | `content/docling/<id>.md` -> the ledger's parsed `.txt` -> a fresh `pdftotext` run | `embed_index.get_text` |
 | Accelerator | one CUDA device per worker -> that worker falls back to the CPU on an out-of-memory error | `src/pdf_text.py` |
 
 A **tier** is a menu you choose from, with no automatic descent. Naming

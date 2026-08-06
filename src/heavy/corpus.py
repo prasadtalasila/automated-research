@@ -1,4 +1,4 @@
-"""Unified view over both corpus sources for the heavy pipeline.
+"""Unified view over both corpus sources for the enrichment layer.
 
 Two sources, two identifier namespaces, on purpose:
 

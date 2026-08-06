@@ -6,11 +6,11 @@ tags: [thesis, dissertation, latex, citation]
 
 # thesis-chapter-writer
 
-Genre-specific drafting agent for thesis-chapter output. Job 2 (generative,
-on-demand, user-reviewed) in the two-job pipeline split -- distinct from
-`python -m src.sync` (job 1, deterministic, unattended-safe).
+Genre-specific drafting agent for thesis-chapter output. The drafting
+layer (generative, on-demand, user-reviewed) -- distinct from
+`python -m src.sync` (the corpus layer: deterministic, unattended-safe).
 
-## Shared content layer (read, don't regenerate)
+## Shared corpus layer (read, don't regenerate)
 
 - `content/ledger.sqlite` -- per-citekey status, populated by `sync`
 - `papers/bibliography.bib` (gitignored, per-host) -- the source of truth for citekeys/metadata;
@@ -119,7 +119,7 @@ job -- see `docs/WRITING-STANDARDS.md` §5.
    src.references` on this fragment and don't add a manual References
    section to it -- the fragment is designed to inherit the thesis's own
    document-wide `\addbibresource`/`\bibliography` (step 1's shared
-   content layer), and a per-chapter list would duplicate that. The `.pdf`
+   corpus layer), and a per-chapter list would duplicate that. The `.pdf`
    preview still gets a real bibliography for free: `--citeproc` resolves
    `\citep`/`\citet` against `bibliography.bib` and appends one
    automatically, same as before this feature existed.

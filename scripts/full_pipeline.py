@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Orchestrates the full heavy pipeline:
+"""Orchestrates the full enrichment layer:
 
     Docling -> sentence-transformers/Chroma -> BERTopic
     -> citation provenance -> Pandoc/LaTeX
@@ -14,8 +14,8 @@ bug in this script.
 
 Needs the venv populated by `poetry install --with heavy` (see
 pyproject.toml, and .venv-full/ on the host this was developed on). The
-core pipeline (python -m src.sync, src/citation_gate.py) does not depend
-on any of this and is unaffected either way.
+corpus and drafting layers (python -m src.sync, src/citation_gate.py) do
+not depend on any of this and are unaffected either way.
 
 Usage:
     python scripts/full_pipeline.py --target host
@@ -109,7 +109,7 @@ def main() -> int:
         print(f"WARNING: unknown stage(s) {', '.join(unknown)} -- known stages: {', '.join(STAGE_ORDER)}")
 
     # Same lock as `python -m src.sync`: this stage writes content/ too,
-    # and sync's parsed-text writes are not atomic, so a heavy run
+    # and sync's parsed-text writes are not atomic, so an enrichment run
     # overlapping a sync can read a half-written .txt. One lock rather
     # than two, because the unsafe overlap is any-writer-vs-any-writer,
     # not just sync-vs-sync.

@@ -80,11 +80,12 @@ Two properties matter when you compare it with the alternative:
 - **Every hit is citable.** It reads the ledger, so every result already
   has a citekey that `citation_gate` will accept.
 - **It reads `content/parsed/<citekey>.txt` and nothing else.** Running
-  the heavy `docling` stage does not improve BM25 -- `content/docling/`
-  is not on its read path. The only way Docling's output reaches keyword
-  retrieval is `[parser].backend = "docling"` in job 1, which changes what
+  the enrichment layer's `docling` stage does not improve BM25 --
+  `content/docling/` is not on its read path. The only way Docling's output reaches keyword
+  retrieval is `[parser].backend = "docling"` in the corpus layer, which
+  changes what
   `sync` writes into `content/parsed/`. (That choice has a cost of its own:
-  see [CITATION-PROVENANCE.md](CITATION-PROVENANCE.md#what-job-1-discards-when-it-uses-docling).)
+  see [CITATION-PROVENANCE.md](CITATION-PROVENANCE.md#what-the-corpus-layer-discards-when-it-uses-docling).)
 
 Term-frequency statistics are cached to `content/retrieval_index.json`,
 keyed by a cheap per-document fingerprint (the parsed file's size and
@@ -111,7 +112,7 @@ communities that use different vocabulary for the same idea, semantic
 recall is the reason to build this. On a small, vocabulary-consistent
 corpus, BM25 is usually enough -- which is why it stays the default.
 
-**The one hazard: not every hit is citable.** The heavy pipeline's corpus
+**The one hazard: not every hit is citable.** The enrichment layer's corpus
 is wider than the ledger. It includes any raw PDF you dropped into
 `papers/pdfs/`, which has no bibliography entry and therefore no citekey.
 Those results come back with `citekey: ""` and a `doc_id` like

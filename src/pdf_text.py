@@ -956,7 +956,7 @@ def _extract_docling(pdf_path: str, out_path: Path, threads: int | None = None) 
     semantic labels -- 336 of 336 text items on a real 17-page paper, per
     docs/CITATION-PROVENANCE.md. `export_to_markdown()` keeps the reading
     order and drops the rest, and this function keeps only that string.
-    That is the right shape for what job 1 owes its callers, which is one
+    That is the right shape for what the corpus layer owes its callers: one
     plain-text file per citekey for BM25 to rank.
 
     It is worth knowing what it costs downstream, because it runs against
@@ -971,8 +971,8 @@ def _extract_docling(pdf_path: str, out_path: Path, threads: int | None = None) 
     src/heavy/docling_parse.py is the other consumer of this library, and
     is not made redundant by this one: it writes that sidecar plus
     structured Markdown per doc, from its own second parse. DEVELOPER.md's
-    "Job 1 throws away Docling's document model" records what closing the
-    gap would take.
+    "The corpus layer throws away Docling's document model" records what
+    closing the gap would take.
     """
     converter = _docling_converter(threads)
     try:

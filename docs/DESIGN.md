@@ -9,9 +9,10 @@ The repository is designed around a few hard constraints that strongly shape the
    - Drafts must pass `python -m src.citation_gate` before being considered valid.
    - This is the repo's primary safety invariant.
 
-2. **Two-job split**
-   - Job 1: deterministic content maintenance (`python -m src.sync`).
-   - Job 2: generative drafting and heavier processing via Claude Code skills or the heavy pipeline.
+2. **Three layers**
+   - Corpus layer: deterministic content maintenance (`python -m src.sync`).
+   - Drafting layer: generative drafting via the Claude Code skills.
+   - Enrichment layer: optional heavier processing (`scripts/full_pipeline.py`).
    - Ad-hoc review tools remain outside the automatic chain.
 
 3. **Config and host variability are first-class concerns**
@@ -48,7 +49,7 @@ The repository is designed around a few hard constraints that strongly shape the
 ### 1. Pipeline architecture
 The project is fundamentally a staged pipeline:
 - BibTeX export -> ledger -> parsed text -> retrieval
-- Optional heavy pipeline: Docling -> embeddings -> BERTopic -> render
+- Optional enrichment layer: Docling -> embeddings -> BERTopic -> render
 
 This is the dominant structural pattern and fits the use case well.
 
@@ -73,8 +74,8 @@ This keeps the rest of the system insulated from tool-specific details.
 
 ### 4. Strategy-like backend substitution
 The repo already supports alternate approaches for retrieval and parsing:
-- BM25 retrieval in the core pipeline
-- embedding retrieval in the heavy pipeline
+- BM25 retrieval in the corpus layer
+- embedding retrieval in the enrichment layer
 - plain extraction vs structured extraction
 
 That is a good fit for a tiered research workflow.
@@ -184,7 +185,7 @@ than raised so that both the value and its type survive pickling, since
 Work is submitted longest-file-first. One 675-page document in this
 corpus is 5% of all its pages; picked up last it would define the wall
 clock by itself. File size rather than page count, because counting pages
-needs a PDF library the core pipeline deliberately does not depend on.
+needs a PDF library the corpus layer deliberately does not depend on.
 
 ### Device assignment
 
@@ -248,7 +249,7 @@ would remove documents from the corpus permanently.
 
 `sync` and `full_pipeline` share a lock over `content/`, because the
 unsafe overlap is any-writer-against-any-writer: `sync` writes parsed
-text non-atomically and the heavy pipeline reads those same files.
+text non-atomically and the enrichment layer reads those same files.
 
 It is a dedicated sqlite file held under `BEGIN IMMEDIATE`, chosen from
 measurement rather than taste. A `BEGIN IMMEDIATE` holder takes a

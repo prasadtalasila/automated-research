@@ -69,7 +69,7 @@ mkdir -p papers && cp /path/to/your/exported-library.bib papers/bibliography.bib
 cp config.toml.example config.toml
 
 # Optional: raw, not-yet-cataloged PDFs (no reference-manager entry, no
-# citekey) for the heavy pipeline's topic modelling/embeddings. NEVER
+# citekey) for the enrichment layer's topic modelling/embeddings. NEVER
 # citable this way -- add a PDF to your reference manager, re-export, and
 # re-run sync before citing it.
 mkdir -p papers/pdfs && cp /path/to/some-paper.pdf papers/pdfs/
@@ -80,7 +80,7 @@ mkdir -p papers/pdfs && cp /path/to/some-paper.pdf papers/pdfs/
 #    scripts/install_full_pipeline.sh below.
 bash scripts/install_full_pipeline.sh
 
-# 3. Sync the content layer from papers/bibliography.bib.
+# 3. Sync the corpus layer from papers/bibliography.bib.
 .venv-full/bin/python -m src.sync
 
 # 4. Inspect what it found. Read-only, takes no lock (so it works while a
@@ -129,7 +129,7 @@ than waiting.
 
 ### `python3 -m src.ledger`
 
-Read-only view of the content layer. **Takes no lock**, so it works while
+Read-only view of the corpus layer. **Takes no lock**, so it works while
 a sync is running. With no flags it prints a summary.
 
 | Flag | Default | What it does |
@@ -289,7 +289,7 @@ python3 -m src.heavy.render_output content/drafts/survey.md --format pdf
 
 ### `scripts/full_pipeline.py`
 
-Orchestrates the heavy pipeline: docling -> embeddings/Chroma -> BERTopic
+Orchestrates the enrichment layer: docling -> embeddings/Chroma -> BERTopic
 -> provenance -> render. **Needs the venv.** Each stage probes its own
 prerequisites and reports a real per-stage status, so a
 `skipped/missing-binary` result on a machine without TeX Live is a

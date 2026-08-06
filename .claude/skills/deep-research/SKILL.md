@@ -20,9 +20,9 @@ Every claim must resolve to one of:
 This is a heavier, slower alternative to `survey-writer` for when the user
 wants genuine multi-perspective depth (contradiction mapping, ranked
 findings, self peer-review) rather than a single-pass literature survey.
-It reads the same shared content layer as the other genre skills.
+It reads the same shared corpus layer as the other genre skills.
 
-## Shared content layer (read, don't regenerate)
+## Shared corpus layer (read, don't regenerate)
 
 - `content/ledger.sqlite` -- per-citekey status, populated by `sync`
 - `papers/bibliography.bib` (gitignored, per-host) -- source of truth for citekeys/metadata
