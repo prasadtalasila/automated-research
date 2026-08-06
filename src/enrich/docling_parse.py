@@ -9,15 +9,20 @@ failure on one document doesn't lose progress on the others.
 
 Not the same thing as `[parser].backend = "docling"`, and not made
 redundant by it. That setting points src/pdf_text.py at the same library
-to produce one flat .txt per citekey for BM25; this stage produces
-structured Markdown plus the `<doc>.passages.json` sidecar for the whole
-corpus, always, whatever that setting says. It also reads the **PDF**
-rather than content/parsed/, so it is a second independent extraction and
-not a refinement of the first -- including for `papers/pdfs/` documents,
-which have no ledger row and so are never parsed by the corpus layer at
-all. The two
-share no cache; DEVELOPER.md's "The corpus layer throws away Docling's document
-model" is the standing note on what that costs.
+to produce one .txt per citekey for BM25; this stage produces structured
+Markdown plus the `<doc>.passages.json` sidecar for the whole corpus,
+always, whatever that setting says -- including for `papers/pdfs/`
+documents, which have no ledger row and so are never parsed by the corpus
+layer at all.
+
+What it no longer does is repeat work the corpus layer has already done.
+When that setting *is* `docling`, `_reuse_corpus_parse` adopts the
+existing parse for a citekey instead of converting the PDF a second time.
+The dependency runs one way only, which is the way this package is
+allowed to depend: the enrichment layer reads the corpus layer's
+artefacts, and nothing in the corpus layer is shaped to make that
+possible (see `_executor_for`'s docstring for the same rule applied to
+imports).
 
 With config.DOCLING_IMAGES on, each doc also gets its figure bitmaps
 (in `<stem>_artifacts/`, written by Docling itself) and a

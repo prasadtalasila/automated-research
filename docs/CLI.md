@@ -368,9 +368,13 @@ python3 scripts/verbatim_check.py overlap content/drafts/survey.md talasila_comp
 ```
 
 `locate` reports page numbers by splitting on the form-feed characters
-`pdftotext` emits between pages. A citekey parsed with the `docling`
-backend has none, so every hit reports `pdf p.1` -- see
-[CONFIG.md](CONFIG.md#backend-pdftotext-or-docling).
+between pages. Both backends emit them, so a page number here is a page
+you can turn to whichever one parsed the citekey -- see
+[CONFIG.md](CONFIG.md#backend-pdftotext-or-docling). One limit: `docling`
+writes a break between consecutive pages that carry text, so a page with
+no extracted items at all shifts the numbering after it. The passage
+sidecar records each item's own page and is not affected; where the two
+disagree, believe `python3 -m src.citation_provenance`.
 
 ### `scripts/install_full_pipeline.sh`
 

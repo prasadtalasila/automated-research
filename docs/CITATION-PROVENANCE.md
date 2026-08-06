@@ -266,36 +266,72 @@ because false precision invites trust.
 
 ### Costs of Phase 2
 
-- A full Docling pass over the corpus: ~26s/paper measured, so **~3.6
-  hours** for 501 papers, and it is not incremental across a
-  re-parse when options change.
-- `content/parsed/` stays authoritative for retrieval, so the sidecar is
-  a second text representation to keep in sync with it.
-- `content/docling/` is currently read only by `src/enrich/embed_index.py`;
-  this adds a second consumer to an opt-in stage.
-- The default backend is `pdftotext` and the Docling stage is opt-in, so
-  the tool needs the Phase 1 path regardless -- Phase 2 can only ever be
-  an enhancement for users who have paid the Docling cost, never a
-  replacement.
+Phase 2 has since shipped, in both layers -- see ["What the corpus layer
+keeps when it uses docling"](#what-the-corpus-layer-keeps-when-it-uses-docling)
+below. The estimates it was planned against are kept here, corrected
+against what was later measured, because three of the four moved:
 
-## What the corpus layer discards when it uses docling
+- **A full Docling pass over the corpus.** Estimated at ~26s/paper, so
+  ~3.6 hours for 501 papers. Measured, once the converter was hoisted out
+  of the per-document path: **6.65s/PDF serial -- 3330s for the whole
+  501-PDF corpus, and 310s at twelve workers**
+  ([docs/PERFORMANCE.md](PERFORMANCE.md#parserworkers----document-level-parallelism)).
+  About 4x cheaper than the figure this decision was weighed against, and
+  cheaper again now that a corpus-layer Docling parse is adopted rather
+  than repeated. What remains true is the tail of the original bullet:
+  the per-document cache is invalidated wholesale when the image, OCR or
+  cache-version settings change, so *those* re-parses do cost full price.
+- **A second text representation to keep in sync with `content/parsed/`.**
+  Still true of the enrichment layer's sidecar. No longer true of the
+  corpus layer's: it is written by the same parse that writes the `.txt`,
+  beside it, and cleared before the same re-parse -- there is no window in
+  which one is fresh and the other stale.
+- **A second consumer for an opt-in stage.** Already the case:
+  `content/docling/` is read by `src/enrich/embed_index.py` and by
+  `src/passages.py`'s rung 1.
+- **The Phase 1 path is needed regardless.** Unchanged, and the reason is
+  unchanged: the default backend is `pdftotext`, which resolves no
+  reading order, so page-level reporting stays the answer for anyone who
+  hasn't paid for a Docling parse either way.
 
-Docling appears twice in this repository, for two different purposes, and
-the two do not share their work. The corpus layer's parser
-(`[parser].backend = "docling"`) and the enrichment layer's `docling` stage
-are independent consumers of the same library. That has a consequence for
-provenance that is worth stating plainly, because it runs against
-intuition: **choosing the better parser here does not give you better
-quotations, and on its own it gives you worse ones.**
+## What the corpus layer keeps when it uses docling
 
-When `sync` parses with Docling it builds the full document model --
+Docling appears twice in this repository, for two different purposes. The
+corpus layer's parser (`[parser].backend = "docling"`) and the enrichment
+layer's `docling` stage are separate consumers of the same library, and
+what each keeps decides what you can quote.
+
+**This section used to describe a gap, and now describes how it was
+closed.** Until v3.0.1 the corpus layer built the full document model --
 verified on a real 17-page paper, 336 of 336 text items carried a page
-number, a bounding box and a semantic label -- and then keeps only
-`export_to_markdown()`, writing that string to
-`content/parsed/<citekey>.txt`. Reading order survives inside the text.
-Page numbers, labels and boxes do not; the document object is discarded.
+number, a bounding box and a semantic label -- kept only
+`export_to_markdown()`, and discarded the object. Reading order survived
+inside the text; page numbers, labels and boxes did not. The consequence
+ran against intuition: choosing the better parser bought *worse*
+quotations, because Markdown carries no form feeds, so the passage ladder
+found a single "page", declined it, and fell through to a fresh
+`pdftotext` run -- the column-splicing tool the ladder exists to avoid
+quoting from.
 
-Follow what the passage ladder then does:
+Both halves of that are now kept:
+
+- `export_to_markdown(page_break_placeholder="\f")` writes the page
+  boundaries into `content/parsed/<citekey>.txt`, so it has the same
+  shape as `pdftotext`'s output. Checked on a real 51-page paper: 51
+  pages in the model, 51 form-feed-separated segments in the file.
+- The structure Markdown cannot carry leaves by a second door, as
+  `content/parsed/<citekey>.passages.json` -- the same records
+  `src/passages.py`'s `passage_records()` produces for the enrichment
+  layer. On that same paper: 592 records spanning pages 1 to 51, every
+  one carrying both a page number and a bounding box.
+
+A sidecar quotes the PDF *as parsed when it was written*, so it is
+dropped before every re-parse rather than replaced after one. A switch
+back to `pdftotext`, a parse that fails outright, and a re-parse of an
+edited PDF all end at "no sidecar" instead of at last week's sentences
+attributed to today's document.
+
+Follow what the passage ladder now does:
 
 ```mermaid
 flowchart TB
@@ -303,8 +339,9 @@ flowchart TB
   ASK(["a claim cites <code>talasila_composable_2025</code> —<br/>which passage supports it?"])
 
   R1{"<b>rung 1</b><br/>content/docling/&lt;citekey&gt;.passages.json"}
-  R2{"<b>rung 2</b><br/>content/parsed/&lt;citekey&gt;.txt,<br/>split on page breaks"}
-  R3["<b>rung 3</b><br/>run <code>pdftotext -layout</code> on the PDF"]
+  R2{"<b>rung 2</b><br/>content/parsed/&lt;citekey&gt;.passages.json"}
+  R3{"<b>rung 3</b><br/>content/parsed/&lt;citekey&gt;.txt,<br/>split on page breaks"}
+  R4["<b>rung 4</b><br/>run <code>pdftotext -layout</code> on the PDF"]
 
   GOOD(["<b>quotable</b><br/><small>a real, reading-ordered paragraph<br/>with the page it sits on</small>"])
   MEH(["<b>page-level only</b><br/><small>the passage carries no text —<br/><code>quotable</code> is false, by design</small>"])
@@ -312,9 +349,11 @@ flowchart TB
   ASK --> R1
   R1 -- "the enrichment layer's docling stage has run" --> GOOD
   R1 -- "missing" --> R2
-  R2 -- "the backend left page breaks<br/><i>(pdftotext does)</i>" --> MEH
-  R2 -- "one page, or none<br/><i>(every docling parse)</i>" --> R3
-  R3 --> MEH
+  R2 -- "the corpus layer parsed this<br/>with <i>[parser].backend = docling</i>" --> GOOD
+  R2 -- "missing<br/><i>(pdftotext leaves no passages)</i>" --> R3
+  R3 -- "the backend left page breaks<br/><i>(both of them do)</i>" --> MEH
+  R3 -- "one page, or none" --> R4
+  R4 --> MEH
 
   classDef ask fill:#fff7ed,stroke:#c2410c,color:#431407
   classDef rung fill:#eef2ff,stroke:#4f46e5,stroke-width:1.5px,color:#1e1b4b
@@ -322,34 +361,38 @@ flowchart TB
   classDef meh fill:#f8fafc,stroke:#94a3b8,color:#0f172a
 
   class ASK ask
-  class R1,R2,R3 rung
+  class R1,R2,R3,R4 rung
   class GOOD good
   class MEH meh
 ```
 
-A corpus-layer Docling parse writes Markdown, which carries no form feeds, so
-rung 2 sees a single page and declines. The ladder falls to rung 3 and
-re-extracts the PDF with `pdftotext` -- the tool whose column splicing
-this whole section exists to work around. Two further consequences follow
-from the same missing page breaks: `scripts/verbatim_check.py locate`
-reports `pdf p.1` for every hit on such a citekey, and a later
-`--stages docling` run re-parses those same PDFs from scratch, because the
-enrichment stage keeps its own cache and has no way to know the corpus
-layer already did
-the work.
+Rungs 1 and 2 hold the same kind of record from the same function; they
+are separate files because the two layers own separate directories and
+re-run on separate schedules. The corpus layer has to be able to
+invalidate *its* sidecar on every re-parse without deleting an enrichment
+sidecar it did not write and could not reproduce. Rung 1 is tried first
+because the enrichment stage parses the PDF a second time under its own
+OCR and figure settings.
 
-**What to do about it today.** If you want quotable passages, run the
-enrichment stage: `enrich.py --stages docling` writes the
-`<citekey>.passages.json` sidecar that rung 1 wants, whichever backend
-the corpus layer used. If you are not going to run it, `[parser].backend =
-"pdftotext"` (the default) keeps page-level locating working, which is the
-better of the two remaining rungs. The combination that helps least is
-Docling in the corpus layer with no enrichment stage: you pay the slowest
-parse and land on rung 3 anyway.
+**Which backend to choose, then.** `docling` if you want quotable
+passages without running the enrichment layer at all -- that is the
+change described above, and it is the whole reason to pay the slower
+parse. `pdftotext` (the default) remains the right choice if you only
+need page-level locating and want the fastest sync; it lands on rung 3,
+which reports a real page and refuses to quote. The combination that once
+helped least -- Docling in the corpus layer with no enrichment stage --
+is now the one that gives you the most for a single parse.
 
-The fix -- having the corpus layer write the sidecar from the document
-model it already holds, rather than throwing it away -- is recorded as a known gap
-in [DEVELOPER.md](../DEVELOPER.md#open-questions-and-unbuilt-features).
+`scripts/verbatim_check.py locate` benefits from the same change: it
+splits `content/parsed/<citekey>.txt` on form feeds, so it reports the
+page a phrase actually sits on rather than `pdf p.1` for every hit.
+
+One limit worth knowing. Docling emits a page break *between* consecutive
+pages that carry items, and none before the first, so the nth segment is
+page n -- but a page carrying no items at all contributes no break and
+shifts the pages after it. The sidecar is unaffected, because it records
+each item's own `page_no` rather than counting separators. Where the two
+disagree, the sidecar is right.
 
 ## Worked example
 

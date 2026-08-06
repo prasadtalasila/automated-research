@@ -323,6 +323,8 @@ directory it lives in.
 ## Ladders and tiers
 
 Both words appear across these docs, and they are not the same thing.
+Summarised here; each one is treated in full, with what its bottom rung
+costs you, in [docs/LADDERS.md](LADDERS.md).
 
 A **ladder** is an ordered chain the code walks *automatically*: it tries
 the first rung, and falls to the next when that one can't answer. A
@@ -330,7 +332,7 @@ the first rung, and falls to the next when that one can't answer. A
 
 | Ladder | Rungs, best first | Where |
 |---|---|---|
-| Evidence passages | docling `.passages.json` -> parsed text split on page breaks -> a fresh `pdftotext` run | `src/passages.py` |
+| Evidence passages | the enrichment layer's `.passages.json` -> the corpus layer's `.passages.json` -> parsed text split on page breaks -> a fresh `pdftotext` run | `src/passages.py` |
 | Enrichment text source | `content/docling/<id>.md` -> the ledger's parsed `.txt` -> a fresh `pdftotext` run | `embed_index.get_text` |
 | Accelerator | one CUDA device per worker -> that worker falls back to the CPU on an out-of-memory error | `src/pdf_text.py` |
 

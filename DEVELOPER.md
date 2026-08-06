@@ -314,51 +314,46 @@ the following tasks need to be completed in priority order:
    (`/workspace/git/chitragupta/.venv-full/bin/python`) -- cron
    doesn't source your shell profile or activate venvs.
 
-### The corpus layer throws away Docling's document model
+### ~~The corpus layer throws away Docling's document model~~ **Done.**
 
-With `[parser].backend = "docling"`, `pdf_text._extract_docling` builds a
-full `DoclingDocument` -- page numbers, bounding boxes, semantic labels on
-every text item -- and keeps only `export_to_markdown()`, writing that to
-`content/parsed/<citekey>.txt`. Everything else is garbage-collected.
+With `[parser].backend = "docling"`, `pdf_text._extract_docling` used to
+build a full `DoclingDocument` -- page numbers, bounding boxes, semantic
+labels on every text item -- keep only `export_to_markdown()`, and let the
+rest be garbage-collected. The passage ladder then fell past the
+page-level rung (Markdown has no form feeds, so the split yielded one
+page) to a fresh `pdftotext` run, which meant the best parser produced the
+worst passages.
 
-The user-visible consequence is in
-[docs/CITATION-PROVENANCE.md](docs/CITATION-PROVENANCE.md#what-the-corpus-layer-discards-when-it-uses-docling):
-the passage ladder falls past rung 2 (Markdown has no form feeds, so the
-split yields one page) to rung 3, which re-runs `pdftotext` on the PDF.
-The best parser therefore produces the worst passages, and a later
-`--stages docling` run re-parses the same PDFs from scratch.
+Both halves are now kept, and the fix was the two changes this note
+proposed:
 
-Two mitigations, in increasing order of size:
+1. **`export_to_markdown(page_break_placeholder="\f")`** puts the page
+   boundaries back into `content/parsed/<citekey>.txt`, so it has the same
+   shape as `pdftotext`'s output and `verbatim_check.py locate` reports a
+   real page. Checked against the installed `docling-core` 2.89.0 on a
+   real 51-page paper: 51 pages in the model, 51 form-feed segments in the
+   file. `\f` is whitespace, so BM25 tokenisation and
+   `run_together_ratio` are unaffected.
+2. **`passage_records()` moved into `src/passages.py`**, which is
+   stdlib-only, is already the sidecar's reader, and describes a Docling
+   document through `getattr` alone -- so it satisfies the dependency
+   direction (`src/enrich/` imports the core, never the reverse) while
+   letting both writers share one definition. The corpus layer writes
+   `content/parsed/<citekey>.passages.json`; the enrichment layer keeps
+   writing its own under `content/docling/`, keyed by doc_id. The corpus
+   layer's is cleared *before* every parse, so a switch back to
+   `pdftotext`, a failed parse and a re-parse all leave no stale sidecar.
 
-1. **Pass `page_break_placeholder="\f"`** to `export_to_markdown()` in
-   `_extract_docling`. Verified present in the pinned `docling-core`
-   (2.89.0, `types/doc/document.py`); `save_as_markdown` takes it too.
-   This alone restores rung 2 and fixes `verbatim_check.py locate`
-   reporting `pdf p.1` for every hit. `\f` is whitespace, so BM25
-   tokenisation and `run_together_ratio` are unaffected.
-2. **Write the `<citekey>.passages.json` sidecar from the corpus layer**,
-   from the
-   document it already holds. The obstacle is the dependency direction --
-   `src/enrich/` imports the core, never the reverse (see
-   `docling_parse._executor_for`'s docstring) -- so `pdf_text.py` must not
-   import `_passage_records` from `src/enrich/`. Hoisting
-   `_passage_records` and `_PASSAGE_LABELS` into `src/passages.py` fits:
-   that module is stdlib-only, is already the sidecar's *reader*, and the
-   function is pure `getattr` duck-typing with no docling import. Both
-   writers then share one implementation. Whichever writes it must also
-   invalidate it -- a `--reparse` back to `pdftotext` leaves a sidecar
-   nothing will refresh.
-
-Going further -- letting a corpus-layer Docling parse satisfy the
-enrichment stage's
-cache outright -- is a bigger change than it looks. With
-`[enrich].docling_images` off the two produce byte-identical Markdown
-(both call `export_to_markdown()` with no arguments), but the corpus layer knows
-nothing of `_CACHE_VERSION` or `DOCLING_IMAGES`, works in the `citekey`
-namespace rather than `doc_id`, and never sees the `papers/pdfs/`
-documents the enrichment corpus includes. `embed_index.get_text`'s
-docling-first ladder is the precedent that the reuse pattern already
-exists; the cache-key reconciliation is the work.
+The third item -- sharing the work with the enrichment stage -- shipped
+too, in the only direction this repository permits. `docling_parse`
+adopts the corpus layer's parse for a citekey (a file copy, against 6.65s
+per document) rather than the corpus layer being reshaped to satisfy the
+enrichment cache. It refuses for a `papers/pdfs/` document, for a run with
+`DOCLING_IMAGES` on, and for artefacts older than their PDF. The one
+remaining gap is stated in `_corpus_parse_available`'s docstring: it
+cannot tell which `[parser].ocr` setting produced the corpus text, but
+that staleness already exists in `content/parsed/` and has the same fix
+(`python -m src.sync --reparse`).
 
 ### `content/topics.json` has no consumer
 
