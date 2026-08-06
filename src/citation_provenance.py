@@ -79,7 +79,13 @@ def _paragraph_spans(lines: list[str]) -> list[tuple[int, int, str]]:
 _TABLE_ROW = re.compile(r"^\s*\|")
 _LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 _HEADING = re.compile(r"^\s*#{1,6}\s+")
-_OPENS_BLOCK = re.compile(r"^\s*(?:\||[-*+]\s|\d+[.)]\s|#{1,6}\s)")
+_OPENS_BLOCK = re.compile(
+    r"^\s*(?:"
+    r"\||[-*+]\s|\d+[.)]\s|#{1,6}\s"                        # markdown
+    r"|\\item\b|\\(?:begin|end)\{"                           # LaTeX environments
+    r"|\\(?:chapter|(?:sub){0,2}section|paragraph)\*?\{"     # LaTeX headings
+    r")"
+)
 # A row and a heading are complete in one line: whatever follows starts
 # its own block, so prose under a heading is not glued to the heading.
 _STANDS_ALONE = re.compile(r"^\s*(?:\||#{1,6}\s)")
@@ -99,6 +105,10 @@ _ROW_SPLIT = re.compile(r"(?<!\\)\|")
 _TEX_ITEM = re.compile(r"^\s*\\item\b\s*")
 _TEX_ROW_END = re.compile(r"\\\\\s*$")
 _TEX_HEADING = re.compile(r"^\s*\\(?:chapter|(?:sub){0,2}section|paragraph)\*?\{")
+# The same command with its braced title, so `\section{Standards}` is
+# quoted as "Standards" rather than as its own markup -- the counterpart
+# of dropping a markdown heading's leading `#`.
+_TEX_HEADING_TITLE = re.compile(r"\\(?:chapter|(?:sub){0,2}section|paragraph)\*?\{([^}]*)\}")
 _TEX_STRUCTURE = re.compile(
     r"\\(?:begin|end)\{[^}]*\}(?:\[[^\]]*\]|\{[^}]*\})*"
     r"|\\(?:top|mid|bottom)rule|\\hline|\\cline\{[^}]*\}"
@@ -150,7 +160,7 @@ def _claim_spans(lines: list[str]) -> list[tuple[int, int, str]]:
         block_start = start
         for index in range(start, end + 1):
             line = lines[index - 1]
-            if block and (_OPENS_BLOCK.match(line) or _TEX_ITEM.match(line)):
+            if block and _OPENS_BLOCK.match(line):
                 spans.append((block_start, index - 1, _block_text(block)))
                 block, block_start = [], index
             block.append(line)
@@ -170,6 +180,8 @@ def _block_text(block: list[str]) -> str:
     if _TABLE_ROW.match(block[0]):
         return _row_prose(block[0])
     joined = " ".join(line.strip() for line in block)
+    if _TEX_HEADING.match(block[0]):
+        return _TEX_HEADING_TITLE.sub(r"\1", joined)
     if _TEX_STRUCTURE.search(joined) or _TEX_ROW_END.search(joined):
         return _tex_row_prose(joined)
     for marker in (_LIST_ITEM, _TEX_ITEM, _HEADING):

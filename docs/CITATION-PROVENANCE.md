@@ -114,7 +114,7 @@ For each citing passage in the draft, emit:
 
 | Field | Meaning |
 |---|---|
-| Draft location | Line number and the citing sentence -- or, in a table or a list (Markdown or LaTeX), that row or item alone |
+| Draft location | Line number and the citing sentence -- or, where the citation sits in a table, a list or a heading (Markdown or LaTeX), that row, item or heading alone |
 | Citekey | The key cited there |
 | Best-matching source passage | The span of that paper's text closest to the claim |
 | Page | Where that passage sits in the PDF |

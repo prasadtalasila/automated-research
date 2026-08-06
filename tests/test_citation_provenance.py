@@ -318,6 +318,32 @@ class TestLatexBlockShapedClaims:
         (_, _, claim), = cp.claims(draft)
         assert claim == "The prose beneath it, with no blank line between."
 
+    def test_prose_running_straight_into_a_tabular_does_not_leak_into_the_first_row(self, isolated_config):
+        """A lead-in ending in a colon is the normal way to introduce a
+        table, and `\\begin{tabular}` after it has no blank line before it.
+        Unlike a markdown `|` row, the environment line is not itself a
+        row, so it has to open the block explicitly or the lead-in is
+        still attached when the first row closes it.
+        """
+        draft = (
+            "The model families are as follows:\n"
+            "\\begin{tabular}{ll}\n"
+            "Physics-based & known structural laws \\citep{a_2024} \\\\\n"
+            "\\end{tabular}\n"
+        )
+        (_, _, claim), = cp.claims(draft)
+        assert claim == "Physics-based -- known structural laws"
+
+    def test_a_sectioning_command_after_prose_opens_its_own_block(self, isolated_config):
+        draft = (
+            "A lead-in with no blank line after it:\n"
+            "\\section{Standards and interoperability \\citep{a_2024}}\n"
+        )
+        (_, _, claim), = cp.claims(draft)
+        assert claim == "Standards and interoperability"
+        assert "lead-in" not in claim
+        assert "\\section" not in claim, "the command is markup, not part of the heading"
+
     def test_latex_prose_is_untouched_by_block_splitting(self, isolated_config):
         """The regression guard on the other side: a hard-wrapped LaTeX
         paragraph is still read whole, then split into sentences."""
