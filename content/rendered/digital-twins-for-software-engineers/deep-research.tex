@@ -1,0 +1,313 @@
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+\documentclass[
+  12pt,
+  a4paper,
+]{article}
+\usepackage{xcolor}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\setcounter{secnumdepth}{-\maxdimen} % remove section numbering
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math} % this also loads fontspec
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+\ifPDFTeX\else
+  % xetex/luatex font selection
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+% definitions for citeproc citations
+\NewDocumentCommand\citeproctext{}{}
+\NewDocumentCommand\citeproc{mm}{%
+  \begingroup\def\citeproctext{#2}\cite{#1}\endgroup}
+\makeatletter
+ % allow citations to break across lines
+ \let\@cite@ofmt\@firstofone
+ % avoid brackets around text for \cite:
+ \def\@biblabel#1{}
+ \def\@cite#1#2{{#1\if@tempswa , #2\fi}}
+\makeatother
+\newlength{\cslhangindent}
+\setlength{\cslhangindent}{1.5em}
+\newlength{\csllabelwidth}
+\setlength{\csllabelwidth}{3em}
+\newenvironment{CSLReferences}[2] % #1 hanging-indent, #2 entry-spacing
+ {\begin{list}{}{%
+  \setlength{\itemindent}{0pt}
+  \setlength{\leftmargin}{0pt}
+  \setlength{\parsep}{0pt}
+  % turn on hanging indent if param 1 is 1
+  \ifodd #1
+   \setlength{\leftmargin}{\cslhangindent}
+   \setlength{\itemindent}{-1\cslhangindent}
+  \fi
+  % set entry spacing
+  \setlength{\itemsep}{#2\baselineskip}}}
+ {\end{list}}
+\usepackage{calc}
+\newcommand{\CSLBlock}[1]{\hfill\break\parbox[t]{\linewidth}{\strut\ignorespaces#1\strut}}
+\newcommand{\CSLLeftMargin}[1]{\parbox[t]{\csllabelwidth}{\strut#1\strut}}
+\newcommand{\CSLRightInline}[1]{\parbox[t]{\linewidth - \csllabelwidth}{\strut#1\strut}}
+\newcommand{\CSLIndent}[1]{\hspace{\cslhangindent}#1}
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\usepackage{bookmark}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same}
+\hypersetup{
+  hidelinks,
+  pdfcreator={LaTeX via pandoc}}
+
+\author{}
+\date{}
+
+\begin{document}
+
+\section{Digital Twins for Software Engineers -- A Seven-Stage Deep
+Research
+Briefing}\label{digital-twins-for-software-engineers-a-seven-stage-deep-research-briefing}
+
+\begin{quote}
+Multi-perspective, corpus-grounded research. Method adapted from
+hadufer/claude-storm (MIT) / Stanford OVAL STORM (Shao et al., NAACL
+2024). Depth: quick (compact, \textasciitilde1000-word briefing) -
+Perspectives: 4 + basic - Date: 2026-08-06
+\end{quote}
+
+\textbf{Scope.} This briefing targets a software engineer who has heard
+``digital twin'' applied to manufacturing lines, buildings, and vehicles
+and wants to know what, concretely, distinguishes it from ``simulation''
+or ``monitoring dashboard'' as a software artifact. It covers
+architecture, the software engineering lifecycle (build, test, sync),
+and standardization; it does not cover twin-specific numerical modeling
+methods (finite-element, CFD) or domain physics, which the corpus treats
+as a separate concern from the software layer.
+
+\subsection{Stage 1 -- Perspectives
+assembled}\label{stage-1-perspectives-assembled}
+
+Four grounded lenses plus a basic-fact pass: \textbf{the Practitioner}
+(what building a twin surfaces beyond the papers), \textbf{the Academic}
+(what the literature actually claims and where it disagrees),
+\textbf{the Skeptic} (limitations the corpus admits to), and \textbf{the
+Historian} (what a digital twin builds on). An Adoption/Incentives lens
+was folded into the Practitioner lens, since the corpus discusses them
+together.
+
+\subsection{Stage 2 -- What the literature
+claims}\label{stage-2-what-the-literature-claims}
+
+A digital twin is consistently defined as a \emph{live, bidirectionally
+synchronized} virtual representation of a physical asset -- distinct
+from a plain simulation, which runs independently of any specific
+physical instance, and from a digital shadow, which only flows data one
+way {[}1{]}. Architecturally, most sources converge on a layered stack:
+a physical asset, a data/connectivity layer, one or more models, and a
+service layer exposing the twin's outputs {[}2{]} {[}3{]}. Model-driven
+engineering (MDE) is repeatedly proposed as the natural fit for building
+this stack, since twins already require explicit, versioned models of
+structure and behavior {[}4{]}.
+
+\subsection{Stage 3 -- What practitioners
+encounter}\label{stage-3-what-practitioners-encounter}
+
+Reference implementations expose engineering concerns the definitional
+papers gloss over. \texttt{makeTwin} argues a general-purpose digital
+twin platform needs first-class support for model building, data
+processing, and low-code configuration for non-specialist developers,
+not just a modeling notation {[}5{]}. \texttt{GreenhouseDT} frames a
+twin as a layered, self-adaptive \emph{system}, not a static model, with
+feedback loops that themselves need engineering and testing {[}6{]}.
+TwinOps extends DevOps practice to model-based CPS engineering, treating
+the twin's models as build artifacts that need CI pipelines of their own
+{[}7{]}. That testing problem is concrete: cyber-physical systems teams
+report continuous-integration practices that must account for
+hardware-in-the-loop and simulation fidelity, not just code {[}8{]}, and
+reproducibility work on the PiCar-X platform found that even a small
+robotics twin needs disciplined environment and data versioning to get
+repeatable results at all {[}9{]}.
+
+\subsection{Stage 4 -- Where the corpus
+disagrees}\label{stage-4-where-the-corpus-disagrees}
+
+The clearest tension is scope: manufacturing-oriented sources treat
+``digital twin'' as inseparable from a specific physical asset and its
+live data feed {[}1{]} {[}5{]}, while standardization efforts (ISO
+23247) formalize a more general reference architecture meant to apply
+across an entity's whole lifecycle, independent of any one
+implementation {[}10{]}. A second tension: the MDE literature treats a
+digital twin primarily as a modeling artifact {[}4{]}, while the systems
+literature (GreenhouseDT, TwinOps) treats it primarily as a running,
+tested, deployed piece of software infrastructure {[}6{]} {[}7{]}. Both
+are internally consistent; they disagree on which engineering discipline
+owns the twin. Universal agreement: every source treats live
+bidirectional synchronization with the physical asset as the
+non-negotiable feature that separates a twin from a plain simulation.
+
+\subsection{Stage 5 -- Core concepts for a software
+engineer}\label{stage-5-core-concepts-for-a-software-engineer}
+
+Practically, three things carry over directly from conventional software
+engineering. First, architecture: a layered design -- asset,
+connectivity, model, service -- with documented patterns for each layer
+{[}11{]}. Second, lifecycle management: a twin's models are living
+artifacts that need version control, CI, and testing pipelines just as
+code does, and CPS-specific CI practice (hardware/simulation-in-
+the-loop) is where most of the unfamiliar tooling lives {[}8{]} {[}7{]}.
+Third, standardization: ISO 23247 gives a reference vocabulary and
+structure worth adopting even for a one-off project, since it is the
+point of convergence the corpus's otherwise-divergent architectures are
+moving toward {[}10{]}. What does \emph{not} carry over unchanged is
+testing: a twin's correctness depends on synchronization fidelity with a
+live physical system, which unit and integration tests alone cannot
+establish {[}9{]}.
+
+\subsection{Stage 6 -- Synthesis and actionable
+insight}\label{stage-6-synthesis-and-actionable-insight}
+
+\textbf{Executive summary:} For a software engineer, a digital twin is
+best understood as a distributed system with a live physical peer -- the
+interesting engineering problems are synchronization, model lifecycle
+management, and CI/CD for models rather than the physics itself.
+\textbf{Key finding, ranked highest-reliability:} the
+twin/simulation/shadow distinction by directionality of data flow is the
+most consistently supported claim in the corpus {[}1{]}. \textbf{Hidden
+connection,} visible only across perspectives: the MDE camp's emphasis
+on models-as- artifacts and the systems camp's emphasis on tested,
+deployed infrastructure are two halves of the same DevOps-for-models
+problem that TwinOps names explicitly {[}7{]}. \textbf{Actionable
+insight:} start any twin project by choosing where synchronization
+fidelity is actually load-bearing for correctness, then design the CI
+pipeline around verifying that, before investing in modeling notation.
+\textbf{Frontier question:} which parts of CPS continuous-integration
+practice generalize beyond the interview-based cases studied so far
+{[}8{]}?
+
+\subsection{Stage 7 -- Self peer review}\label{stage-7-self-peer-review}
+
+Confidence is high (8/10) on the architecture and synchronization
+claims, which recur across independent sources; lower (5/10) on the
+CI/testing guidance, which rests on a small number of case studies.
+Weakest link: the claim that ISO 23247 is the convergence point is
+supported by standards papers but not yet by adoption data showing
+practitioners actually converging on it -- worth verifying against
+implementation surveys. Bias check: manufacturing and CPS sources
+dominate; twins for pure software systems or IT infrastructure are
+comparatively thin in this corpus. Missing sixth perspective: a
+security/reliability lens on the live data channel between physical
+asset and twin. Overall grade: B+ -- solid grounding on core definitions
+and architecture, incomplete on testing practice at scale.
+
+\subsection{References}\label{references}
+
+\protect\phantomsection\label{refs}
+\begin{CSLReferences}{0}{0}
+\bibitem[\citeproctext]{ref-liu_review_2021}
+\CSLLeftMargin{{[}1{]} }%
+\CSLRightInline{M. Liu, S. Fang, H. Dong, and C. Xu, {``Review of
+digital twin about concepts, technologies, and industrial
+applications,''} \emph{Journal of Manufacturing Systems}, vol. 58, pp.
+346--361, Jan. 2021, doi:
+\href{https://doi.org/10.1016/j.jmsy.2020.06.017}{10.1016/j.jmsy.2020.06.017}.}
+
+\bibitem[\citeproctext]{ref-ferko_architecting_2022}
+\CSLLeftMargin{{[}2{]} }%
+\CSLRightInline{E. Ferko, A. Bucaioni, and M. Behnam, {``Architecting
+{Digital} {Twins},''} \emph{IEEE Access}, vol. 10, pp. 50335--50350,
+2022, doi:
+\href{https://doi.org/10.1109/ACCESS.2022.3172964}{10.1109/ACCESS.2022.3172964}.}
+
+\bibitem[\citeproctext]{ref-heaton_platform_nodate}
+\CSLLeftMargin{{[}3{]} }%
+\CSLRightInline{L. Heaton, {``Platform {Stack} {Architectural}
+{Framework}: {An} {Introductory} {Guide}.''}}
+
+\bibitem[\citeproctext]{ref-michael_model-driven_2025}
+\CSLLeftMargin{{[}4{]} }%
+\CSLRightInline{J. Michael \emph{et al.}, {``Model-{Driven}
+{Engineering} for {Digital} {Twins}: {Opportunities} and
+{Challenges},''} \emph{Systems Engineering}, vol. 28, no. 5, pp.
+659--670, 2025, doi:
+\href{https://doi.org/10.1002/sys.21815}{10.1002/sys.21815}.}
+
+\bibitem[\citeproctext]{ref-tao_maketwin_2024}
+\CSLLeftMargin{{[}5{]} }%
+\CSLRightInline{F. Tao \emph{et al.}, {``{makeTwin}: {A} reference
+architecture for digital twin software platform,''} \emph{Chinese
+Journal of Aeronautics}, vol. 37, no. 1, pp. 1--18, Jan. 2024, doi:
+\href{https://doi.org/10.1016/j.cja.2023.05.002}{10.1016/j.cja.2023.05.002}.}
+
+\bibitem[\citeproctext]{ref-kamburjan_greenhousedt_2024}
+\CSLLeftMargin{{[}6{]} }%
+\CSLRightInline{E. Kamburjan \emph{et al.}, {``{GreenhouseDT}: {An}
+{Exemplar} for {Digital} {Twins},''} in \emph{Proceedings of the 19th
+{International} {Symposium} on {Software} {Engineering} for {Adaptive}
+and {Self}-{Managing} {Systems}}, in {SEAMS} '24. New York, NY, USA:
+Association for Computing Machinery, Jun. 2024, pp. 175--181. doi:
+\href{https://doi.org/10.1145/3643915.3644108}{10.1145/3643915.3644108}.}
+
+\bibitem[\citeproctext]{ref-hugues_twinops_2022}
+\CSLLeftMargin{{[}7{]} }%
+\CSLRightInline{J. Hugues, J. Yankel, J. Hudak, and A. Hristozov,
+{``Twinops: {Digital} twins meets devops,''} \emph{CARNEGIE-MELLON UNIV
+PITTSBURGH PA, Tech. Rep.}, 2022, Accessed: Jan. 08, 2025. {[}Online{]}.
+Available: \url{https://apps.dtic.mil/sti/trecms/pdf/AD1168471.pdf}}
+
+\bibitem[\citeproctext]{ref-zampetti_continuous_2023}
+\CSLLeftMargin{{[}8{]} }%
+\CSLRightInline{F. Zampetti, D. Tamburri, S. Panichella, A. Panichella,
+G. Canfora, and M. Di Penta, {``Continuous {Integration} and {Delivery}
+{Practices} for {Cyber}-{Physical} {Systems}: {An} {Interview}-{Based}
+{Study},''} \emph{ACM Trans. Softw. Eng. Methodol.}, vol. 32, no. 3, pp.
+73:1--73:44, Apr. 2023, doi:
+\href{https://doi.org/10.1145/3571854}{10.1145/3571854}.}
+
+\bibitem[\citeproctext]{ref-barbie_toward_2024}
+\CSLLeftMargin{{[}9{]} }%
+\CSLRightInline{A. Barbie and W. Hasselbring, {``Toward
+{Reproducibility} of {Digital} {Twin} {Research}: {Exemplified} with the
+{PiCar}-{X}.''} arXiv, Aug. 2024. doi:
+\href{https://doi.org/10.48550/arXiv.2408.13866}{10.48550/arXiv.2408.13866}.}
+
+\bibitem[\citeproctext]{ref-shao_analysis_2023}
+\CSLLeftMargin{{[}10{]} }%
+\CSLRightInline{G. Shao, S. Frechette, and V. Srinivasan, {``An
+{Analysis} of the {New} {ISO} 23247 {Series} of {Standards} on {Digital}
+{Twin} {Framework} for {Manufacturing},''} American Society of
+Mechanical Engineers Digital Collection, Sep. 2023. doi:
+\href{https://doi.org/10.1115/MSEC2023-101127}{10.1115/MSEC2023-101127}.}
+
+\bibitem[\citeproctext]{ref-tekinerdogan_systems_2020}
+\CSLLeftMargin{{[}11{]} }%
+\CSLRightInline{B. Tekinerdogan and C. Verdouw, {``Systems
+{Architecture} {Design} {Pattern} {Catalog} for {Developing} {Digital}
+{Twins},''} \emph{Sensors}, vol. 20, no. 18, p. 5103, Jan. 2020, doi:
+\href{https://doi.org/10.3390/s20185103}{10.3390/s20185103}.}
+
+\end{CSLReferences}
+
+\end{document}

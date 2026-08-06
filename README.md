@@ -247,6 +247,20 @@ Tips:
   your driver may predate every CUDA wheel tag the script knows about --
   see that function's own comments for the manual fallback.
 
+## 📖 Research Citation
+
+When Chitragupta is used in academic work, the following reference may be used:
+
+```bibtex
+@software{talasila2026chitragupta,
+author = {Prasad Talasila},
+title = {Chitragupta: An automated research pipeline for literature review and thesis drafting},
+year = {2026},
+url = {https://github.com/prasadtalasila/chitragupta},
+publisher = {GitHub}
+}
+```
+
 ## Documentation
 
 This file is the overview: what the pipeline is, how to get it running,

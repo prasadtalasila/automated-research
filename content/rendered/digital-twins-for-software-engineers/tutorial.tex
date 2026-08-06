@@ -1,0 +1,405 @@
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+\documentclass[
+  12pt,
+  a4paper,
+]{article}
+\usepackage{xcolor}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\setcounter{secnumdepth}{-\maxdimen} % remove section numbering
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math} % this also loads fontspec
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+\ifPDFTeX\else
+  % xetex/luatex font selection
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{color}
+\usepackage{fancyvrb}
+\newcommand{\VerbBar}{|}
+\newcommand{\VERB}{\Verb[commandchars=\\\{\}]}
+\DefineVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\}}
+% Add ',fontsize=\small' for more characters per line
+\newenvironment{Shaded}{}{}
+\newcommand{\AlertTok}[1]{\textcolor[rgb]{1.00,0.00,0.00}{\textbf{#1}}}
+\newcommand{\AnnotationTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+\newcommand{\AttributeTok}[1]{\textcolor[rgb]{0.49,0.56,0.16}{#1}}
+\newcommand{\BaseNTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{#1}}
+\newcommand{\BuiltInTok}[1]{\textcolor[rgb]{0.00,0.50,0.00}{#1}}
+\newcommand{\CharTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\CommentTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textit{#1}}}
+\newcommand{\CommentVarTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+\newcommand{\ConstantTok}[1]{\textcolor[rgb]{0.53,0.00,0.00}{#1}}
+\newcommand{\ControlFlowTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{\textbf{#1}}}
+\newcommand{\DataTypeTok}[1]{\textcolor[rgb]{0.56,0.13,0.00}{#1}}
+\newcommand{\DecValTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{#1}}
+\newcommand{\DocumentationTok}[1]{\textcolor[rgb]{0.73,0.13,0.13}{\textit{#1}}}
+\newcommand{\ErrorTok}[1]{\textcolor[rgb]{1.00,0.00,0.00}{\textbf{#1}}}
+\newcommand{\ExtensionTok}[1]{#1}
+\newcommand{\FloatTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{#1}}
+\newcommand{\FunctionTok}[1]{\textcolor[rgb]{0.02,0.16,0.49}{#1}}
+\newcommand{\ImportTok}[1]{\textcolor[rgb]{0.00,0.50,0.00}{\textbf{#1}}}
+\newcommand{\InformationTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+\newcommand{\KeywordTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{\textbf{#1}}}
+\newcommand{\NormalTok}[1]{#1}
+\newcommand{\OperatorTok}[1]{\textcolor[rgb]{0.40,0.40,0.40}{#1}}
+\newcommand{\OtherTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{#1}}
+\newcommand{\PreprocessorTok}[1]{\textcolor[rgb]{0.74,0.48,0.00}{#1}}
+\newcommand{\RegionMarkerTok}[1]{#1}
+\newcommand{\SpecialCharTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\SpecialStringTok}[1]{\textcolor[rgb]{0.73,0.40,0.53}{#1}}
+\newcommand{\StringTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\VariableTok}[1]{\textcolor[rgb]{0.10,0.09,0.49}{#1}}
+\newcommand{\VerbatimStringTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\WarningTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+% definitions for citeproc citations
+\NewDocumentCommand\citeproctext{}{}
+\NewDocumentCommand\citeproc{mm}{%
+  \begingroup\def\citeproctext{#2}\cite{#1}\endgroup}
+\makeatletter
+ % allow citations to break across lines
+ \let\@cite@ofmt\@firstofone
+ % avoid brackets around text for \cite:
+ \def\@biblabel#1{}
+ \def\@cite#1#2{{#1\if@tempswa , #2\fi}}
+\makeatother
+\newlength{\cslhangindent}
+\setlength{\cslhangindent}{1.5em}
+\newlength{\csllabelwidth}
+\setlength{\csllabelwidth}{3em}
+\newenvironment{CSLReferences}[2] % #1 hanging-indent, #2 entry-spacing
+ {\begin{list}{}{%
+  \setlength{\itemindent}{0pt}
+  \setlength{\leftmargin}{0pt}
+  \setlength{\parsep}{0pt}
+  % turn on hanging indent if param 1 is 1
+  \ifodd #1
+   \setlength{\leftmargin}{\cslhangindent}
+   \setlength{\itemindent}{-1\cslhangindent}
+  \fi
+  % set entry spacing
+  \setlength{\itemsep}{#2\baselineskip}}}
+ {\end{list}}
+\usepackage{calc}
+\newcommand{\CSLBlock}[1]{\hfill\break\parbox[t]{\linewidth}{\strut\ignorespaces#1\strut}}
+\newcommand{\CSLLeftMargin}[1]{\parbox[t]{\csllabelwidth}{\strut#1\strut}}
+\newcommand{\CSLRightInline}[1]{\parbox[t]{\linewidth - \csllabelwidth}{\strut#1\strut}}
+\newcommand{\CSLIndent}[1]{\hspace{\cslhangindent}#1}
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\usepackage{bookmark}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same}
+\hypersetup{
+  hidelinks,
+  pdfcreator={LaTeX via pandoc}}
+
+\author{}
+\date{}
+
+\begin{document}
+
+\section{Build a Digital Twin for a Potted
+Plant}\label{build-a-digital-twin-for-a-potted-plant}
+
+\textbf{What you'll build.} A \textasciitilde70-line Python script,
+\texttt{twin.py}, that simulates a potted plant losing moisture over 24
+hours and a digital twin that reads its moisture sensor, predicts when
+the soil will dry out, and waters the plant automatically -- no human in
+the loop. Running it prints a line per hour and, partway through, one
+marked \texttt{WATERED}:
+
+\begin{verbatim}
+hour 11  sensor= 38.2  predicted_next= 35.0
+hour 12  sensor= 36.3  predicted_next= 34.4  WATERED
+hour 13  sensor= 59.3  predicted_next= 82.3
+\end{verbatim}
+
+\textbf{What you'll learn.} How to structure a digital twin as two
+independent pieces -- a physical-side simulation and a twin that only
+ever sees sensor readings -- and why closing the loop (the twin issuing
+a command back to the physical side) is what separates a digital twin
+from a dashboard.
+
+\textbf{What you need.} Python 3.10 or later, and a terminal. No
+packages beyond the standard library.
+
+\textbf{Time.} About 20 minutes.
+
+\subsection{Step 1: Create the project
+folder}\label{step-1-create-the-project-folder}
+
+\begin{verbatim}
+mkdir plant-twin
+cd plant-twin
+\end{verbatim}
+
+\subsection{Step 2: Simulate the pot}\label{step-2-simulate-the-pot}
+
+You don't have a real plant wired up, so start by writing a stand-in for
+one. Create \texttt{twin.py} with this content:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\ImportTok{import}\NormalTok{ random}
+
+\NormalTok{random.seed(}\DecValTok{7}\NormalTok{)}
+
+
+\KeywordTok{class}\NormalTok{ Pot:}
+    \CommentTok{"""Stands in for the real pot\textquotesingle{}s soil {-}{-} in a hardware deployment this}
+\CommentTok{    state lives in wet dirt, not a Python object."""}
+
+    \KeywordTok{def} \FunctionTok{\_\_init\_\_}\NormalTok{(}\VariableTok{self}\NormalTok{, moisture}\OperatorTok{=}\FloatTok{60.0}\NormalTok{):}
+        \VariableTok{self}\NormalTok{.moisture }\OperatorTok{=}\NormalTok{ moisture}
+
+    \KeywordTok{def}\NormalTok{ tick(}\VariableTok{self}\NormalTok{):}
+        \VariableTok{self}\NormalTok{.moisture }\OperatorTok{{-}=}\NormalTok{ random.uniform(}\FloatTok{1.5}\NormalTok{, }\FloatTok{2.5}\NormalTok{)}
+        \VariableTok{self}\NormalTok{.moisture }\OperatorTok{=} \BuiltInTok{max}\NormalTok{(}\FloatTok{0.0}\NormalTok{, }\VariableTok{self}\NormalTok{.moisture)}
+
+    \KeywordTok{def}\NormalTok{ water(}\VariableTok{self}\NormalTok{):}
+        \VariableTok{self}\NormalTok{.moisture }\OperatorTok{=} \BuiltInTok{min}\NormalTok{(}\FloatTok{100.0}\NormalTok{, }\VariableTok{self}\NormalTok{.moisture }\OperatorTok{+} \FloatTok{25.0}\NormalTok{)}
+
+    \KeywordTok{def}\NormalTok{ read\_sensor(}\VariableTok{self}\NormalTok{):}
+        \ControlFlowTok{return} \BuiltInTok{round}\NormalTok{(}\VariableTok{self}\NormalTok{.moisture }\OperatorTok{+}\NormalTok{ random.uniform(}\OperatorTok{{-}}\FloatTok{1.0}\NormalTok{, }\FloatTok{1.0}\NormalTok{), }\DecValTok{1}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+\texttt{tick()} is one hour passing: the soil loses a random amount of
+moisture, the way real soil does under evaporation.
+\texttt{read\_sensor()} is what a real capacitive soil-moisture probe
+gives you -- the true value, plus a little sensor noise.
+\texttt{random.seed(7)} pins that randomness so your output matches this
+tutorial's exactly.
+
+Check that it works before moving on:
+
+\begin{verbatim}
+python3 -c "
+from twin import Pot
+pot = Pot()
+for _ in range(3):
+    pot.tick()
+    print(pot.read_sensor())
+"
+\end{verbatim}
+
+You should see:
+
+\begin{verbatim}
+57.5
+55.2
+53.7
+\end{verbatim}
+
+Three ticks, three shrinking readings. That's the physical side done --
+notice it knows nothing about digital twins. It's just a pot.
+
+\subsection{Step 3: Write the digital
+twin}\label{step-3-write-the-digital-twin}
+
+The twin is a second, separate class. Critically, it never touches
+\texttt{Pot} directly -- it only ever sees numbers arriving from
+\texttt{read\_sensor()}, the same way a real twin only sees whatever its
+sensor's network connection delivers. Append this to \texttt{twin.py}:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+
+
+\KeywordTok{class}\NormalTok{ PlantTwin:}
+    \CommentTok{"""The digital twin. It never touches Pot directly {-}{-} only sensor}
+\CommentTok{    readings flow in, and water commands flow back out."""}
+
+\NormalTok{    DRY\_THRESHOLD }\OperatorTok{=} \FloatTok{35.0}
+
+    \KeywordTok{def} \FunctionTok{\_\_init\_\_}\NormalTok{(}\VariableTok{self}\NormalTok{):}
+        \VariableTok{self}\NormalTok{.history }\OperatorTok{=}\NormalTok{ []}
+
+    \KeywordTok{def}\NormalTok{ ingest(}\VariableTok{self}\NormalTok{, reading):}
+        \VariableTok{self}\NormalTok{.history.append(reading)}
+        \VariableTok{self}\NormalTok{.history }\OperatorTok{=} \VariableTok{self}\NormalTok{.history[}\OperatorTok{{-}}\DecValTok{3}\NormalTok{:]}
+
+    \KeywordTok{def}\NormalTok{ predict\_next(}\VariableTok{self}\NormalTok{):}
+        \ControlFlowTok{if} \BuiltInTok{len}\NormalTok{(}\VariableTok{self}\NormalTok{.history) }\OperatorTok{\textless{}} \DecValTok{2}\NormalTok{:}
+            \ControlFlowTok{return} \VariableTok{self}\NormalTok{.history[}\OperatorTok{{-}}\DecValTok{1}\NormalTok{]}
+\NormalTok{        trend }\OperatorTok{=} \VariableTok{self}\NormalTok{.history[}\OperatorTok{{-}}\DecValTok{1}\NormalTok{] }\OperatorTok{{-}} \VariableTok{self}\NormalTok{.history[}\OperatorTok{{-}}\DecValTok{2}\NormalTok{]}
+        \ControlFlowTok{return} \VariableTok{self}\NormalTok{.history[}\OperatorTok{{-}}\DecValTok{1}\NormalTok{] }\OperatorTok{+}\NormalTok{ trend}
+
+    \KeywordTok{def}\NormalTok{ decide(}\VariableTok{self}\NormalTok{):}
+        \ControlFlowTok{return} \VariableTok{self}\NormalTok{.predict\_next() }\OperatorTok{\textless{}} \VariableTok{self}\NormalTok{.DRY\_THRESHOLD}
+\end{Highlighting}
+\end{Shaded}
+
+\texttt{ingest()} is the twin's half of the data connection: each new
+reading gets appended, and only the last three are kept, since only the
+recent trend matters for what comes next. \texttt{predict\_next()} is
+the twin's model -- deliberately the simplest one that works: extend the
+line between the last two readings one more hour forward.
+\texttt{decide()} is the twin's algorithm: if that predicted value would
+be too dry, it's time to water. This is exactly the three-part shape
+every digital twin shares -- data in, a model to interpret it, an
+algorithm to act on it -- just small enough here to read in one sitting.
+
+\subsection{Step 4: Close the loop}\label{step-4-close-the-loop}
+
+A twin that only predicts is a dashboard. What makes it a \emph{twin} is
+that its decision changes the physical side. Append the loop that wires
+\texttt{Pot} and \texttt{PlantTwin} together:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+
+
+\KeywordTok{def}\NormalTok{ run(hours):}
+\NormalTok{    pot }\OperatorTok{=}\NormalTok{ Pot()}
+\NormalTok{    twin }\OperatorTok{=}\NormalTok{ PlantTwin()}
+
+    \ControlFlowTok{for}\NormalTok{ hour }\KeywordTok{in} \BuiltInTok{range}\NormalTok{(}\DecValTok{1}\NormalTok{, hours }\OperatorTok{+} \DecValTok{1}\NormalTok{):}
+\NormalTok{        pot.tick()}
+\NormalTok{        reading }\OperatorTok{=}\NormalTok{ pot.read\_sensor()}
+\NormalTok{        twin.ingest(reading)}
+
+\NormalTok{        watered }\OperatorTok{=} \VariableTok{False}
+        \ControlFlowTok{if}\NormalTok{ twin.decide():}
+\NormalTok{            pot.water()}
+\NormalTok{            watered }\OperatorTok{=} \VariableTok{True}
+
+\NormalTok{        status }\OperatorTok{=} \StringTok{"WATERED"} \ControlFlowTok{if}\NormalTok{ watered }\ControlFlowTok{else} \StringTok{""}
+        \BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"hour }\SpecialCharTok{\{}\NormalTok{hour}\SpecialCharTok{:2d\}}\SpecialStringTok{  sensor=}\SpecialCharTok{\{}\NormalTok{reading}\SpecialCharTok{:5.1f\}}\SpecialStringTok{  "}
+              \SpecialStringTok{f"predicted\_next=}\SpecialCharTok{\{}\NormalTok{twin}\SpecialCharTok{.}\NormalTok{predict\_next()}\SpecialCharTok{:5.1f\}}\SpecialStringTok{  }\SpecialCharTok{\{}\NormalTok{status}\SpecialCharTok{\}}\SpecialStringTok{"}\NormalTok{)}
+
+
+\ControlFlowTok{if} \VariableTok{\_\_name\_\_} \OperatorTok{==} \StringTok{"\_\_main\_\_"}\NormalTok{:}
+\NormalTok{    run(}\DecValTok{24}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+Each hour, the pot's real moisture drops, the sensor reports a noisy
+version of it, the twin folds that reading into its prediction, and if
+the twin's prediction crosses the dry threshold, it calls
+\texttt{pot.water()} -- reaching back across the loop to change the
+physical side, before a human ever looks at the readings.
+
+\subsection{Step 5: Run it}\label{step-5-run-it}
+
+\begin{verbatim}
+python3 twin.py
+\end{verbatim}
+
+You should see 24 lines of output. Line 12 is marked \texttt{WATERED},
+and the next line's \texttt{sensor} value jumps back up above 59,
+because the twin's command already changed the pot before that reading
+was taken:
+
+\begin{verbatim}
+hour 11  sensor= 38.2  predicted_next= 35.0
+hour 12  sensor= 36.3  predicted_next= 34.4  WATERED
+hour 13  sensor= 59.3  predicted_next= 82.3
+\end{verbatim}
+
+If your output matches, the loop is genuinely closed: the twin's
+decision at hour 12 is the reason hour 13's real-world reading looks
+completely different.
+
+\subsection{Step 6: Change the twin's behavior without touching the
+pot}\label{step-6-change-the-twins-behavior-without-touching-the-pot}
+
+Open \texttt{twin.py} and change:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{    DRY\_THRESHOLD }\OperatorTok{=} \FloatTok{35.0}
+\end{Highlighting}
+\end{Shaded}
+
+to:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{    DRY\_THRESHOLD }\OperatorTok{=} \FloatTok{45.0}
+\end{Highlighting}
+\end{Shaded}
+
+Save the file and run \texttt{python3\ twin.py} again. Watering now
+happens at hour 8 instead of hour 12, and a second time at hour 21:
+
+\begin{verbatim}
+hour  8  sensor= 45.2  predicted_next= 42.3  WATERED
+...
+hour 21  sensor= 44.5  predicted_next= 42.0  WATERED
+\end{verbatim}
+
+Notice what you didn't have to change: \texttt{Pot} is untouched. This
+is the payoff of keeping the twin as a separate piece that only talks to
+the physical side through readings and commands -- you can retune,
+replace, or completely rewrite the twin's model without ever touching
+the thing it's twinning.
+
+\subsection{What you built}\label{what-you-built}
+
+You now have a working digital twin: a physical-side simulation that
+knows nothing about twins, a twin that knows nothing about the physical
+side's internals, and a closed loop connecting them where the twin's own
+prediction changes what the physical side does next. Swap \texttt{Pot}
+for code that reads a real capacitive soil sensor over I2C and calls a
+relay to run a water pump, and the \texttt{PlantTwin} class doesn't need
+to change at all -- that's the whole reason to build the two halves this
+way.
+
+\subsection{Where to go next}\label{where-to-go-next}
+
+\texttt{PlantTwin}'s ``extend the last two points'' model is
+deliberately the crudest thing that could work. A real deployment would
+replace \texttt{predict\_next} with a Kalman filter, which blends the
+model's prediction against each new noisy reading instead of trusting
+the latest one alone {[}1{]}, and would read real sensor data over MQTT
+rather than calling a Python method directly. A how-to guide would be
+the right place to cover wiring up an actual moisture probe and pump,
+since that involves choices -- which board, which protocol -- that a
+first tutorial deliberately avoids.
+
+\subsection{Further reading}\label{further-reading}
+
+{[}1{]} H. Feng, C. Gomes, and P. G. Larsen, \emph{Model-Based
+Monitoring and State Estimation for Digital Twins: The Kalman Filter},
+arXiv, 2023. \texttt{feng\_model-based\_2023}
+
+\protect\phantomsection\label{refs}
+\begin{CSLReferences}{0}{0}
+\bibitem[\citeproctext]{ref-feng_model-based_2023}
+\CSLLeftMargin{{[}1{]} }%
+\CSLRightInline{H. Feng, C. Gomes, and P. G. Larsen, {``Model-{Based}
+{Monitoring} and {State} {Estimation} for {Digital} {Twins}: {The}
+{Kalman} {Filter}.''} arXiv, Apr. 2023. doi:
+\href{https://doi.org/10.48550/arXiv.2305.00252}{10.48550/arXiv.2305.00252}.}
+
+\end{CSLReferences}
+
+\end{document}
