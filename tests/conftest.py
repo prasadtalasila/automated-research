@@ -4,7 +4,23 @@ from pathlib import Path
 
 import pytest
 
+
+
 from src import config, ledger
+
+def pytest_sessionstart(session):
+    """Keep spawned children importable for the whole session.
+
+    A dependency imported by one test can leave a sys.path entry that
+    shadows the standard library for every `spawn` child created
+    afterwards -- see pdf_text.drop_stdlib_shadowing_path_entries. The
+    production path sanitises before building a pool; the cross-process
+    tests in tests/test_runlock.py spawn directly, so the session does it
+    once here as well.
+    """
+    from src import pdf_text
+
+    pdf_text.drop_stdlib_shadowing_path_entries()
 
 
 @pytest.fixture(autouse=True)

@@ -20,6 +20,7 @@ incremental durability for the mutex.
 """
 
 import json
+import contextlib
 import multiprocessing
 import os
 import pathlib
@@ -29,13 +30,13 @@ import time
 import pytest
 
 from src import config, runlock
+from tests.lock_holder import hold
 
 
-def _hold(path, started, release):
-    """Child process: take the lock, signal, wait to be told to drop it."""
-    with runlock.pipeline_lock(path):
-        started.set()
-        release.wait(30)
+# Every cross-process wait in this file is bounded by this. A spawned
+# child that never starts must fail the case it belongs to, not stall the
+# session -- see issue #45.
+_CHILD_TIMEOUT = 30
 
 
 class TestAcquire:
@@ -97,43 +98,63 @@ class TestReadersAreNotBlocked:
             reader.close()
 
 
+@contextlib.contextmanager
+def _holder_process(path):
+    """A child process holding the lock, reaped whatever the test does.
+
+    Everything here is bounded and everything is cleaned up, because a
+    cross-process test that hangs takes the whole suite with it rather
+    than failing one case. `started.wait` reports the child's exit code
+    when it times out: a child that died on import and one that is merely
+    slow look identical from the parent otherwise, and only the first is
+    a bug in this repository.
+    """
+    ctx = multiprocessing.get_context("spawn")
+    started = ctx.Event()
+    holder = ctx.Process(target=hold, args=(path, started))
+    holder.start()
+    try:
+        assert started.wait(_CHILD_TIMEOUT), (
+            f"the holder never acquired the lock within {_CHILD_TIMEOUT}s "
+            f"(exitcode={holder.exitcode}, alive={holder.is_alive()})"
+        )
+        yield holder
+    finally:
+        if holder.is_alive():
+            holder.kill()
+        holder.join(_CHILD_TIMEOUT)
+        # close() reaps the process object; without it a killed child is
+        # left as a zombie for the rest of the session.
+        holder.close()
+
+
 class TestAcrossProcesses:
     def test_a_second_process_is_refused_while_the_first_holds_it(self, tmp_path):
         path = str(tmp_path / "pipeline.lock.db")
-        ctx = multiprocessing.get_context("spawn")
-        started, release = ctx.Event(), ctx.Event()
-        holder = ctx.Process(target=_hold, args=(path, started, release))
-        holder.start()
-        try:
-            assert started.wait(30), "holder never acquired the lock"
+        with _holder_process(path):
             with pytest.raises(runlock.AlreadyRunning):
                 with runlock.pipeline_lock(path):
                     pass
-        finally:
-            release.set()
-            holder.join(30)
 
     def test_a_killed_holder_releases_the_lock(self, tmp_path):
         """The property that makes this design better than a PID file:
         no liveness check, no staleness heuristic, no platform-specific
         code -- the OS closing the fd is what releases it."""
         path = str(tmp_path / "pipeline.lock.db")
-        ctx = multiprocessing.get_context("spawn")
-        started, release = ctx.Event(), ctx.Event()
-        holder = ctx.Process(target=_hold, args=(path, started, release))
-        holder.start()
-        assert started.wait(30), "holder never acquired the lock"
-        holder.kill()
-        holder.join(30)
+        with _holder_process(path) as holder:
+            holder.kill()
+            holder.join(_CHILD_TIMEOUT)
+            assert not holder.is_alive(), "the killed holder would not die"
 
-        deadline = time.monotonic() + 10
-        while True:
-            try:
-                with runlock.pipeline_lock(path):
-                    break
-            except runlock.AlreadyRunning:
-                if time.monotonic() > deadline:
-                    raise
+            deadline = time.monotonic() + 10
+            while True:
+                try:
+                    with runlock.pipeline_lock(path):
+                        break
+                except runlock.AlreadyRunning:
+                    if time.monotonic() > deadline:
+                        raise
+                    time.sleep(0.2)
                 time.sleep(0.2)
 
 
