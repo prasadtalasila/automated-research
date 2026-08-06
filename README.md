@@ -6,150 +6,143 @@
   </picture>
 </p>
 
+<p align="center">
 Turns a BibTeX bibliography into grounded survey papers, thesis chapters,
 undergraduate textbook chapters and hands-on tutorials, with every citation
 traceable back to a paper the bibliography actually holds.
+</p>
 
-Named for the Hindu god who keeps the ledger of every deed and audits
-souls against it -- which is what this does to citations.
-[See more](docs/NAME.md).
+<p align="center">
+Named for the Hindu god who keeps the ledger of every deed and audits souls
+against it -- which is what this does to citations. <a href="docs/NAME.md">See more</a>.
+</p>
 
-## About
+---
+
+## The one rule
 
 Fabricated placeholder references have made it into real papers before.
-This pipeline is built to make that impossible rather than unlikely: a
-citekey may only be used if it appears in your own `.bib` export **and**
-was picked up into the ledger by a real parse of a real PDF. Everything
-below follows from that one rule.
+This pipeline is built to make that impossible rather than unlikely:
 
-### Grounding, enforced rather than requested
+> **A citekey may only be used if it appears in your own `.bib` export
+> *and* was picked up into the ledger by a real parse of a real PDF.**
 
-- **The bibliography is the source of truth.** Citekeys come from your
-  reference manager's BibTeX export. The pipeline never invents one, and
-  never renames one.
-- **A hard citation gate.** `python -m src.citation_gate` fails on any
-  citekey not in the ledger. It is a gate, not a linter -- a `FAIL` is
-  treated like a failing test.
-- **Enforced mechanically, not by good intentions.** A PostToolUse hook
-  runs the gate on every write under `content/drafts/`, so a draft cannot
-  be saved with an unverifiable citation even if someone forgets.
-- **Provenance you can read.** `python -m src.citation_provenance` reports
-  what in each cited source actually supports the claim citing it,
-  quoting a real passage; `python scripts/verbatim_check.py` finds
-  verbatim overlap and locates it by page. Both are review aids,
-  deliberately not gates.
+Everything else in this repository -- the shape of the workflow, which
+step is allowed to fail, what the writing skills are permitted to see --
+follows from that one rule.
 
-### Writing
-
-Five genre skills, each with its own register, all sharing the same
-grounding rules: **survey/related-work**, **thesis chapter** (LaTeX
-fragment, RQ-driven), **undergraduate textbook chapter** (worked examples
-and exercises, for a reader who is studying), **tutorial** (a Diataxis
-lesson the reader follows at a keyboard to a working result), and **deep
-research** (multi-perspective, corpus-grounded). The two teaching genres
-are deliberately separate: a textbook chapter explains, a tutorial is
-verified to run.
-Drafts render to PDF or LaTeX through Pandoc/TeX Live, in IEEE citation
-style -- numeric `[1]` markers, `[3]–[6]` for a consecutive run, over a
-numbered bibliography generated from the citekeys actually cited.
-
-### The content layer
-
-- **Incremental by design.** `sync` skips any PDF whose bytes haven't
-  changed, embeddings and topic models re-encode only what moved, and
-  Docling parsing is fingerprint-cached. Re-running costs close to
-  nothing.
-- **Two PDF backends.** `pdftotext` for speed and page boundaries;
-  `docling` for reading order, sections and tables. Chosen per install,
-  with a parse-quality guard that catches a backend silently losing word
-  boundaries.
-- **BM25 retrieval** over the parsed corpus, with a cached term-frequency
-  index; an embeddings + Chroma path and BERTopic topic modelling sit
-  behind the optional heavy group.
-- **Honest failure.** Every stage probes for the binaries and packages it
-  needs and reports what's missing, rather than crashing or silently
-  succeeding.
-
-### Built for a real corpus, on real hardware
-
-This runs over 501 PDFs / 13,400 pages, and the performance work is
-measured rather than asserted -- a full Docling parse went from **1h 56m
-to 5m 10s**, both ends measured over the whole corpus:
-
-- **Parallel parsing**, opt-in via `[parser].workers`, defaulting to
-  serial. The worker count is clamped to what the machine can actually
-  sustain, counting the CPUs the *process* is allowed rather than the
-  machine's total. Workers are forked from a helper process that has
-  already imported torch and docling, started early enough to overlap
-  with reading the bibliography -- a fixed ~1.5-2s off pool startup,
-  which is 9.6% of an eight-document run and under 1% of the full corpus.
-  Measured rather than assumed to be more.
-- **Multi-GPU**, automatically: each worker claims its own CUDA device,
-  because Docling would otherwise put every worker on `cuda:0`.
-- **Bounded and interruptible.** Per-document and stalled-run timeouts,
-  Ctrl+C that stops in about a second, live progress, and a
-  one-writer-at-a-time lock that releases itself if the holder is killed.
-- **A benchmark harness** (`bench/`) so the numbers stay checkable, and
-  a design write-up of how the parallel parse fits together in
-  [docs/PARALLELISM.md](docs/PARALLELISM.md).
-
-### What it deliberately is not
-
-Not a paper fetcher -- it never downloads anything; you curate the
-bibliography. Not a citation manager. Not a substitute for reading the
-sources: the provenance and verbatim tools exist to help you check the
-draft, and the gate guarantees a citekey is *real*, not that the claim
-attached to it is *right*.
-
-## Table of contents
-
-- [Documentation](#documentation)
+- [How it works](#how-it-works)
+- [What makes it different](#what-makes-it-different)
 - [Quickstart](#quickstart)
 - [Hardware requirements](#hardware-requirements)
 - [Architecture](#architecture)
 - [The heavy pipeline](#the-heavy-pipeline)
+- [Performance](#performance)
+- [Documentation](#documentation)
 - [Acknowledgements](#acknowledgements)
 
-## Documentation
+## How it works
 
-This file is the overview: what the pipeline is, how to get it running,
-and what it needs. Everything else lives in one document per question.
+Five phases. You own the first, the machine owns the fourth, and nothing
+reaches the fifth without passing it.
 
-**Getting started**
+```mermaid
+flowchart LR
 
-| Document | Answers |
-|---|---|
-| [docs/ZOTERO.md](docs/ZOTERO.md) | How do I get my library and its PDFs into the shape this expects? Includes the attachment-path trap that silently leaves every entry without a PDF |
-| [docs/CLI.md](docs/CLI.md) | What commands are there, what flags does each take, and which interpreter does it need? |
-| [docs/CONFIG.md](docs/CONFIG.md) | What settings exist, what values does each accept, and what is the default? Starts with a minimal `config.toml` |
+  P0["<b>0 · CURATE</b><br/><i>you, in Zotero</i><br/><br/>Add papers, export<br/>BibTeX + Export Files<br/><br/><b>papers/bibliography.bib</b><br/><small>nothing else may invent a citekey</small>"]
 
-**Choosing settings**
+  P1["<b>1 · SYNC</b><br/><i>job 1 — deterministic, no LLM</i><br/><br/><code>python -m src.sync</code><br/>read bib → update ledger<br/>→ extract PDF text<br/><br/><b>content/ledger.sqlite</b><br/><b>content/parsed/*.txt</b><br/><small>idempotent · re-runs cost almost nothing</small>"]
 
-| Document | Answers |
-|---|---|
-| [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | What does each setting *cost*? Every measured figure in one place, organised by setting |
-| [docs/PDF-PARSER.md](docs/PDF-PARSER.md) | Which PDF backend should I use, and why were two others dropped? |
+  P2["<b>2 · DRAFT</b><br/><i>job 2 — generative, you review</i><br/><br/>Ask a genre skill:<br/><i>“write a survey section on …”</i><br/>it retrieves only from<br/>the parsed corpus<br/><br/><b>content/drafts/&lt;slug&gt;.md</b>"]
 
-**Understanding the output**
+  P3{{"<b>3 · VERIFY</b><br/><i>machine-enforced</i><br/><br/><code>src.citation_gate</code><br/>Is every citekey<br/>in the ledger?"}}
 
-| Document | Answers |
-|---|---|
-| [docs/WRITING-STANDARDS.md](docs/WRITING-STANDARDS.md) | What prose standards do the genre skills follow, and where in the technical-communication literature do they come from? |
-| [docs/CITATION-PROVENANCE.md](docs/CITATION-PROVENANCE.md) | What does the provenance report say, and how do I read it? |
-| [docs/DESIGN.md](docs/DESIGN.md) | How is this put together, and what happens when two runs collide? |
-| [docs/PARALLELISM.md](docs/PARALLELISM.md) | How does the parallel parse actually work, what is each component for, and what is planned next? |
+  P4["<b>4 · PUBLISH</b><br/><i>stdlib + Pandoc / TeX Live</i><br/><br/><code>src.references</code><br/>IEEE list from exactly<br/>the citekeys cited<br/><br/><code>render_output --format pdf</code><br/><b>content/rendered/&lt;slug&gt;.pdf</b>"]
 
-**Working on the repository itself**
+  FIX["<b>refused — exit 1</b><br/><br/>Use a citekey that exists,<br/>or add the paper in Zotero,<br/>re-export and re-sync.<br/><br/><small>A FAIL is treated like a<br/>failing test, not a lint warning.</small>"]
 
-| Document | Answers |
-|---|---|
-| [DEVELOPER.md](DEVELOPER.md) | How do I run the tests, where does everything live, and what is unbuilt? |
-| [DOCKER.md](DOCKER.md) | How do I run this in a container? |
-| [AGENTS.md](AGENTS.md) | The rules a coding agent working here must follow -- above all, never fabricate a citekey |
+  P0 ==> P1 ==> P2 ==> P3
+  P3 == "PASS · exit 0" ==> P4
+  P3 -- "FAIL" --> FIX
+  FIX -. "back to the bibliography" .-> P0
 
-`bench/` (measurement harness and raw timings) is in the repository but
-excluded from the release archive, along with `tests/` and the two files
-above it in that table.
+  classDef you fill:#fff7ed,stroke:#c2410c,stroke-width:1.5px,color:#431407
+  classDef det fill:#eef2ff,stroke:#4f46e5,stroke-width:1.5px,color:#1e1b4b
+  classDef gen fill:#f0fdf4,stroke:#16a34a,stroke-width:1.5px,color:#052e16
+  classDef gate fill:#fef2f2,stroke:#dc2626,stroke-width:3px,color:#450a0a
+  classDef out fill:#faf5ff,stroke:#9333ea,stroke-width:1.5px,color:#3b0764
+  classDef bad fill:#fee2e2,stroke:#dc2626,stroke-width:1.5px,color:#450a0a
+
+  class P0 you
+  class P1 det
+  class P2 gen
+  class P3 gate
+  class P4 out
+  class FIX bad
+```
+
+Two properties of that picture do all the work:
+
+- **Phase 0 is the only entrance.** Citekeys come from your reference
+  manager's BibTeX export. The pipeline never fetches a paper, never
+  invents a citekey, and never renames one.
+- **Phase 3 is the only exit.** `src.citation_gate` sits on the single
+  path between a draft and a rendered document. There is no arrow around
+  it, and a `FAIL` is treated like a failing test rather than a lint
+  warning.
+
+The same workflow at full detail -- every module, every file it writes,
+the optional heavy pipeline and the review aids -- is under
+[Architecture](#architecture). [docs/DIAGRAMS.md](docs/DIAGRAMS.md) draws
+it eleven times over: six views ordered by how much you already know (one
+glance, your first run, the full workflow, everything on disk, gates and
+exit codes, the inside of a single parallel parse), three showing how the
+genre skills differ in what they ask of the heavy pipeline, and two in the
+appendix.
+
+## What makes it different
+
+**Grounding is enforced, not requested.** `python -m src.citation_gate`
+fails on any citekey not in the ledger, and a PostToolUse hook runs it on
+every write under `content/drafts/` -- so a draft cannot be saved with an
+unverifiable citation even if someone forgets to check. Separately, and
+deliberately *not* as gates, `python -m src.citation_provenance` reports
+what in each cited source actually supports the claim citing it, quoting
+a real passage, and `python scripts/verbatim_check.py` finds verbatim
+overlap and locates it by page.
+
+**Five genre skills, one set of grounding rules.**
+**survey/related-work**; **thesis chapter** (LaTeX fragment, RQ-driven);
+**undergraduate textbook chapter** (worked examples and exercises, for a
+reader who is studying); **tutorial** (a Diataxis lesson the reader
+follows at a keyboard to a working result); and **deep research**
+(multi-perspective, corpus-grounded -- a heavier alternative, adapted
+from prior work credited in [Acknowledgements](#acknowledgements)). The
+two teaching genres are
+deliberately separate: a textbook chapter explains, a tutorial is
+verified to run. Drafts render to PDF or LaTeX through Pandoc/TeX Live in
+IEEE citation style -- numeric `[1]` markers, `[3]–[6]` for a consecutive
+run, over a numbered bibliography generated from the citekeys actually
+cited. The prose standards all five share, and where they come from, are
+in [docs/WRITING-STANDARDS.md](docs/WRITING-STANDARDS.md).
+
+**The content layer is incremental and honest about failure.** `sync`
+skips any PDF whose bytes haven't changed, embeddings and topic models
+re-encode only what moved, and Docling parsing is fingerprint-cached, so
+re-running costs close to nothing. Two PDF backends are supported --
+`pdftotext` for speed and page boundaries, `docling` for reading order,
+sections and tables -- with a parse-quality guard that catches a backend
+silently losing word boundaries. Retrieval is BM25 over the parsed corpus
+by default; an embeddings + Chroma path and BERTopic topic modelling sit
+behind the optional heavy group. Every stage probes for the binaries and
+packages it needs and reports what's missing, rather than crashing or
+silently succeeding.
+
+**What it deliberately is not.** Not a paper fetcher -- it never
+downloads anything; you curate the bibliography. Not a citation manager.
+Not a substitute for reading the sources: the provenance and verbatim
+tools exist to help you check the draft, and the gate guarantees a
+citekey is *real*, not that the claim attached to it is *right*.
 
 ## Quickstart
 
@@ -260,94 +253,155 @@ Tips:
 
 Two layers -- job 1 (deterministic) and job 2 (generative) in
 [AGENTS.md](AGENTS.md)'s terms -- with an optional heavy-pipeline
-extension of job 2:
+extension of job 2. The diagram below is the whole system; everything
+after it is commentary on one part of it.
+
+```mermaid
+flowchart TB
+
+  %% ─────────────── 0 · CURATE ───────────────
+  subgraph S0["<b>0 · CURATE</b> — you, in Zotero. The pipeline never fetches a paper."]
+    direction TB
+    ZOT[("Zotero library")]
+    BIB["<b>papers/bibliography.bib</b><br/><i>the source of truth for citekeys</i>"]
+    ATT[/"papers/bibliography/files/**.pdf<br/><small>attachment tree — never rename it</small>"/]
+    ZOT -- "Export · BibTeX + Export Files" --> BIB
+    ZOT --> ATT
+  end
+
+  %% ─────────────── 1 · SYNC ───────────────
+  subgraph S1["<b>1 · SYNC</b> — job 1 · deterministic, no LLM, safe to run unattended · <code>python -m src.sync</code> · holds the run lock"]
+    direction TB
+    BR["<b>src/bib_reader.py</b><br/><small>the only module that reads the .bib</small>"]
+    LED[("<b>content/ledger.sqlite</b><br/><small>one row per citekey: status, bib_fields,<br/>PDF fingerprint — re-parse only what moved</small>")]
+    PT["<b>src/pdf_text.py</b> — extract text<br/><small>backend <code>pdftotext</code> · or <code>docling</code><br/>serial by default; opt-in worker pool</small>"]
+    TXT[/"<b>content/parsed/&lt;citekey&gt;.txt</b>"/]
+    ADV["<i>reported, never fatal:</i><br/>near-duplicates · parse-quality warning · stale citekeys<br/><small>deletion needs <code>--remove-stale</code></small>"]
+    BR --> LED --> PT --> TXT --> ADV
+  end
+
+  %% ─────────────── 2 · RETRIEVE ───────────────
+  subgraph S2["<b>2 · RETRIEVE</b> — the only evidence a writer is given"]
+    direction LR
+    BM25["<b>src/retrieval.py</b> · BM25<br/><small>stdlib; cached term-frequency index</small>"]
+    PASS["<b>src/passages.py</b> · evidence ladder<br/><small>docling sidecar → page → pdftotext</small>"]
+  end
+
+  %% ─────────────── 3 · DRAFT ───────────────
+  subgraph S3["<b>3 · DRAFT</b> — job 2 · generative, on demand, reviewed by you"]
+    direction TB
+    SKILLS["<b>.claude/skills/</b> — five genre skills<br/>survey-writer · thesis-chapter-writer · textbook-chapter-writer<br/>tutorial-writer · deep-research"]
+    DRAFT[/"<b>content/drafts/&lt;slug&gt;.md | .tex</b>"/]
+    SKILLS --> DRAFT
+  end
+
+  %% ─────────────── 4 · GATE ───────────────
+  GATE{{"<b>THE CITATION GATE</b> · <code>python3 -m src.citation_gate</code><br/>Is every citekey in this draft present in the ledger?<br/><small>run twice: by the PostToolUse hook on every write under content/drafts/,<br/>and by the skill itself before it shows you anything</small>"}}
+  BLOCK["<b>REFUSED</b> · exit 1<br/><small>the write is blocked and the chain stops.<br/>Fix the citekey, or re-run sync.</small>"]
+
+  %% ─────────────── 5 · PUBLISH ───────────────
+  subgraph S5["<b>5 · PUBLISH</b> — stdlib only, no venv needed"]
+    direction TB
+    REFS["<b>python3 -m src.references</b><br/><small>IEEE ## References, numbered by first appearance,<br/>built only from citekeys the draft actually cites.<br/>Skipped for thesis .tex fragments, where the<br/>surrounding LaTeX owns the bibliography.</small>"]
+    REND["<b>python3 -m src.heavy.render_output</b><br/><small>pandoc --citeproc + assets/csl/ieee.csl</small>"]
+    OUT[/"<b>content/rendered/&lt;slug&gt;.pdf | .tex | .docx | .md</b>"/]
+    REFS --> REND --> OUT
+  end
+
+  %% ─────────────── HEAVY (side branch) ───────────────
+  subgraph SH["<b>OPTIONAL · HEAVY PIPELINE</b><br/><code>scripts/full_pipeline.py --stages …</code> · same run lock"]
+    direction TB
+    H1["<b>docling</b><br/><small>content/docling/*.md + .passages.json</small>"]
+    H2["<b>embed</b><br/><small>content/chroma/ — drop-in search(q,k)</small>"]
+    H3["<b>bertopic</b><br/><small>content/topics.json</small>"]
+    H1 --> H2 --> H3
+  end
+
+  %% ─────────────── AIDS (side branch) ───────────────
+  subgraph SA["<b>REVIEW AIDS</b> — you run these; none of them is a gate"]
+    direction TB
+    A1["<b>src.citation_provenance</b><br/><small>what in the source supports this claim?</small>"]
+    A2["<b>scripts/verbatim_check.py</b><br/><small>verbatim overlap · locate a phrase by page</small>"]
+    A3["<b>src.citation_coverage</b><br/><small>retrieval surfaced it — did the draft cite it?</small>"]
+  end
+
+  %% ─────────────── SPINE ───────────────
+  BIB --> BR
+  ATT --> PT
+  TXT --> S2
+  S2 --> SKILLS
+  DRAFT --> GATE
+  GATE -- "FAIL" --> BLOCK
+  GATE -- "PASS · exit 0" --> REFS
+  LED == "the ledger is the<br/>only authority the<br/>gate consults" ==> GATE
+  LED --> REFS
+  TXT -.-> H1
+  H1 -.-> PASS
+  H2 -.-> BM25
+  DRAFT --> SA
+
+  %% ─────────────── STYLE ───────────────
+  classDef src fill:#eef2ff,stroke:#4f46e5,stroke-width:1.5px,color:#1e1b4b
+  classDef store fill:#fff7ed,stroke:#c2410c,stroke-width:1.5px,color:#431407
+  classDef gate fill:#fef2f2,stroke:#dc2626,stroke-width:2.5px,color:#450a0a
+  classDef bad fill:#dc2626,stroke:#7f1d1d,color:#ffffff
+  classDef gen fill:#f0fdf4,stroke:#16a34a,stroke-width:1.5px,color:#052e16
+  classDef aid fill:#f8fafc,stroke:#94a3b8,stroke-dasharray:4 3,color:#0f172a
+  classDef heavy fill:#faf5ff,stroke:#9333ea,stroke-width:1.5px,color:#3b0764
+
+  class BR,PT,BM25,PASS,REFS,REND src
+  class ZOT,BIB,ATT,LED,TXT,DRAFT,OUT store
+  class GATE gate
+  class BLOCK bad
+  class SKILLS gen
+  class A1,A2,A3,ADV aid
+  class H1,H2,H3 heavy
+```
+
+Read in the three pieces the rest of this file refers to:
 
 - **Content layer** (job 1: shared, deterministic, safe to run
-  unattended). Run via `python -m src.sync`. Idempotent and incremental --
-  a paper is only re-parsed if its PDF content actually changed.
+  unattended) -- boxes 0 through 2. Run via `python -m src.sync`.
+  Idempotent and incremental: a paper is only re-parsed if its PDF
+  content actually changed, which is what makes the second run nearly
+  free.
+- **Genre layer** (job 2: generative, on demand, reviewed by you) --
+  boxes 3 through 5. Claude Code skills in `.claude/skills/`. Each reads
+  the content layer; none of them regenerate it.
+- **The heavy pipeline** (`src/heavy/`, `scripts/full_pipeline.py`) -- the
+  dotted branch, entirely optional. Every arrow leaving it is dotted
+  because every consumer checks the stack exists before using it and
+  falls back to the lightweight default if it doesn't.
 
-```
-+--------------------+
-|  bibliography.bib  |   BibTeX export -- source of truth for citekeys/metadata
-+--------------------+
-          |
-          v
-+--------------------+
-| src/bib_reader.py  |   parses citekeys + metadata
-+--------------------+
-          |
-          v
-+---------------------------------------+
-| src/ledger.py                         |
-|   -> content/ledger.sqlite            |   per-citekey status + the fields a
-|                                       |   reference entry is built from
-+---------------------------------------+
-          |
-          v
-+---------------------------------------+
-| src/pdf_text.py                       |
-|   -> content/parsed/<citekey>.txt     |   pdftotext/docling
-+---------------------------------------+
-          |
-          v
-+---------------------------------------+
-| src/retrieval.py                      |
-|   search(query, k) -> SearchResult    |   BM25-ranked keyword search
-+---------------------------------------+
-```
-
-- **Genre layer** (job 2: generative, on-demand, reviewed by you) --
-  Claude Code skills in `.claude/skills/`: `survey-writer`,
-  `thesis-chapter-writer`, `textbook-chapter-writer`, `tutorial-writer`,
-  and `deep-research` (a heavier, multi-perspective alternative -- see
-  Acknowledgements). Each
-  reads the content layer above; none of them regenerate it. Optionally
-  extended by **the heavy pipeline** (`src/heavy/`,
-  `scripts/full_pipeline.py`) -- see ["The heavy pipeline"](#the-heavy-pipeline)
-  below.
-
-```
-JOB 1 -- deterministic, unattended-safe     JOB 2 -- generative, on demand, reviewed by you
-+-------------------------------+     +---------------------------------------------+
-| bibliography.bib -> ledger -> | --> | Genre skills (.claude/skills/) draft, then:  |
-| pdf_text -> retrieval         |     |   1. src.citation_gate  -- hard gate, must   |
-+-------------------------------+     |      pass before anything below runs         |
-                                      |   2. src.references     -- auto "References" |
-                                      |      section from exactly the cited citekeys |
-                                      |   3. src.heavy.render_output -- tex/pdf,     |
-                                      |      bare python3, no heavy venv needed      |
-                                      +---------------------------------------------+
-                                                             |
-                                                             |  optional, opt-in
-                                                             v
-                                     +-----------------------------------------------+
-                                     | THE HEAVY PIPELINE (src/heavy/)               |
-                                     | Docling -> embeddings/Chroma ->               |
-                                     | BERTopic -> (same render_output.py above)     |
-                                     | each stage reports: ok / skipped /            |
-                                     | missing-binary                                |
-                                     +-----------------------------------------------+
-```
+The thick edge from the ledger to the gate is the whole safety argument:
+**the gate consults `content/ledger.sqlite` and nothing else**, so a
+citekey no `sync` ever put there cannot survive into a rendered draft.
+Every genre skill runs the gate on its own output before presenting a
+draft, and refuses to invent a citekey -- see [AGENTS.md](AGENTS.md) for
+why this is a hard gate rather than a style suggestion. Once a draft
+passes, `python -m src.references` appends (or idempotently replaces) a
+"## References" section built only from citekeys the draft already cites,
+and `python -m src.heavy.render_output <file> --format pdf` (or
+`tex`/`docx`) renders it via Pandoc/TeX Live, resolving `[@citekey]`
+markers against `bibliography.bib` -- both stdlib only, no venv required,
+same as `citation_gate`.
 
 `papers/bibliography.bib` is the **source of truth** for citekeys and
-metadata -- this pipeline parses it, it does not generate its own citekeys
-or its own copy of the bibliography. It's a per-host, gitignored file (see
-"Configuration" above), not shipped in the repo, since the PDFs it points
-to aren't either. See [AGENTS.md](AGENTS.md) for why, and what changed if
-you're looking at content written before 2026-07-28.
+metadata -- this pipeline parses it, it does not generate its own
+citekeys or its own copy of the bibliography. It's a per-host, gitignored
+file (every setting, including where it lives, is in
+[docs/CONFIG.md](docs/CONFIG.md)), not shipped in the repo, since the PDFs
+it points to aren't either. See [AGENTS.md](AGENTS.md) for why, and what
+changed if you're looking at content written before 2026-07-28.
 
-Every genre skill runs `python -m src.citation_gate` on its own output
-before presenting a draft, and refuses to invent a citekey. See
-[AGENTS.md](AGENTS.md) for why this is a hard gate rather than a style
-suggestion. Once a draft passes, `python -m src.references` appends (or
-idempotently replaces) a "## References" section built only from citekeys
-the draft already cites, and `python -m src.heavy.render_output
-<file> --format pdf` (or `tex`/`docx`) renders it via Pandoc/TeX Live,
-resolving `[@citekey]` markers against `bibliography.bib` -- both stdlib
-only, no venv required, same as `citation_gate`. `scripts/verbatim_check.py`
-is a separate, ad-hoc review aid (not part of this automatic chain) for
-spot-checking a draft against its sources for verbatim overlap or
-page-locating a quoted phrase.
+Both `sync` and `full_pipeline` take the same lock over `content/`
+(`content/pipeline.lock.db`); a second writer exits 2 rather than
+interleaving. Readers -- the gate, retrieval, `python3 -m src.ledger` --
+are never blocked by it. [docs/DESIGN.md](docs/DESIGN.md) has the
+reasoning; [docs/DIAGRAMS.md](docs/DIAGRAMS.md) redraws all of this ten
+more ways, including one view built around the failure and exit-code
+paths, one around the parallel parse, and three around how the individual
+genre skills differ in what they ask of the pipeline.
 
 ### What each capability requires
 
@@ -399,8 +453,8 @@ rather than a standalone API call.)
 The `render` stage above is just `src/heavy/render_output.py` wired
 through `full_pipeline.py`'s corpus-building machinery; if all you want
 is to render one draft, `python -m src.heavy.render_output <file>
---format pdf` (bare `python3`, see "Venv requirement" above) does the
-same thing without loading the rest of the heavy pipeline.
+--format pdf` (bare `python3` -- which interpreter each command needs is
+in [docs/CLI.md](docs/CLI.md#which-interpreter)) does the same thing without loading the rest of the heavy pipeline.
 
 ### Calling the heavy pipeline from a skill or agent
 
@@ -427,6 +481,75 @@ every `src/heavy/*` stage's own self-probing design.
 call works from inside them too -- but nothing about calling the heavy
 pipeline *requires* going through a dedicated agent. A skill invoked
 inline is sufficient by itself.
+
+## Performance
+
+This runs over 501 PDFs / 13,400 pages, and the performance work is
+measured rather than asserted -- a full Docling parse went from **1h 56m
+to 5m 10s**, both ends measured over the whole corpus. The short version
+of how:
+
+- **Parallel parsing**, opt-in via `[parser].workers`, defaulting to
+  serial. The worker count is clamped to what the machine can actually
+  sustain, counting the CPUs the *process* is allowed rather than the
+  machine's total, and workers are forked from a helper process that has
+  already imported torch and docling, started early enough to overlap
+  with reading the bibliography -- a fixed ~1.5-2s off pool startup,
+  which is 9.6% of an eight-document run and under 1% of the full corpus.
+  Measured rather than assumed to be more.
+- **Multi-GPU**, automatically: each worker claims its own CUDA device,
+  because Docling would otherwise put every worker on `cuda:0`.
+- **Bounded and interruptible.** Per-document and stalled-run timeouts,
+  Ctrl+C that stops in about a second, live progress, and a
+  one-writer-at-a-time lock that releases itself if the holder is killed.
+
+Every measured figure, organised by the setting it belongs to, is in
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md); how the parallel parse fits
+together, component by component, is in
+[docs/PARALLELISM.md](docs/PARALLELISM.md); and `bench/` is the harness
+that keeps the numbers checkable.
+
+## Documentation
+
+This file is the overview: what the pipeline is, how to get it running,
+and what it needs. Everything else lives in one document per question.
+
+**Getting started**
+
+| Document | Answers |
+|---|---|
+| [docs/ZOTERO.md](docs/ZOTERO.md) | How do I get my library and its PDFs into the shape this expects? Includes the attachment-path trap that silently leaves every entry without a PDF |
+| [docs/CLI.md](docs/CLI.md) | What commands are there, what flags does each take, and which interpreter does it need? |
+| [docs/CONFIG.md](docs/CONFIG.md) | What settings exist, what values does each accept, and what is the default? Starts with a minimal `config.toml` |
+
+**Choosing settings**
+
+| Document | Answers |
+|---|---|
+| [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | What does each setting *cost*? Every measured figure in one place, organised by setting |
+| [docs/PDF-PARSER.md](docs/PDF-PARSER.md) | Which PDF backend should I use, and why were two others dropped? |
+
+**Understanding the output**
+
+| Document | Answers |
+|---|---|
+| [docs/WRITING-STANDARDS.md](docs/WRITING-STANDARDS.md) | What prose standards do the genre skills follow, and where in the technical-communication literature do they come from? |
+| [docs/CITATION-PROVENANCE.md](docs/CITATION-PROVENANCE.md) | What does the provenance report say, and how do I read it? |
+| [docs/DIAGRAMS.md](docs/DIAGRAMS.md) | The workflow drawn eleven ways -- six by depth, three by genre, two in an appendix. Pick the one that matches what you already know |
+| [docs/DESIGN.md](docs/DESIGN.md) | How is this put together, and what happens when two runs collide? |
+| [docs/PARALLELISM.md](docs/PARALLELISM.md) | How does the parallel parse actually work, what is each component for, and what is planned next? |
+
+**Working on the repository itself**
+
+| Document | Answers |
+|---|---|
+| [DEVELOPER.md](DEVELOPER.md) | How do I run the tests, where does everything live, and what is unbuilt? |
+| [DOCKER.md](DOCKER.md) | How do I run this in a container? |
+| [AGENTS.md](AGENTS.md) | The rules a coding agent working here must follow -- above all, never fabricate a citekey |
+
+`bench/` (measurement harness and raw timings) is in the repository but
+excluded from the release archive, along with `tests/` and the two files
+above it in that table.
 
 ## Acknowledgements
 
