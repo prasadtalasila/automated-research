@@ -9,9 +9,10 @@ The repository is designed around a few hard constraints that strongly shape the
    - Drafts must pass `python -m src.citation_gate` before being considered valid.
    - This is the repo's primary safety invariant.
 
-2. **Two-job split**
-   - Job 1: deterministic content maintenance (`python -m src.sync`).
-   - Job 2: generative drafting and heavier processing via Claude Code skills or the heavy pipeline.
+2. **Three layers**
+   - Corpus layer: deterministic content maintenance (`python -m src.sync`).
+   - Drafting layer: generative drafting via the Claude Code skills.
+   - Enrichment layer: optional heavier processing (`scripts/full_pipeline.py`).
    - Ad-hoc review tools remain outside the automatic chain.
 
 3. **Config and host variability are first-class concerns**
@@ -48,7 +49,7 @@ The repository is designed around a few hard constraints that strongly shape the
 ### 1. Pipeline architecture
 The project is fundamentally a staged pipeline:
 - BibTeX export -> ledger -> parsed text -> retrieval
-- Optional heavy pipeline: Docling -> embeddings -> BERTopic -> render
+- Optional enrichment layer: Docling -> embeddings -> BERTopic -> render
 
 This is the dominant structural pattern and fits the use case well.
 
@@ -73,8 +74,8 @@ This keeps the rest of the system insulated from tool-specific details.
 
 ### 4. Strategy-like backend substitution
 The repo already supports alternate approaches for retrieval and parsing:
-- BM25 retrieval in the core pipeline
-- embedding retrieval in the heavy pipeline
+- BM25 retrieval in the corpus layer
+- embedding retrieval in the enrichment layer
 - plain extraction vs structured extraction
 
 That is a good fit for a tiered research workflow.
@@ -84,42 +85,6 @@ That is a good fit for a tiered research workflow.
 
 ### 6. Repository-style persistence layer
 `ledger.py` functions as a small persistence/repository layer over SQLite. It keeps the rest of the code from directly dealing with SQL details.
-
-## SOLID review
-
-### S — Single Responsibility Principle
-Mostly good.
-
-- `config.py` is focused.
-- `ledger.py` is focused.
-- `pdf_text.py` is focused.
-- `citation_gate.py` is focused.
-
-The main exception is orchestration modules like `sync.py` and `full_pipeline.py`, which coordinate multiple concerns. That is acceptable for entrypoints, but they should stay orchestration-only.
-
-### O — Open/Closed Principle
-Moderately good.
-
-The heavy pipeline is extensible by stage, and retrieval has an upgrade path from BM25 to embeddings. However, many concrete integrations are still hard-coded to specific tools. Introducing explicit backend interfaces would improve openness.
-
-### L — Liskov Substitution Principle
-Reasonably good.
-
-`CorpusDoc` is used consistently, and the code avoids inheritance-heavy designs. There is little sign of substitution problems, but this also means there are few abstractions to test.
-
-### I — Interface Segregation Principle
-Fairly good.
-
-The modules expose small APIs, which is positive. The remaining opportunity is to split larger helpers into smaller, more specialized interfaces, especially in retrieval and parsing stages.
-
-### D — Dependency Inversion Principle
-This is the weakest SOLID area.
-
-Most integrations depend directly on concrete tools and binaries. That is understandable for a pipeline repo, but it makes portability and testing harder.
-
-Suggested improvement:
-- define small interfaces for text extraction, structured parsing, retrieval, and embedding
-- inject implementations where practical instead of importing concrete tools everywhere
 
 ## Concurrency and conflict policy
 
@@ -220,7 +185,7 @@ than raised so that both the value and its type survive pickling, since
 Work is submitted longest-file-first. One 675-page document in this
 corpus is 5% of all its pages; picked up last it would define the wall
 clock by itself. File size rather than page count, because counting pages
-needs a PDF library the core pipeline deliberately does not depend on.
+needs a PDF library the corpus layer deliberately does not depend on.
 
 ### Device assignment
 
@@ -284,7 +249,7 @@ would remove documents from the corpus permanently.
 
 `sync` and `full_pipeline` share a lock over `content/`, because the
 unsafe overlap is any-writer-against-any-writer: `sync` writes parsed
-text non-atomically and the heavy pipeline reads those same files.
+text non-atomically and the enrichment layer reads those same files.
 
 It is a dedicated sqlite file held under `BEGIN IMMEDIATE`, chosen from
 measurement rather than taste. A `BEGIN IMMEDIATE` holder takes a
@@ -363,20 +328,3 @@ This would improve evidence quality substantially.
 [PDF-PARSER.md](PDF-PARSER.md) owns the backend comparison -- the
 tradeoffs, the two backends evaluated and removed, and the measured
 speed figures. It is not restated here.
-
-## Overall assessment
-
-The codebase has a strong conceptual model:
-- safe citation handling
-- deterministic core pipeline
-- clear heavy-stage upgrade path
-- incremental caching
-- good test coverage around key invariants
-- an opt-in concurrency model that is clamped to the host rather than to
-  the request, and whose failure modes are each handled where they occur
-
-Its main opportunities are:
-- more structure-aware indexing (the Docling passage sidecars exist but
-  retrieval still tokenises flat text)
-- reranking on top of BM25
-- improved cross-platform ergonomics

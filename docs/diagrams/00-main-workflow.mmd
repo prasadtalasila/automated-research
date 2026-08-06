@@ -1,0 +1,115 @@
+---
+title: "The full workflow — every module, every artifact"
+---
+flowchart TB
+
+  %% ─────────────── 0 · CURATE ───────────────
+  subgraph S0["<b>0 · CURATE</b> — you, in Zotero. The pipeline never fetches a paper."]
+    direction TB
+    ZOT[("Zotero library")]
+    BIB["<b>papers/bibliography.bib</b><br/><i>the source of truth for citekeys</i>"]
+    ATT[/"<b>papers/bibliography/files/&lt;id&gt;/*.pdf</b><br/><small>the companion folder Zotero writes beside the .bib —<br/>never rename it, the <code>file</code> fields are relative paths</small>"/]
+    RAW[/"papers/pdfs/*.pdf<br/><small>optional · raw PDFs you drop in by hand ·<br/><code>doc:&lt;stem&gt;</code>, never citable</small>"/]
+    ZOT -- "Export · BibTeX + Export Files" --> BIB
+    ZOT --> ATT
+  end
+
+  %% ─────────────── 1 · SYNC ───────────────
+  subgraph S1["<b>1 · SYNC</b> — the corpus layer · deterministic, no LLM, safe to run unattended · <code>python -m src.sync</code> · holds the run lock"]
+    direction TB
+    BR["<b>src/bib_reader.py</b><br/><small>the only module that reads the .bib</small>"]
+    LED[("<b>content/ledger.sqlite</b><br/><small>one row per citekey: status, bib_fields,<br/>PDF fingerprint — re-parse only what moved</small>")]
+    PT["<b>src/pdf_text.py</b> — extract text<br/><small>backend <code>pdftotext</code> · or <code>docling</code><br/>serial by default; opt-in worker pool</small>"]
+    TXT[/"<b>content/parsed/&lt;citekey&gt;.txt</b>"/]
+    ADV["<i>reported, never fatal:</i><br/>near-duplicates · parse-quality warning · stale citekeys<br/><small>deletion needs <code>--remove-stale</code></small>"]
+    BR --> LED --> PT --> TXT --> ADV
+  end
+
+  %% ─────────────── 2 · RETRIEVE ───────────────
+  subgraph S2["<b>2 · RETRIEVE</b> — the only evidence a writer is given · <b>one ranker or the other, never both</b>"]
+    direction LR
+    XOR{{"which ranker?<br/><small>the genre skill picks</small>"}}
+    BM25["<b>src/retrieval.py</b> · BM25<br/><small>stdlib keyword overlap, cached term-frequency index.<br/><b>the default every skill starts from</b></small>"]
+    EMB["<b>src/heavy/embed_index.py</b> · semantic<br/><small>same <code>search(q, k)</code> signature, so it is a drop-in.<br/>Named as the alternative by <code>survey-writer</code><br/>and <code>deep-research</code> — and only by those two.</small>"]
+    PASS["<b>src/passages.py</b> · evidence ladder<br/><small>docling sidecar → page → pdftotext</small>"]
+    XOR -- "default" --> BM25
+    XOR -. "only if content/chroma/ was built" .-> EMB
+    BM25 --> PASS
+    EMB --> PASS
+  end
+
+  %% ─────────────── 3 · DRAFT ───────────────
+  subgraph S3["<b>3 · DRAFT</b> — the drafting layer · generative, on demand, reviewed by you"]
+    direction TB
+    SKILLS["<b>.claude/skills/</b> — five genre skills<br/>survey-writer · thesis-chapter-writer · textbook-chapter-writer<br/>tutorial-writer · deep-research"]
+    DRAFT[/"<b>content/drafts/&lt;slug&gt;.md | .tex</b>"/]
+    SKILLS --> DRAFT
+  end
+
+  %% ─────────────── 4 · GATE ───────────────
+  GATE{{"<b>THE CITATION GATE</b> · <code>python3 -m src.citation_gate</code><br/>Is every citekey in this draft present in the ledger?<br/><small>run twice: by the PostToolUse hook on every write under content/drafts/,<br/>and by the skill itself before it shows you anything</small>"}}
+  BLOCK["<b>REFUSED</b> · exit 1<br/><small>the write is blocked and the chain stops</small>"]
+  ITER["<b>the skill fixes it and re-runs — itself</b><br/><small>“Fix and re-run until <code>OK</code>. Never present a draft that hasn't<br/>passed.” — every SKILL.md carries this instruction.<br/>It swaps the bad key for one retrieval actually returned, or drops<br/>the claim. You are shown nothing until the gate is green.</small>"]
+
+  %% ─────────────── 5 · PUBLISH ───────────────
+  subgraph S5["<b>5 · PUBLISH</b> — stdlib only, no venv needed"]
+    direction TB
+    REFS["<b>python3 -m src.references</b><br/><small>IEEE ## References, numbered by first appearance,<br/>built only from citekeys the draft actually cites.<br/>Skipped for thesis .tex fragments, where the<br/>surrounding LaTeX owns the bibliography.</small>"]
+    REND["<b>python3 -m src.heavy.render_output</b><br/><small>pandoc --citeproc + assets/csl/ieee.csl</small>"]
+    OUT[/"<b>content/rendered/&lt;slug&gt;.pdf | .tex | .docx | .md</b>"/]
+    REFS --> REND --> OUT
+  end
+
+  %% ─────────────── ENRICHMENT (side branch) ───────────────
+  subgraph SH["<b>OPTIONAL · ENRICHMENT LAYER</b><br/><code>scripts/full_pipeline.py --stages …</code> · same run lock"]
+    direction TB
+    H1["<b>docling</b> — <i>reads the PDF itself, not content/parsed/</i><br/><small><b>content/docling/&lt;doc&gt;.md</b> — layout-aware text<br/><b>&lt;doc&gt;.passages.json</b> — the quotable-passage sidecar<br/><b>&lt;doc&gt;_artifacts/</b> — figure bitmaps, written by Docling<br/><b>&lt;doc&gt;.figures.json</b> — page, caption, cite string per figure<br/>the last two only when <code>[heavy].docling_images</code> is on</small>"]
+    H2["<b>embed</b><br/><small>content/chroma/ — drop-in search(q,k)</small>"]
+    H3["<b>bertopic</b><br/><small>content/topics.json</small>"]
+    H1 --> H2 --> H3
+  end
+
+  %% ─────────────── AIDS (side branch) ───────────────
+  subgraph SA["<b>REVIEW AIDS</b> — you run these; none of them is a gate"]
+    direction TB
+    A1["<b>src.citation_provenance</b><br/><small>what in the source supports this claim?</small>"]
+    A2["<b>scripts/verbatim_check.py</b><br/><small>verbatim overlap · locate a phrase by page</small>"]
+    A3["<b>src.citation_coverage</b><br/><small>retrieval surfaced it — did the draft cite it?</small>"]
+  end
+
+  %% ─────────────── SPINE ───────────────
+  BIB --> BR
+  ATT --> PT
+  TXT --> XOR
+  PASS --> SKILLS
+  DRAFT --> GATE
+  GATE -- "FAIL" --> BLOCK
+  BLOCK --> ITER
+  ITER == "re-draft · <b>loop until it passes</b>" ==> SKILLS
+  GATE == "PASS · exit 0" ==> REFS
+  LED == "the ledger is the<br/>only authority the<br/>gate consults" ==> GATE
+  LED --> REFS
+  ATT -. "the PDF, direct" .-> H1
+  RAW -. "src/heavy/corpus.py" .-> H1
+  H1 -.-> PASS
+  H2 -.-> EMB
+  DRAFT --> SA
+
+  %% ─────────────── STYLE ───────────────
+  classDef src fill:#eef2ff,stroke:#4f46e5,stroke-width:1.5px,color:#1e1b4b
+  classDef store fill:#fff7ed,stroke:#c2410c,stroke-width:1.5px,color:#431407
+  classDef gate fill:#fef2f2,stroke:#dc2626,stroke-width:2.5px,color:#450a0a
+  classDef bad fill:#dc2626,stroke:#7f1d1d,color:#ffffff
+  classDef loop fill:#fefce8,stroke:#a16207,stroke-width:2px,color:#422006
+  classDef gen fill:#f0fdf4,stroke:#16a34a,stroke-width:1.5px,color:#052e16
+  classDef aid fill:#f8fafc,stroke:#94a3b8,stroke-dasharray:4 3,color:#0f172a
+  classDef heavy fill:#faf5ff,stroke:#9333ea,stroke-width:1.5px,color:#3b0764
+
+  class BR,PT,BM25,PASS,REFS,REND src
+  class ZOT,BIB,ATT,RAW,LED,TXT,DRAFT,OUT store
+  class GATE,XOR gate
+  class BLOCK bad
+  class ITER loop
+  class SKILLS gen
+  class A1,A2,A3,ADV aid
+  class H1,H2,H3,EMB heavy

@@ -1,0 +1,41 @@
+---
+title: "Appendix — the life of a single citekey in the ledger"
+---
+stateDiagram-v2
+    direction TB
+
+    [*] --> discovered : appears in bibliography.bib<br/>(src.bib_reader)
+
+    discovered --> no_pdf : no resolvable<br/>file field
+    discovered --> parsing : PDF found and<br/>its bytes changed
+
+    no_pdf --> parsing : you attach the PDF in<br/>Zotero and re-export
+
+    parsing --> parsed : text extracted in full
+    parsing --> failed_deterministic : backend cannot read this<br/>PDF, or parsed it only partly
+    parsing --> failed_transient : worker died, timeout,<br/>CUDA OOM, broken pool
+
+    failed_transient --> parsing : retried automatically<br/>on the next sync
+    failed_deterministic --> parsing : only on<br/>sync --reparse
+
+    parsed --> parsing : PDF bytes changed<br/>(size+mtime, then sha256)
+    parsed --> parsed : bytes unchanged, skipped —<br/>the incremental path
+
+    parsed --> stale : dropped out of<br/>bibliography.bib
+    no_pdf --> stale : dropped out of<br/>bibliography.bib
+    stale --> parsed : it was a botched re-export —<br/>fix the export and re-sync
+    stale --> [*] : sync --remove-stale<br/>opt-in, after you read the list
+
+    note right of parsed
+        Only this state makes the citekey citable.
+        citation_gate resolves a citekey against
+        the ledger, so a row that is not here
+        cannot appear in a draft that renders.
+    end note
+
+    note left of failed_deterministic
+        Never silent, never pointlessly expensive.
+        Not re-parsed — the same minutes would
+        reach the same answer — but every run
+        exits 1 until a human deals with it.
+    end note

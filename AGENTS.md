@@ -43,7 +43,7 @@ demand.
 
 `papers/bibliography.bib` (path configurable via `config.toml`'s
 `[bib].path` or the `BIB_FILE` env var; gitignored, per-host data -- see
-"Configuration" in README.md) is a manual export from your reference
+docs/CONFIG.md) is a manual export from your reference
 manager's BibTeX export feature -- no auto-sync plugin is installed, so it
 is not continuously auto-synced. Whatever citekey BibTeX assigns there
 (e.g. `talasila_composable_2025`, or `noauthor_digital_nodate` for an item
@@ -59,13 +59,11 @@ does not, and must not, parse `bibliography.bib` itself. The one thing
 that legitimately reads the bib file directly is pandoc's `--citeproc`,
 which is not this codebase.
 
-This was a deliberate pivot (2026-07-28) away from an earlier design that
-read the reference manager's own database directly and generated its own
-citekeys (`author+year+titleword`) -- that approach is gone. **If you find
-old generated content citing keys in that old format (e.g.
-`talasila2025composable` instead of `talasila_composable_2025`), those
-citations are now stale and will fail the gate** -- that's expected, not a
-regression; re-cite using whatever's actually in `bibliography.bib`.
+**Content written before 2026-07-28 may cite keys in an older,
+now-invalid format** (e.g. `talasila2025composable` instead of
+`talasila_composable_2025`). Those citations are stale and will fail the
+gate -- that's expected, not a regression; re-cite using whatever is
+actually in `bibliography.bib`.
 
 To add papers: add them in your reference manager, re-export
 `bibliography.bib`, re-run `python -m src.sync`. There is no
@@ -86,23 +84,38 @@ refuses (raises) rather than pruning if the bib file comes back
 non-empty ledger, for the same reason at the extreme -- see
 `src/ledger.py`'s `prune_missing`.
 
-## Two-job split
+## The three layers
 
-- **Job 1 -- deterministic pipeline** (`python -m src.sync`): bib file read
+- **The corpus layer -- deterministic** (`python -m src.sync`): bib file read
   -> ledger update -> PDF text extraction (paths come straight from the bib
   file's `file` field; `src/pdf_text.py` dispatches to pdftotext (default),
-  or docling per `config.PARSER` -- see README's "Choosing a
-  parser backend") -> advisory duplicate-citekey check (`src/dedup.py`)
+  or docling per `config.PARSER` -- see docs/CONFIG.md's "backend:
+  pdftotext or docling") -> advisory duplicate-citekey check (`src/dedup.py`)
   -> stale-citekey report, or removal with `--remove-stale` (see "The bib
   file is the source of truth" above). No LLM calls, no judgment calls,
   idempotent. Safe to run unattended or on a schedule.
-- **Job 2 -- generative drafting** (the three `.claude/skills/`, or the
-  heavier `scripts/full_pipeline.py` stages): invoked on demand, reviewed by
-  the user. These read the content layer; they never write to
-  `content/ledger.sqlite` directly (only `sync` does).
+- **The drafting layer -- generative** (the `.claude/skills/`): invoked on
+  demand, reviewed by the user. **Read-only over the corpus layer**: they
+  never write to `content/ledger.sqlite`, and they never run `python -m
+  src.sync` or the enrichment layer on the user's behalf. Both take the
+  write lock and can run for tens of minutes; starting one is the user's
+  call. On an empty ledger a skill says so and stops rather than
+  regenerating anything.
+- **The enrichment layer -- optional** (`scripts/full_pipeline.py`):
+  Docling, embeddings and topic modelling over the same corpus. It extends
+  the *corpus* layer rather than the drafting one -- nothing in it is
+  generative, everything it writes is a corpus artefact, and it takes the
+  same write lock as `sync` for that reason. Run by a human, never by a
+  skill.
 - **Ad-hoc review aids** (`scripts/verbatim_check.py`,
-  `src/citation_coverage.py`): neither job -- run by hand when reviewing a
+  `src/citation_coverage.py`): in no layer -- run by hand when reviewing a
   draft, never invoked automatically, never gate anything.
+
+These three were called "job 1", "job 2" and "the heavy pipeline" until
+2026-08-06. The word *heavy* is now reserved for what it literally names:
+the `heavy` Poetry group, `src/heavy/`, and `config.toml`'s `[heavy]`
+table. That is a separate axis -- `src/heavy/render_output.py` is in the
+drafting layer and needs no package from the group at all.
 
 ## Config lives in `config.toml`
 
@@ -114,8 +127,8 @@ as hardcoded values in `config.py`.
 ## Environment constraints on this host
 
 `pip install` outside a venv is blocked (PEP 668) -- unconditionally, on
-every host, regardless of root access. **This matters for the core
-pipeline too**: `python -m src.sync` needs `bibtexparser` (parsing
+every host, regardless of root access. **This matters for the corpus
+layer too**: `python -m src.sync` needs `bibtexparser` (parsing
 `bibliography.bib` correctly -- nested braces, LaTeX escapes -- isn't
 worth hand-rolling), so it must be run via the installed venv, not the
 bare system interpreter. `python -m src.citation_gate` is the exception --
@@ -129,7 +142,7 @@ are all installed and working. Don't assume this generalizes to every
 host running this repo, though -- treat availability as something to
 probe, not assume, in either direction:
 
-- **When heavy-pipeline dependencies are present:** stages that need them
+- **When the enrichment layer's dependencies are present:** stages that need them
   (Docling parsing; Pandoc/TeX Live rendering) work directly on the host,
   not only inside `docker/` -- there is nothing docker-exclusive about
   any of them.
@@ -164,7 +177,7 @@ withheld). **It has still not been built or run in this environment** (no
 Docker daemon here) -- treat it as a draft to validate, not a tested
 artifact.
 
-## The heavy pipeline (`src/heavy/`, `scripts/full_pipeline.py`)
+## The enrichment layer (`src/heavy/`, `scripts/full_pipeline.py`)
 
 Implements Docling -> sentence-transformers/Chroma ->
 BERTopic -> Pandoc/LaTeX, one script for both host and Docker
@@ -176,15 +189,15 @@ target-specific behavior; fix the probe if it's wrong.
 
 `src/heavy/embed_index.py`, `src/heavy/topic_model.py`, and
 `src/heavy/docling_parse.py` are all incremental, mirroring
-`src/ledger.py`'s own skip-what-hasn't-changed logic for the core
-pipeline: a doc whose text hasn't changed since the last run isn't
+`src/ledger.py`'s own skip-what-hasn't-changed logic for the corpus
+layer: a doc whose text hasn't changed since the last run isn't
 re-embedded, and a PDF whose `(size, mtime_ns)` hasn't changed since the
 last run (`config.DOCLING_CACHE_PATH`) isn't re-parsed by Docling.
 
 No stage in this pipeline calls out to an LLM or needs an API key --
 Docling, embeddings/Chroma, BERTopic, and the Pandoc/LaTeX render
 step are all local/deterministic. Any LLM-backed synthesis happens only
-via the `.claude/skills/` genre layer, invoked through a Claude Code
+via the `.claude/skills/` drafting layer, invoked through a Claude Code
 session rather than a standalone API call.
 
 `src/heavy/corpus.py` unifies two identifier namespaces: ledger items get

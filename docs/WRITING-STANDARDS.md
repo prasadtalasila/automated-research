@@ -1,4 +1,4 @@
-# Writing standards for the genre layer
+# Writing standards for the drafting layer
 
 Shared prose standards for every skill in `.claude/skills/`. Each SKILL.md
 points here rather than restating them, and adds only the rules specific to

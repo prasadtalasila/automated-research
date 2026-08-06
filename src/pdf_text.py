@@ -950,6 +950,30 @@ def _demote_to_cpu() -> None:
 
 
 def _extract_docling(pdf_path: str, out_path: Path, threads: int | None = None) -> None:
+    """Writes Markdown, and keeps nothing else Docling produced.
+
+    `result.document` carries per-item page numbers, bounding boxes and
+    semantic labels -- 336 of 336 text items on a real 17-page paper, per
+    docs/CITATION-PROVENANCE.md. `export_to_markdown()` keeps the reading
+    order and drops the rest, and this function keeps only that string.
+    That is the right shape for what the corpus layer owes its callers: one
+    plain-text file per citekey for BM25 to rank.
+
+    It is worth knowing what it costs downstream, because it runs against
+    intuition. Markdown has no form feeds, so `src/passages.py`'s ladder
+    finds one "page" at rung 2, declines it, and falls to rung 3 -- which
+    re-extracts the PDF with `pdftotext`, the column-splicing backend the
+    ladder exists to avoid quoting from. Choosing this backend therefore
+    buys better retrieval text and *worse* quotable passages, unless the
+    heavy Docling stage has also run and written the
+    `<citekey>.passages.json` sidecar rung 1 wants.
+
+    src/heavy/docling_parse.py is the other consumer of this library, and
+    is not made redundant by this one: it writes that sidecar plus
+    structured Markdown per doc, from its own second parse. DEVELOPER.md's
+    "The corpus layer throws away Docling's document model" records what
+    closing the gap would take.
+    """
     converter = _docling_converter(threads)
     try:
         result = converter.convert(pdf_path)

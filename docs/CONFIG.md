@@ -14,7 +14,7 @@ this document can stay a reference rather than an argument.
   - [`[render]` -- citation style](#render----citation-style)
   - [`[parser]` -- PDF text extraction](#parser----pdf-text-extraction)
   - [`[provenance]` -- citation-support bands](#provenance----citation-support-bands)
-  - [`[heavy]` -- the optional heavy pipeline](#heavy----the-optional-heavy-pipeline)
+  - [`[heavy]` -- the optional enrichment layer](#heavy----the-optional-enrichment-layer)
 - [How values are parsed](#how-values-are-parsed)
 - [Notes on individual settings](#notes-on-individual-settings)
 - [Choosing an embedding model](#choosing-an-embedding-model)
@@ -92,11 +92,11 @@ used as given.
 - **`[bib] path`** -- the BibTeX export `src/bib_reader.py` parses. The
   only source of citekeys; nothing in the pipeline invents or renames
   one. Gitignored per-host data.
-- **`[content] dir`** -- everything `sync` and the heavy pipeline write:
+- **`[content] dir`** -- everything `sync` and the enrichment layer write:
   `ledger.sqlite`, `parsed/`, `provenance/`, `rendered/`, plus
-  `docling/`, `chroma/` and `topics.json` from the heavy stages.
+  `docling/`, `chroma/` and `topics.json` from the enrichment stages.
 - **`[source_pdfs] dir`** -- raw PDFs with no bibliography entry, for the
-  heavy pipeline's topic modelling and embeddings. **Never citable**: a
+  enrichment layer's topic modelling and embeddings. **Never citable**: a
   PDF here has no citekey, so add it to your reference manager,
   re-export, and re-run `sync` before citing it.
 
@@ -196,7 +196,7 @@ not a pass/fail line, so tuning them precisely would be false precision.
 Neither is range-checked, and nothing enforces
 `weak_score < good_score`.
 
-### `[heavy]` -- the optional heavy pipeline
+### `[heavy]` -- the optional enrichment layer
 
 Used only by `src/heavy/*` (the `heavy` dependency group), never by
 `sync` or the citation gate.
@@ -253,18 +253,25 @@ removed through that same seam.
 **Losing page boundaries is not cosmetic.**
 `scripts/verbatim_check.py` reports which PDF page a verbatim run came
 from by splitting on those form feeds, so a citekey parsed with `docling`
-reports `pdf p.1` for every hit regardless of where the text sits.
+reports `pdf p.1` for every hit regardless of where the text sits. The
+same missing form feeds drop the citation-provenance passage ladder to its
+bottom rung, where it re-runs `pdftotext` on the PDF anyway -- so choosing
+`docling` here, without also running the enrichment layer's `docling`
+stage, buys worse quotations at the highest parse cost. The mechanism and what to do about
+it are in
+[CITATION-PROVENANCE.md](CITATION-PROVENANCE.md#what-the-corpus-layer-discards-when-it-uses-docling).
 
 [PDF-PARSER.md](PDF-PARSER.md) has the full fidelity comparison.
 
-**Setting `backend = "docling"` does not fold docling into the heavy
-pipeline, and does not make `src/heavy/docling_parse.py` redundant.**
+**Setting `backend = "docling"` does not fold docling into the
+enrichment layer, and does not make `src/heavy/docling_parse.py` redundant.**
 They are two independent consumers of the same library:
 
-- **`src/pdf_text.py`** (job 1, on `sync`) extracts plain text per
+- **`src/pdf_text.py`** (the corpus layer, on `sync`) extracts plain text per
   citekey into `content/parsed/<citekey>.txt` for BM25 retrieval. docling
   here is a higher-fidelity substitute for `pdftotext`'s job.
-- **`src/heavy/docling_parse.py`** (job 2, opt-in) produces structured
+- **`src/heavy/docling_parse.py`** (the enrichment layer, opt-in) produces
+  structured
   Markdown for the whole corpus into `content/docling/`, feeding the
   embedding and topic stages that need real reading order and section
   boundaries. It **always** uses docling regardless of this setting.

@@ -8,6 +8,20 @@ min_cluster_size to force clusters into existence; report the outlier
 result honestly and let the topic model become meaningful once the
 corpus is large enough to justify it.
 
+Unlike every other stage, this one has no downstream consumer in the
+repository: nothing imports it, and no genre skill reads
+config.TOPICS_PATH. `survey-writer` groups its themes by judgement over
+the evidence it retrieved and says so ("With a small corpus there's no
+BERTopic step"). The output is written for a human deciding what a survey
+should cover. Wiring it in is a real option -- DEVELOPER.md's
+"`content/topics.json` has no consumer" records what that would take and
+why it hasn't been done -- but until then, don't assume a caller
+somewhere depends on this file's shape.
+
+It is also the one stage that can't be incremental, which is the reason
+that matters here: clustering is whole-corpus, so one added document can
+move every assignment, and topic ids are not stable between runs.
+
 BERTopic's clustering step is inherently whole-corpus -- adding one new
 document can shift every cluster assignment, so unlike
 embed_index.build_index() there's no "skip this doc" option for the

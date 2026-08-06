@@ -1,4 +1,4 @@
-"""BM25-ranked keyword retrieval over the shared content layer.
+"""BM25-ranked keyword retrieval over the shared corpus layer.
 
 This is the default retrieval implementation genre skills call against
 (AGENTS.md's "Retrieval" section) -- stdlib-only, no venv or model
@@ -7,7 +7,16 @@ Chroma/Qdrant) is a verified, working embedding-based upgrade path with
 a matching `search(query, k)` shape, ready to swap in without changing
 callers once BM25 stops being enough for this corpus -- that's a
 deliberate call to make when it comes up, not a threshold this module
-should assert a number for.
+should assert a number for. It is a *replacement*, not a complement:
+nothing here fuses or re-ranks the two, and a caller uses one or the
+other (docs/RETRIEVAL.md).
+
+Two boundaries worth knowing, because they're easy to assume otherwise.
+This module reads the ledger's `parsed_path` -- `content/parsed/*.txt` --
+and never `content/docling/`, so running the enrichment layer's Docling
+stage does not change what BM25 ranks or what its snippets say; only `[parser].backend`
+does. And nothing in `scripts/full_pipeline.py` imports this module, so
+the enrichment layer neither uses nor updates this index.
 
 Ranking is Okapi BM25 (stdlib-only: no rank_bm25 dependency), not raw
 term-frequency -- term-frequency alone has no document-length

@@ -1,0 +1,48 @@
+---
+title: "Genre A — corpus-led writers: survey-writer, deep-research"
+---
+flowchart LR
+
+  P0["<b>0 · CURATE</b><br/><i>you, in Zotero</i><br/><br/>Breadth is the whole job here.<br/>A thin corpus shows up<br/>immediately as a thin survey.<br/><br/><b>papers/bibliography.bib</b><br/><small>+ <code>papers/pdfs/</code> — <b>deep-research</b> is the<br/>only skill that reads those, and it may<br/>only discuss them by title, never cite them</small>"]
+
+  P1["<b>1 · SYNC</b><br/><i>deterministic</i><br/><br/><code>python -m src.sync</code><br/><br/><b>content/ledger.sqlite</b><br/><b>content/parsed/*.txt</b>"]
+
+  HEAVY["<b>ENRICHMENT — worth it for this genre</b><br/><code>full_pipeline.py --stages docling,embed</code><br/><br/><b>docling</b> → layout-aware .md + .passages.json<br/><small>better quotable passages, so claims survive review</small><br/><br/><b>embed</b> → content/chroma/<br/><small>semantic recall: finds the paper that argues the<br/>point in different words. <b>Both skills name<br/><code>embed_index.search()</code> by hand.</b></small>"]
+
+  P2["<b>2 · DRAFT</b><br/><i>every sentence is a cited claim</i><br/><br/><b>survey-writer</b> — over-fetch <code>k=15</code>,<br/>hand-cluster into 2-4 sub-themes,<br/>comparison table + gap analysis<br/><br/><b>deep-research</b> — perspectives,<br/>parallel interviews, contradiction map,<br/>then cited sections<br/><br/><b>content/drafts/&lt;slug&gt;.md</b>"]
+
+  P3{{"<b>3 · VERIFY</b><br/><code>src.citation_gate</code><br/><br/>Highest citation density<br/>in the repo, so this<br/>is the genre where<br/>the gate earns its keep"}}
+
+  FIX["<b>DISCARD DRAFT</b><br/><small>swap the key for one retrieval<br/>actually returned, or drop the claim.<br/>Never invent one.</small>"]
+
+  P4["<b>4 · PUBLISH</b><br/><br/><code>src.references</code> → IEEE list<br/><code>render_output --format tex</code><br/><code>--format pdf</code> · <code>--format md</code><br/><br/><b>content/rendered/&lt;slug&gt;.pdf</b>"]
+
+  AID["<b>afterwards, by you — not a gate</b><br/><code>--stages provenance</code> · <code>verbatim_check.py</code><br/><code>src.citation_coverage</code><br/><small>“retrieval surfaced it — did the draft cite it?”<br/>only meaningful when the corpus <i>is</i> the argument</small>"]
+
+  BERT["<b>bertopic</b> → content/topics.json<br/><small>no skill calls this. It is for <i>you</i>, deciding what<br/>the survey should even be about.</small>"]
+
+  P0 ==> P1 ==> P2 ==> P3
+  P1 ==> HEAVY ==> P2
+  P3 == "PASS · exit 0" ==> P4
+  P3 -- "FAIL · exit 1" --> FIX
+  FIX == "re-draft · <b>loop until it passes</b>" ==> P2
+  P4 -.-> AID
+  P1 -.-> BERT -.-> P0
+
+  classDef you fill:#fff7ed,stroke:#c2410c,stroke-width:1.5px,color:#431407
+  classDef det fill:#eef2ff,stroke:#4f46e5,stroke-width:1.5px,color:#1e1b4b
+  classDef gen fill:#f0fdf4,stroke:#16a34a,stroke-width:1.5px,color:#052e16
+  classDef gate fill:#fef2f2,stroke:#dc2626,stroke-width:3px,color:#450a0a
+  classDef out fill:#faf5ff,stroke:#9333ea,stroke-width:1.5px,color:#3b0764
+  classDef bad fill:#fee2e2,stroke:#dc2626,stroke-width:1.5px,color:#450a0a
+  classDef heavy fill:#faf5ff,stroke:#9333ea,stroke-width:2.5px,color:#3b0764
+  classDef aid fill:#f8fafc,stroke:#94a3b8,stroke-dasharray:4 3,color:#0f172a
+
+  class P0 you
+  class P1 det
+  class P2 gen
+  class P3 gate
+  class P4 out
+  class FIX bad
+  class HEAVY heavy
+  class AID,BERT aid

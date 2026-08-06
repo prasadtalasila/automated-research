@@ -56,7 +56,7 @@ Two entry points reach it, sharing the same machinery:
 
 ```
   python -m src.sync                     scripts/full_pipeline.py
-  (job 1: bib ──► parsed text)           (job 2: heavy, opt-in)
+  (corpus layer: bib ──► text)           (enrichment layer, opt-in)
           │                                        │
           │ src/sync.py                            │ src/heavy/docling_parse.py
           │ _parse_parallel()                      │ parse_corpus()

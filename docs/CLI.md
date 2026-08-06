@@ -24,23 +24,30 @@ short path; this is the full set.
 
 ## Which interpreter
 
-Commands below are written with the interpreter they need.
+Three tiers. Commands below are written with the interpreter they need.
 
-**`.venv-full/bin/python`** -- needs the venv (`bibtexparser`, or the
-heavy stack):
+| Tier | Interpreter | Commands |
+|---|---|---|
+| 1 | **`python3`** -- stdlib only, no venv | `src.citation_gate`, `src.references`, `src.heavy.render_output`, `src.ledger`, `src.citation_provenance`, `src.citation_coverage`, `scripts/verbatim_check.py` |
+| 2 | **`.venv-full/bin/python`** -- venv, for `bibtexparser` | `src.sync` |
+| 3 | **`.venv-full/bin/python`** -- venv with the `heavy` group | `scripts/full_pipeline.py` |
 
-- `src.sync`, `src.citation_coverage`, `scripts/full_pipeline.py`,
-  `scripts/verbatim_check.py`
+Tier 1 is deliberate, not incidental. The chain that enforces the one rule
+-- `citation_gate` -> `references` -> `render_output` -- imports nothing
+outside the standard library, so it cannot be blocked by a virtual
+environment that is broken, missing, or built for a different Python.
+`docs/ARCHITECTURE.md` has the [full
+reasoning](ARCHITECTURE.md#which-interpreter-and-why).
 
-**`python3`** -- stdlib-only, no venv:
+Two commands look like they belong in a higher tier and don't:
 
-- `src.citation_gate`, `src.references`, `src.ledger`,
-  `src.citation_provenance`, `src.heavy.render_output`
-
-`render_output` lives under `src/heavy/` but needs only stdlib plus
-`src.config`/`src.citation_gate`/`src.references`; it shells out to the
-`pandoc`/`pdflatex` binaries, which are OS packages rather than Python
-dependencies.
+- `render_output` lives under `src/heavy/` but needs only stdlib plus
+  `src.config`/`src.citation_gate`/`src.references`. It shells out to the
+  `pandoc`/`pdflatex` binaries, which are OS packages rather than Python
+  dependencies.
+- `src.citation_coverage` and `scripts/verbatim_check.py` are review aids
+  built on `src.retrieval` and `src.config`, both stdlib. `verbatim_check`
+  calls the `pdftotext` binary, again an OS package.
 
 Using the wrong interpreter is the most likely first error you will hit:
 `ModuleNotFoundError: No module named 'bibtexparser'` means you ran
@@ -62,18 +69,25 @@ mkdir -p papers && cp /path/to/your/exported-library.bib papers/bibliography.bib
 cp config.toml.example config.toml
 
 # Optional: raw, not-yet-cataloged PDFs (no reference-manager entry, no
-# citekey) for the heavy pipeline's topic modelling/embeddings. NEVER
+# citekey) for the enrichment layer's topic modelling/embeddings. NEVER
 # citable this way -- add a PDF to your reference manager, re-export, and
 # re-run sync before citing it.
 mkdir -p papers/pdfs && cp /path/to/some-paper.pdf papers/pdfs/
 
-# 2. Install Python dependencies -- creates .venv-full/ and runs
-#    `poetry install --with heavy` into it. OS-level packages (TeX Live,
-#    Pandoc, poppler-utils) are a separate, opt-in stage; see
-#    scripts/install_full_pipeline.sh below.
-bash scripts/install_full_pipeline.sh
+# 2. Install. scripts/install_full_pipeline.sh is the only install path;
+#    it takes stage names as positional arguments (see its own section
+#    below for the full table). Poetry must exist before python-deps
+#    runs -- install it yourself, or let the os-deps stage do it.
+pipx install poetry
+bash scripts/install_full_pipeline.sh os-deps      # root; pdftotext, Pandoc, TeX Live
+bash scripts/install_full_pipeline.sh python-deps  # .venv-full/ + the heavy group
+bash scripts/install_full_pipeline.sh dev-deps     # only to run the test suite
 
-# 3. Sync the content layer from papers/bibliography.bib.
+# `all` is os-deps + python-deps in one call, and deliberately excludes
+# dev-deps:
+# bash scripts/install_full_pipeline.sh all
+
+# 3. Sync the corpus layer from papers/bibliography.bib.
 .venv-full/bin/python -m src.sync
 
 # 4. Inspect what it found. Read-only, takes no lock (so it works while a
@@ -122,7 +136,7 @@ than waiting.
 
 ### `python3 -m src.ledger`
 
-Read-only view of the content layer. **Takes no lock**, so it works while
+Read-only view of the corpus layer. **Takes no lock**, so it works while
 a sync is running. With no flags it prints a summary.
 
 | Flag | Default | What it does |
@@ -194,7 +208,8 @@ python3 -m src.references content/drafts/survey.md
 
 How much of what retrieval surfaced actually made it into a draft's
 citations. **Informational, not a gate**, and unlike the gate it never
-runs automatically.
+runs automatically. Stdlib-only, like `citation_gate` and `references` --
+it reuses `src.retrieval`, which is itself stdlib.
 
 | Flag | Default | What it does |
 |---|---|---|
@@ -204,7 +219,7 @@ runs automatically.
 | `--k K` | `5` | Top-k results per query |
 
 ```bash
-.venv-full/bin/python -m src.citation_coverage content/drafts/survey.md \
+python3 -m src.citation_coverage content/drafts/survey.md \
     --query "digital twin composability" \
     --query "runtime verification"
 # ... --k 10
@@ -281,7 +296,7 @@ python3 -m src.heavy.render_output content/drafts/survey.md --format pdf
 
 ### `scripts/full_pipeline.py`
 
-Orchestrates the heavy pipeline: docling -> embeddings/Chroma -> BERTopic
+Orchestrates the enrichment layer: docling -> embeddings/Chroma -> BERTopic
 -> provenance -> render. **Needs the venv.** Each stage probes its own
 prerequisites and reports a real per-stage status, so a
 `skipped/missing-binary` result on a machine without TeX Live is a
@@ -307,8 +322,9 @@ correct answer rather than a bug.
 ### `scripts/verbatim_check.py`
 
 Review aid with two subcommands: verbatim overlap between a draft and a
-source, and page location for a phrase. **Needs the venv.** Run with no
-arguments to print its usage.
+source, and page location for a phrase. Stdlib-only -- but `locate` shells
+out to the `pdftotext` binary, so that subcommand needs poppler-utils on
+`PATH`. Run with no arguments to print its usage.
 
 | Subcommand | Arguments | What it does |
 |---|---|---|
@@ -316,9 +332,9 @@ arguments to print its usage.
 | `locate` | `<citekey> "<phrase>" [more...]` | Which PDF page each phrase (or its distinctive words) appears on |
 
 ```bash
-.venv-full/bin/python scripts/verbatim_check.py overlap content/drafts/survey.md talasila_composable_2025
-# .venv-full/bin/python scripts/verbatim_check.py overlap content/drafts/survey.md talasila_composable_2025 --n 12
-# .venv-full/bin/python scripts/verbatim_check.py locate talasila_composable_2025 "a digital twin is"
+python3 scripts/verbatim_check.py overlap content/drafts/survey.md talasila_composable_2025
+# python3 scripts/verbatim_check.py overlap content/drafts/survey.md talasila_composable_2025 --n 12
+# python3 scripts/verbatim_check.py locate talasila_composable_2025 "a digital twin is"
 ```
 
 `locate` reports page numbers by splitting on the form-feed characters
@@ -353,7 +369,15 @@ bash scripts/install_full_pipeline.sh              # = python-deps
 `python-deps` and `dev-deps` also run `ensure_gpu_torch`, which detects
 the NVIDIA driver's supported CUDA ceiling and reinstalls torch from a
 matching wheel index if the default one would silently run CPU-only. It
-is idempotent and safe to re-run.
+is idempotent and safe to re-run, and prints what it decided -- `torch
+already sees the GPU (driver supports its bundled CUDA build)` when no
+reinstall was needed.
+
+**Poetry is a prerequisite, not something `python-deps` installs.** It is
+in the `os-deps` package list, so `all` covers it; if you run
+`python-deps` on its own, install Poetry first (`pipx install poetry`).
+Each stage ends by printing the exact interpreter path to use afterwards,
+which is `.venv-full/bin/python` on a normal host.
 
 ### `scripts/release.py`
 

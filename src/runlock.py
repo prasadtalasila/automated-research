@@ -61,7 +61,7 @@ from src import config
 _STUCK_AFTER_SECONDS = 6 * 60 * 60
 
 class AlreadyRunning(RuntimeError):
-    """Another sync or heavy-pipeline run holds the lock."""
+    """Another sync or enrichment run holds the lock."""
 
 
 # Exit code for "another run holds the lock", distinct from 1 ("ran, and

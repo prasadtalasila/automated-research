@@ -6,11 +6,11 @@ tags: [thesis, dissertation, latex, citation]
 
 # thesis-chapter-writer
 
-Genre-specific drafting agent for thesis-chapter output. Job 2 (generative,
-on-demand, user-reviewed) in the two-job pipeline split -- distinct from
-`python -m src.sync` (job 1, deterministic, unattended-safe).
+Genre-specific drafting agent for thesis-chapter output. The drafting
+layer (generative, on-demand, user-reviewed) -- distinct from
+`python -m src.sync` (the corpus layer: deterministic, unattended-safe).
 
-## Shared content layer (read, don't regenerate)
+## Shared corpus layer (read, don't regenerate)
 
 - `content/ledger.sqlite` -- per-citekey status, populated by `sync`
 - `papers/bibliography.bib` (gitignored, per-host) -- the source of truth for citekeys/metadata;
@@ -19,8 +19,21 @@ on-demand, user-reviewed) in the two-job pipeline split -- distinct from
 - `content/parsed/<citekey>.txt` -- extracted PDF text
 - `src/retrieval.py` -- `search(query, k)` returns `SearchResult(citekey, title, score, snippet)`
 
-If the ledger is empty or stale, run `python -m src.sync` first and report
-what it found before drafting.
+**Read-only means read-only: never run `python -m src.sync`.** That command
+belongs to the corpus layer, it takes the pipeline's write lock, and a
+first full-corpus parse can run for tens of minutes. It is the user's to
+run, not yours.
+
+**If the ledger is empty, stop.** Check before drafting anything:
+
+```bash
+python3 -m src.ledger
+```
+
+If it reports no items, or none with status `parsed`, say so plainly --
+name what you checked and what you found -- and stop there. Do not draft
+around it, do not sync, do not cite. Tell the user to run
+`.venv-full/bin/python -m src.sync` and come back.
 
 ## When to invoke
 
@@ -30,7 +43,7 @@ what it found before drafting.
 | User asks for a survey paper / lit review, not chapter-specific | Use `survey-writer` instead |
 | User asks for a textbook chapter / lecture notes | Use `textbook-chapter-writer` instead |
 | User asks for a hands-on tutorial | Use `tutorial-writer` instead |
-| Ledger empty or stale | Run `python -m src.sync`, report, then proceed |
+| Ledger is empty, or nothing is `parsed` | Say so and stop. **Never** run `src.sync` yourself |
 
 ## Prose standards
 
@@ -119,7 +132,7 @@ job -- see `docs/WRITING-STANDARDS.md` §5.
    src.references` on this fragment and don't add a manual References
    section to it -- the fragment is designed to inherit the thesis's own
    document-wide `\addbibresource`/`\bibliography` (step 1's shared
-   content layer), and a per-chapter list would duplicate that. The `.pdf`
+   corpus layer), and a per-chapter list would duplicate that. The `.pdf`
    preview still gets a real bibliography for free: `--citeproc` resolves
    `\citep`/`\citet` against `bibliography.bib` and appends one
    automatically, same as before this feature existed.

@@ -1,0 +1,78 @@
+---
+title: "Level 5 — inside one parse: the worker pool, and everything that can go wrong"
+---
+flowchart TB
+
+  subgraph PRE["<b>before the pool exists</b>"]
+    direction TB
+    P1["<b>prestart_pool()</b><br/><small>forkserver begins importing torch + docling<br/>in the background — and declines outright when<br/>no pool is coming (pdftotext, or workers = 1)</small>"]
+    P2["<b>read bibliography.bib</b> — ~2.5s<br/><small>deliberately started <i>after</i> the pre-start, so the<br/>import overlaps the read: a fixed ~1.5-2s saved</small>"]
+    P3["<b>ask the ledger</b><br/><small>which documents actually need a parse</small>"]
+    P1 -.-> P2 --> P3
+  end
+
+  W{{"<b>resolve_workers(n_docs)</b><br/><code>max(1, min(requested, ceiling, n_docs))</code>"}}
+
+  subgraph CEIL["<b>the ceiling is the host's, not the request's</b>"]
+    direction TB
+    C1["<b>allowed_cpus()</b> = <code>len(os.sched_getaffinity(0))</code><br/><small>the CPUs <i>this process</i> may run on — not <code>os.cpu_count()</code>.<br/>On the dev machine those are 48 and 96.</small>"]
+    C2["<b>÷ 4 for docling</b><br/><small>one worker was measured holding ~300% CPU.<br/>A later full-corpus sweep found the divisor<br/>too conservative by ~1.41x — not yet changed.</small>"]
+    C3["<b>clamped <i>and</i> reported</b><br/><small>silently obeying thrashes; silently ignoring leaves<br/>someone believing they configured something they didn't</small>"]
+    C1 --> C2 --> C3
+  end
+
+  SER["<b>workers = 1 — the default</b><br/><small>a genuinely different code path: no executor,<br/>no pickling, no subprocess. Incremental skipping<br/>means a routine run has almost nothing to do,<br/>so pool setup would cost more than it saves.</small>"]
+
+  subgraph POOL["<b>the pool</b> — each backend gets the concurrency it can use"]
+    direction TB
+    EXE{{"backend?"}}
+    TP["<b>ThreadPoolExecutor</b> · <code>pdftotext</code><br/><small>external subprocess — releases the GIL.<br/>Processes would add pickling and spawn cost<br/>to buy the same OS-level concurrency.</small>"]
+    PP["<b>ProcessPoolExecutor</b> · <code>docling</code><br/><small>runs in-process and holds the GIL.<br/><b>forkserver</b> or <b>spawn</b>, never plain fork —<br/>a forked child inherits a broken CUDA context.</small>"]
+    LPT["<b>submit biggest-file-first</b><br/><small>one 675-page document is 5% of the corpus's pages.<br/>Picked up last it would define the wall clock by itself.<br/>File size, not page count — counting pages needs a<br/>PDF library the corpus layer refuses to depend on.</small>"]
+    DEV["<b>init_worker</b> — one CUDA card each<br/><small>a shared counter under a lock, round-robin over<br/><code>usable_devices()</code> (≥ 2.5 GiB free). Without this,<br/>docling's <code>AcceleratorDevice.AUTO</code> resolves to<br/><code>cuda:0</code> in <i>every</i> process.</small>"]
+    EXE -- pdftotext --> TP
+    EXE -- docling --> PP
+    TP --> LPT
+    PP --> LPT --> DEV
+  end
+
+  RET["<b>workers return</b> <code>(citekey, out_path, exception)</code><br/><small>the exception is <i>returned</i>, not raised, so both the value<br/>and its type survive pickling — <code>sync</code> reports<br/><code>ExtractionError</code> and <code>BackendUnavailable</code> differently</small>"]
+
+  subgraph FAIL["<b>five failure modes, each handled where it can be</b>"]
+    direction TB
+    F1["<b>a dead worker</b> → <code>BrokenProcessPool</code><br/><small>results collected with <code>as_completed</code>, not <code>map</code>,<br/>so documents that already finished are kept</small>"]
+    F2["<b>a hung pool</b> → stall watchdog<br/><small>fires when <i>no</i> document completes for <code>stall_timeout</code>;<br/>warns at half. Not a per-document deadline — no threshold<br/>separates a hang from the legitimate 246s document.</small>"]
+    F3["<b>a slow document</b> → <code>document_timeout</code><br/><small>a real kill for pdftotext; a cooperative between-stages<br/>check for docling. Not equally strong, and said so.</small>"]
+    F4["<b>CUDA OOM</b> → demote that worker to CPU<br/><small>for the rest of the run, and retry immediately.<br/>Surviving the CPU retry marks it <i>transient</i>.</small>"]
+    F5["<b>Ctrl+C</b> → explicit SIGINT handler<br/><small><code>except KeyboardInterrupt</code> around <code>as_completed()</code><br/>never fires. Terminate, grace, <code>kill()</code>, <code>os._exit</code> —<br/>safe only because the ledger commits incrementally.</small>"]
+  end
+
+  PARENT["<b>the parent keeps what only the parent can do</b><br/>every ledger and cache write · results replayed <b>in bib order</b><br/><small>sqlite has a single writer, and the parent is the only place<br/>that can order results deterministically</small>"]
+
+  PARTIAL["<b>partial success is a failure</b><br/><small><code>convert(raises_on_error=True)</code> raises only on FAILURE.<br/>A PARTIAL_SUCCESS would hand the citation gate a source that<br/>silently ends at page k of n — so both call sites check the<br/>status and raise <i>before</i> anything is written.</small>"]
+
+  LOCK["<b>and around all of it: one writer at a time</b><br/><code>content/pipeline.lock.db</code> · a dedicated sqlite file under <code>BEGIN IMMEDIATE</code><br/><small>a RESERVED lock does not block readers, so the gate, retrieval and the<br/>drafting skills keep working during a run. A second writer gets SQLITE_BUSY<br/>and exits 2. A killed holder releases it immediately — no staleness heuristic.</small>"]
+
+  P3 --> W
+  CEIL -.-> W
+  W -- "= 1" --> SER
+  W -- "&gt; 1" --> EXE
+  DEV --> RET
+  SER --> RET
+  RET --> PARTIAL --> PARENT
+  FAIL -.-> RET
+  LOCK -.-> PRE
+
+  classDef pre fill:#eef2ff,stroke:#4f46e5,stroke-width:1.5px,color:#1e1b4b
+  classDef dec fill:#fefce8,stroke:#a16207,stroke-width:1.5px,color:#422006
+  classDef pool fill:#faf5ff,stroke:#9333ea,stroke-width:1.5px,color:#3b0764
+  classDef fail fill:#fef2f2,stroke:#dc2626,stroke-width:1.5px,color:#450a0a
+  classDef parent fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#052e16
+  classDef lock fill:#fff7ed,stroke:#c2410c,stroke-width:1.5px,color:#431407
+
+  class P1,P2,P3,C1,C2,C3,SER pre
+  class W,EXE dec
+  class TP,PP,LPT,DEV pool
+  class F1,F2,F3,F4,F5,PARTIAL fail
+  class RET,PARENT parent
+  class LOCK lock

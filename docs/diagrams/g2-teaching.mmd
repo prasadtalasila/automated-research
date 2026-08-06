@@ -1,0 +1,46 @@
+---
+title: "Genre B — teaching writers: tutorial-writer, textbook-chapter-writer"
+---
+flowchart LR
+
+  P0["<b>0 · CURATE</b><br/><i>you, in Zotero</i><br/><br/>A handful of grounding papers is<br/>enough. Breadth buys you<br/>very little in this genre.<br/><br/><b>papers/bibliography.bib</b>"]
+
+  P1["<b>1 · SYNC</b><br/><i>deterministic</i><br/><br/><code>python -m src.sync</code><br/><br/><b>content/ledger.sqlite</b><br/><b>content/parsed/*.txt</b>"]
+
+  HEAVY["<b>ENRICHMENT — not worth it here</b><br/><br/><s>docling</s> · <s>embed</s> · <s>bertopic</s><br/><small>Neither SKILL.md mentions <code>embed_index</code>.<br/>Both use <code>src.retrieval.search()</code> — <b>BM25, stdlib</b> —<br/>and building a semantic index to place four<br/>citations is effort spent in the wrong place.</small><br/><br/><b>render</b> is <i>not</i> an enrichment stage<br/><small>it is the drafting layer's own publish step —<br/><code>full_pipeline.py --stages render</code> only wraps it</small>"]
+
+  P2["<b>2 · DRAFT</b><br/><i>mostly original content</i><br/><br/><b>tutorial-writer</b> — one path, keyboard-first,<br/>verified to actually run. Citations are<br/><b>banned mid-lesson</b>; they live only in<br/>a closing “Where to go next”.<br/><br/><b>textbook-chapter-writer</b> — objectives,<br/>worked examples, exercises. Cites for<br/><b>motivation and background only</b>.<br/><br/><b>content/drafts/&lt;slug&gt;.md</b>"]
+
+  P3{{"<b>3 · VERIFY</b><br/><code>src.citation_gate</code><br/><br/><small><b>May legitimately pass with<br/>zero citations.</b> Both SKILL.md<br/>files say so explicitly — this is<br/>the one genre where an empty<br/>reference list is correct.</small>"}}
+
+  FIX["<b>DISCARD DRAFT</b><br/><small>drop the claim; the lesson<br/>rarely needed it in the first place</small>"]
+
+  P4["<b>4 · PUBLISH</b><br/><br/><code>src.references</code><br/><small><b>tutorial-writer</b> passes<br/><code>--heading &quot;Further reading&quot;</code>,<br/>which then survives into the render<br/>instead of being stripped</small><br/><br/><code>render_output --format pdf</code>"]
+
+  RISK["<b>the real failure mode here isn't a bad citekey</b><br/><small>It is writing the wrong genre: a tutorial that explains<br/>instead of instructing, or a chapter that instructs instead<br/>of explaining. Both SKILL.md files open by warning about<br/>exactly that — and no gate in this repository can catch it.<br/><b>You are the check.</b></small>"]
+
+  P0 ==> P1 ==> P2 ==> P3
+  P1 -. "publish step only" .-> HEAVY
+  HEAVY -.-> P4
+  P3 == "PASS · exit 0<br/>(often trivially)" ==> P4
+  P3 -- "FAIL · exit 1" --> FIX
+  FIX == "re-draft · <b>loop until it passes</b>" ==> P2
+  P2 -.-> RISK
+
+  classDef you fill:#fff7ed,stroke:#c2410c,stroke-width:1.5px,color:#431407
+  classDef det fill:#eef2ff,stroke:#4f46e5,stroke-width:1.5px,color:#1e1b4b
+  classDef gen fill:#f0fdf4,stroke:#16a34a,stroke-width:1.5px,color:#052e16
+  classDef gate fill:#fef2f2,stroke:#dc2626,stroke-width:3px,color:#450a0a
+  classDef out fill:#faf5ff,stroke:#9333ea,stroke-width:1.5px,color:#3b0764
+  classDef bad fill:#fee2e2,stroke:#dc2626,stroke-width:1.5px,color:#450a0a
+  classDef off fill:#f1f5f9,stroke:#94a3b8,stroke-dasharray:5 4,color:#334155
+  classDef risk fill:#fefce8,stroke:#a16207,stroke-width:2px,color:#422006
+
+  class P0 you
+  class P1 det
+  class P2 gen
+  class P3 gate
+  class P4 out
+  class FIX bad
+  class HEAVY off
+  class RISK risk

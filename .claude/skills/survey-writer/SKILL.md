@@ -7,11 +7,11 @@ tags: [survey, literature-review, citation]
 # survey-writer
 
 Genre-specific drafting agent for survey-style output. This is the "generative
-drafting" job (job 2) in the two-job pipeline split -- it runs on demand and its
-output is reviewed by the user, unlike `python -m src.sync` (job 1, deterministic,
-safe to run unattended).
+drafting" half of the pipeline (the drafting layer) -- it runs on demand and its
+output is reviewed by the user, unlike `python -m src.sync` (the corpus
+layer: deterministic, safe to run unattended).
 
-## Shared content layer (read, don't regenerate)
+## Shared corpus layer (read, don't regenerate)
 
 - `content/ledger.sqlite` -- per-citekey status, populated by `sync`
 - `papers/bibliography.bib` (gitignored, per-host) -- the source of truth for citekeys/metadata;
@@ -19,9 +19,21 @@ safe to run unattended).
 - `content/parsed/<citekey>.txt` -- extracted PDF text
 - `src/retrieval.py` -- `search(query, k)` returns `SearchResult(citekey, title, score, snippet)`
 
-If `content/ledger.sqlite` doesn't exist or `python -m src.citation_gate` reports
-an empty ledger, run `python -m src.sync` first and tell the user what it found
-before drafting anything.
+**Read-only means read-only: never run `python -m src.sync`.** That command
+belongs to the corpus layer, it takes the pipeline's write lock, and a
+first full-corpus parse can run for tens of minutes. It is the user's to
+run, not yours.
+
+**If the ledger is empty, stop.** Check before drafting anything:
+
+```bash
+python3 -m src.ledger
+```
+
+If it reports no items, or none with status `parsed`, say so plainly --
+name what you checked and what you found -- and stop there. Do not draft
+around it, do not sync, do not cite. Tell the user to run
+`.venv-full/bin/python -m src.sync` and come back.
 
 ## When to invoke
 
@@ -31,7 +43,7 @@ before drafting anything.
 | User asks for a thesis chapter | Use `thesis-chapter-writer` instead |
 | User asks for a textbook chapter / lecture notes / worked examples | Use `textbook-chapter-writer` instead |
 | User asks for a hands-on tutorial the reader follows at a keyboard | Use `tutorial-writer` instead |
-| Ledger is empty or stale | Run `python -m src.sync`, report results, then proceed |
+| Ledger is empty, or nothing is `parsed` | Say so and stop. **Never** run `src.sync` yourself |
 
 ## Prose standards
 

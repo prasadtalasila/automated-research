@@ -1,6 +1,6 @@
 ---
 name: deep-research
-description: Runs a multi-perspective, corpus-grounded deep-research pipeline over the synced bibliography + source-pdfs -- perspective discovery, parallel simulated interviews, contradiction mapping, outline, cited section writing, synthesis briefing, and self peer-review. Adapted from hadufer/claude-storm (MIT), itself an implementation of Stanford OVAL's STORM method (Shao et al., NAACL 2024) fused with Nav Toor's 4-prompt adaptation -- retooled here to cite only real citekeys from content/ledger.sqlite (never a URL, never invented) instead of live web sources. Triggers when the user asks for "deep research", a multi-perspective analysis, or an in-depth grounded report on a topic, as distinct from survey-writer's single-pass literature survey. Heavier and slower than survey-writer by design. Must run `python -m src.citation_gate` before presenting and refuses to invent a citekey.
+description: Runs a multi-perspective, corpus-grounded deep-research pipeline over the synced bibliography + source-pdfs -- perspective discovery, parallel simulated interviews, contradiction mapping, outline, cited section writing, synthesis briefing, and self peer-review. Adapted from hadufer/claude-storm (MIT), itself an implementation of Stanford OVAL's STORM method (Shao et al., NAACL 2024) fused with Nav Toor's 4-prompt adaptation -- retooled here to cite only real citekeys from content/ledger.sqlite (never a URL, never invented) instead of live web sources. Triggers when the user asks for "deep research", a multi-perspective analysis, or an in-depth grounded report on a topic, as distinct from survey-writer's single-pass literature survey. Heavier and slower than survey-writer by design. Must run `python -m src.citation_gate` before presenting and refuses to invent a citekey. Stops and tells the user to run `python -m src.sync` if the ledger is empty, rather than syncing itself.
 tags: [deep-research, multi-perspective, storm, citation]
 ---
 
@@ -20,9 +20,9 @@ Every claim must resolve to one of:
 This is a heavier, slower alternative to `survey-writer` for when the user
 wants genuine multi-perspective depth (contradiction mapping, ranked
 findings, self peer-review) rather than a single-pass literature survey.
-It reads the same shared content layer as the other genre skills.
+It reads the same shared corpus layer as the other genre skills.
 
-## Shared content layer (read, don't regenerate)
+## Shared corpus layer (read, don't regenerate)
 
 - `content/ledger.sqlite` -- per-citekey status, populated by `sync`
 - `papers/bibliography.bib` (gitignored, per-host) -- source of truth for citekeys/metadata
@@ -31,8 +31,21 @@ It reads the same shared content layer as the other genre skills.
   (if built for this corpus -- check `content/chroma/` first)
 - `papers/pdfs/` (config.toml's `[source_pdfs].dir`) -- non-citable raw PDFs, see `src/heavy/corpus.py`
 
-If the ledger is empty or stale, run `python -m src.sync` first and report
-what it found before starting.
+**Read-only means read-only: never run `python -m src.sync`.** That command
+belongs to the corpus layer, it takes the pipeline's write lock, and a
+first full-corpus parse can run for tens of minutes. It is the user's to
+run, not yours.
+
+**If the ledger is empty, stop.** Check before drafting anything:
+
+```bash
+python3 -m src.ledger
+```
+
+If it reports no items, or none with status `parsed`, say so plainly --
+name what you checked and what you found -- and stop there. Do not draft
+around it, do not sync, do not cite. Tell the user to run
+`.venv-full/bin/python -m src.sync` and come back.
 
 ## When to invoke
 
@@ -43,7 +56,7 @@ what it found before starting.
 | User asks for a thesis chapter | Use `thesis-chapter-writer` instead |
 | User asks for a textbook chapter / lecture notes | Use `textbook-chapter-writer` instead |
 | User asks for a hands-on tutorial | Use `tutorial-writer` instead |
-| Ledger is empty or stale | Run `python -m src.sync`, report results, then proceed |
+| Ledger is empty, or nothing is `parsed` | Say so and stop. **Never** run `src.sync` yourself |
 
 Tell the user up front that this is a heavy, multi-phase run before
 starting -- it dispatches several subagents and does many retrieval calls.

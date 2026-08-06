@@ -1,11 +1,11 @@
 """Stage 3: sentence-transformers embeddings persisted in a Chroma collection.
 
-This is the real embedding-based retrieval the core pipeline's
+This is the real embedding-based retrieval the corpus layer's
 src/retrieval.py deliberately deferred (keyword overlap only, pending a
 larger corpus). Needs `sentence-transformers` and `chromadb` from
 pyproject.toml's "heavy" Poetry group, in a venv.
 
-build_index() is incremental, mirroring the core pipeline's
+build_index() is incremental, mirroring the corpus layer's
 src/ledger.py: skip reprocessing whatever hasn't detectably changed
 since the last run. Here that means each chunk's stored
 metadata carries a hash of the *text that produced it* (not the PDF
@@ -168,7 +168,17 @@ def build_index(docs: list[CorpusDoc]) -> dict[str, int]:
 
 def search(query: str, k: int = 5, snippet_chars: int = 500) -> list[dict]:
     """`snippet_chars` defaults to enough context for a caller to judge
-    relevance itself before citing, rather than trusting distance alone."""
+    relevance itself before citing, rather than trusting distance alone.
+
+    Deliberately the same shape as `src.retrieval.search()` so this is a
+    drop-in for it -- but with one difference a caller must handle. This
+    index covers the *heavy* corpus, which is wider than the ledger: a hit
+    can come from `papers/pdfs/`, in which case `citekey` is `""` and
+    `doc_id` is `doc:<stem>`. Those results are readable evidence and are
+    never citable -- `citation_gate` resolves citekeys against the ledger,
+    and a `doc:` id can't be a BibTeX citekey (see corpus.py's
+    `assert_no_citekey_collision`). To cite one, add the paper to the
+    reference manager, re-export, and re-run `python -m src.sync`."""
     client, model = get_client_and_model()
     collection = client.get_or_create_collection(_collection_name())
     query_embedding = model.encode([query], show_progress_bar=False).tolist()

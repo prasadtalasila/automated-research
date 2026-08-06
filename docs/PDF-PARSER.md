@@ -17,13 +17,13 @@ The main candidates are:
 |---|---|---|---|---|---|
 | `pdftotext` | Plain text extraction | Very fast, simple, stable, low dependency footprint | Weak on layout, tables, headings, and reading order | 1x | Best lightweight baseline |
 | `markitdown` | General file-to-Markdown conversion | Flexible normalization, multi-format support | Fuses adjacent words on this corpus (4.19% of tokens), which breaks whitespace-tokenized retrieval | ~17x slower (measured, 5 real bib PDFs) | **Removed 2026-08-01** -- see below |
-| `docling` | Layout-aware PDF parsing | Better reading order, sections, tables, and structured Markdown | Heavy, slower, model/runtime complexity | ~42x slower (measured, 5 real bib PDFs, OCR on -- see note below) | Best quality parser for the heavy path |
+| `docling` | Layout-aware PDF parsing | Better reading order, sections, tables, and structured Markdown | Heavy, slower, model/runtime complexity | ~42x slower (measured, 5 real bib PDFs, OCR on -- see note below) | Best quality parser for the enrichment path |
 | `grobid` | Scholarly structure and references | Excellent for title, abstract, sections, and references | Not a general-purpose plain-text extractor; needs a JDK 21 build and a long-running service | Separate from the main speed scale | **Removed 2026-08-01** -- see below |
 
 ## Likely behavior in practice
 
 ### `pdftotext`
-This is the fastest option and the easiest to operate. It is well suited to the repo's lightweight core pipeline when the goal is simply to get searchable text into the ledger and retrieval index.
+This is the fastest option and the easiest to operate. It is well suited to the repo's lightweight corpus layer when the goal is to get searchable text into the ledger and retrieval index.
 
 ### `markitdown`
 A general conversion tool rather than a scholarly parser, and meaningfully slower than `pdftotext` (~17x measured). Measurement on this repo's own corpus later showed it loses word boundaries here, which is why it is no longer a backend -- see below.
@@ -72,7 +72,7 @@ A practical tiered strategy:
 That tiering matches the repository's design philosophy:
 - probe first
 - degrade gracefully
-- keep the core pipeline usable even when heavy dependencies are absent
+- keep the corpus layer usable even when heavy dependencies are absent
 
 ## Quality tradeoff for this repo
 
@@ -83,7 +83,7 @@ Use `pdftotext`.
 Use `docling`.
 
 ### If references and scholarly metadata are the priority
-`papers/bibliography.bib` already supplies these -- it is the source of truth for title, authors, year, and DOI (see README's "Configuration"). No parser needs to re-derive them.
+`papers/bibliography.bib` already supplies these -- it is the source of truth for title, authors, year, and DOI (see [CONFIG.md](CONFIG.md)). No parser needs to re-derive them.
 
 ## Notes on cross-platform support
 
@@ -96,8 +96,8 @@ If cross-platform support is important, the best approach is to treat these as *
 
 A robust design for this repo would be:
 
-- core pipeline: `pdftotext`
-- heavy structured path: `docling`
+- corpus layer: `pdftotext`
+- enrichment (structured) path: `docling`
 
 That gives a good balance of:
 - speed

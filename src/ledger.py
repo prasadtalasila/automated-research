@@ -431,7 +431,7 @@ def main(argv: "list[str] | None" = None) -> int:
 
     parser = argparse.ArgumentParser(
         prog="python3 -m src.ledger",
-        description="Show what the content layer holds. Read-only, takes no lock, "
+        description="Show what the corpus layer holds. Read-only, takes no lock, "
                     "and runs with the bare system python3.",
     )
     parser.add_argument("--list", action="store_true", help="List every item")

@@ -4,11 +4,18 @@ quoted.
 One ladder, tried best-first, for any consumer that needs to point at
 *part* of a source rather than at the whole thing:
 
-1. `content/docling/<citekey>.passages.json`, if the heavy Docling stage
-   has run. Real reading-ordered paragraphs, semantically labelled.
+1. `content/docling/<citekey>.passages.json`, if the enrichment layer's
+   Docling stage has run. Real reading-ordered paragraphs, semantically labelled.
 2. `content/parsed/<citekey>.txt` split on form feeds -- page-level only.
 3. `pdftotext -layout` on the PDF the ledger recorded, same shape as (2),
    for a citekey parsed by a backend that left no page breaks.
+
+Rung 2 works for `[parser].backend = "pdftotext"` and never for
+`docling`: that backend writes Markdown, which carries no form feeds, so
+the split yields a single page and the ladder moves on. A docling-parsed
+citekey with no enrichment stage therefore lands on rung 3 every time --
+see
+`src/pdf_text.py`'s `_extract_docling`.
 
 The difference between (1) and (2)/(3) is not cosmetic, and it is the
 reason this module exists as its own seam. `pdftotext -layout` preserves
@@ -26,10 +33,12 @@ nothing to quote. `quotable` reports that fact; it does not gate a field
 that is sitting there anyway.
 
 Extracted from src/citation_provenance.py, which owned this ladder when
-it was the only consumer. `src/retrieval.py` is the second -- a snippet
-shown to a drafting agent as evidence is under exactly the same
-constraint as a passage shown to a reviewer, and the two must not answer
-"what does this source say here?" from different text.
+it was the only consumer, and kept as its own seam for a second one that
+has not been built yet: `src/retrieval.py` still cuts its snippets as a
+character window straight out of `content/parsed/`. A snippet shown to a
+drafting agent as evidence is under exactly the same constraint as a
+passage shown to a reviewer, and the two should not answer "what does
+this source say here?" from different text -- but today they do.
 
 Stdlib only (sqlite3/re/subprocess), like citation_gate.py and
 references.py -- runs with bare `python3`, no venv.

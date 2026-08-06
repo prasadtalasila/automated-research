@@ -1,4 +1,4 @@
-"""`python3 -m src.ledger`: read-only status for the content layer.
+"""`python3 -m src.ledger`: read-only status for the corpus layer.
 
 Deliberately its own entrypoint rather than a `sync --inspect` flag, for
 two reasons that are both about what a *reader* needs:

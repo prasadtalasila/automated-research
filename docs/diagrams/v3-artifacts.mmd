@@ -1,0 +1,80 @@
+---
+title: "Level 3 — everything on disk, and which module writes it"
+---
+flowchart TB
+
+  subgraph IN["<b>YOURS</b> — hand-curated, gitignored, per host"]
+    direction LR
+    BIB[/"papers/bibliography.bib"/]
+    PDF[/"<b>papers/bibliography/files/&lt;id&gt;/*.pdf</b><br/><small>Zotero's companion folder, written beside the .bib<br/>by <b>Export Files</b> — renaming it breaks every<br/><code>file</code> field silently</small>"/]
+    RAW[/"papers/pdfs/*.pdf<br/><small>+ manifest.json · never citable</small>"/]
+    CFG[/"config.toml"/]
+  end
+
+  subgraph GEN["<b>GENERATED</b> — <code>content/</code>, all of it disposable: delete it and re-run"]
+    direction TB
+
+    subgraph L1["written by <code>src.sync</code> — the corpus layer"]
+      direction LR
+      LED[("content/ledger.sqlite")]
+      TXT[/"content/parsed/&lt;citekey&gt;.txt"/]
+    end
+
+    subgraph L2["written by the enrichment layer — opt-in"]
+      direction LR
+      DOC[/"<b>content/docling/&lt;doc&gt;.md</b><br/>+ &lt;doc&gt;.passages.json<br/><b>+ &lt;doc&gt;_artifacts/*.png</b> — figure bitmaps<br/><b>+ &lt;doc&gt;.figures.json</b> — page, caption, cite string<br/><small>the last two only when <code>[heavy].docling_images</code><br/>is on; Docling reads the <b>PDF</b>, never content/parsed/</small>"/]
+      CHR[("content/chroma/")]
+      TOP[/"content/topics.json"/]
+    end
+
+    subgraph L3["caches — rebuilt on demand, safe to delete, cost only time"]
+      direction LR
+      RIX[/"content/retrieval_index.json"/]
+      DCA[/"content/docling_cache.json"/]
+      TCA[/"content/topic_embed_cache.json"/]
+    end
+
+    subgraph L4["written by you, through a skill"]
+      direction LR
+      DRF[/"content/drafts/&lt;slug&gt;.md | .tex"/]
+      REN[/"content/rendered/&lt;slug&gt;.pdf | .tex | .docx | .md"/]
+      PRV[/"content/provenance/&lt;slug&gt;.provenance.md"/]
+    end
+
+    LCK[/"content/pipeline.lock.db<br/><small>held by whichever writer is running</small>"/]
+  end
+
+  CFG -. "read once at import,<br/>env vars override" .-> GEN
+
+  BIB -- "src/bib_reader.py" --> LED
+  PDF -- "src/pdf_text.py" --> TXT
+  LED -- "which PDFs need a parse" --> TXT
+  RAW -- "src/heavy/corpus.py<br/><small>doc:&lt;stem&gt;, never a citekey</small>" --> DOC
+  TXT -- "src/heavy/embed_index.py" --> CHR
+  PDF -- "src/heavy/docling_parse.py" --> DOC
+  DOC --> CHR
+  TXT -- "src/heavy/topic_model.py<br/><small>whole-doc embeddings — its own cache,<br/>not the Chroma collection</small>" --> TOP
+
+  TXT -- "src/retrieval.py" --> RIX
+
+  RIX -- "<b>src/retrieval.py</b> · BM25 hits<br/><small>the default path</small>" --> DRF
+  CHR -. "<b>src/heavy/embed_index.py</b> · semantic hits<br/><small><b>either this or BM25 — never both.</b> Only<br/>survey-writer and deep-research name it.</small>" .-> DRF
+  DOC -- "src/passages.py<br/>quotable passages" --> DRF
+  LED -- "src/references.py<br/>bib_fields → IEEE entries" --> DRF
+  DRF == "<b>src.citation_gate</b> — FAIL rewrites the draft in place,<br/>and the skill re-runs it until it exits 0" ==> DRF
+  DRF -- "src.heavy.render_output<br/><small>only after the gate passes</small>" --> REN
+  DRF -- "src.citation_provenance" --> PRV
+
+  classDef mine fill:#fff7ed,stroke:#c2410c,color:#431407
+  classDef corpus fill:#eef2ff,stroke:#4f46e5,color:#1e1b4b
+  classDef heavy fill:#faf5ff,stroke:#9333ea,color:#3b0764
+  classDef cache fill:#f8fafc,stroke:#94a3b8,stroke-dasharray:4 3,color:#0f172a
+  classDef draft fill:#f0fdf4,stroke:#16a34a,color:#052e16
+  classDef lock fill:#fefce8,stroke:#a16207,color:#422006
+
+  class BIB,PDF,RAW,CFG mine
+  class LED,TXT corpus
+  class DOC,CHR,TOP heavy
+  class RIX,DCA,TCA cache
+  class DRF,REN,PRV draft
+  class LCK lock

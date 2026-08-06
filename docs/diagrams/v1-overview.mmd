@@ -1,0 +1,36 @@
+---
+title: "Level 1 — one glance: the five phases, and who owns each"
+---
+flowchart LR
+
+  P0["<b>0 · CURATE</b><br/><i>you, in Zotero</i><br/><br/>Add papers, export<br/>BibTeX + Export Files<br/><br/><b>papers/bibliography.bib</b><br/><small>nothing else may invent a citekey</small>"]
+
+  P1["<b>1 · SYNC</b><br/><i>the corpus layer — deterministic, no LLM</i><br/><br/><code>python -m src.sync</code><br/>read bib → update ledger<br/>→ extract PDF text<br/><br/><b>content/ledger.sqlite</b><br/><b>content/parsed/*.txt</b><br/><small>idempotent · re-runs cost almost nothing</small>"]
+
+  P2["<b>2 · DRAFT</b><br/><i>the drafting layer — generative, you review</i><br/><br/>Ask a genre skill:<br/><i>“write a survey section on …”</i><br/>it retrieves only from<br/>the parsed corpus<br/><br/><b>content/drafts/&lt;slug&gt;.md</b>"]
+
+  P3{{"<b>3 · VERIFY</b><br/><i>machine-enforced</i><br/><br/><code>src.citation_gate</code><br/>Is every citekey<br/>in the ledger?"}}
+
+  P4["<b>4 · PUBLISH</b><br/><i>stdlib + Pandoc / TeX Live</i><br/><br/><code>src.references</code><br/>IEEE list from exactly<br/>the citekeys cited<br/><br/><code>render_output --format pdf</code><br/><b>content/rendered/&lt;slug&gt;.pdf</b>"]
+
+  FIX["<b>DISCARD DRAFT</b><br/><br/>The skill throws the bad claim away<br/>and drafts again — you never see this.<br/><br/><small>“Fix and re-run until <code>OK</code>.”<br/>A FAIL is treated like a failing test,<br/>not a lint warning.</small>"]
+
+  P0 ==> P1 ==> P2 ==> P3
+  P3 == "PASS · exit 0" ==> P4
+  P3 -- "FAIL · exit 1" --> FIX
+  FIX == "re-draft · <b>loop until it passes</b>" ==> P2
+  FIX -. "or: the paper really is missing —<br/>add it in Zotero and re-sync" .-> P0
+
+  classDef you fill:#fff7ed,stroke:#c2410c,stroke-width:1.5px,color:#431407
+  classDef det fill:#eef2ff,stroke:#4f46e5,stroke-width:1.5px,color:#1e1b4b
+  classDef gen fill:#f0fdf4,stroke:#16a34a,stroke-width:1.5px,color:#052e16
+  classDef gate fill:#fef2f2,stroke:#dc2626,stroke-width:3px,color:#450a0a
+  classDef out fill:#faf5ff,stroke:#9333ea,stroke-width:1.5px,color:#3b0764
+  classDef bad fill:#fee2e2,stroke:#dc2626,stroke-width:1.5px,color:#450a0a
+
+  class P0 you
+  class P1 det
+  class P2 gen
+  class P3 gate
+  class P4 out
+  class FIX bad

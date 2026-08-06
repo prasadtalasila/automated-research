@@ -1,11 +1,11 @@
-"""Optional heavier pipeline: Docling -> sentence-transformers/Chroma
+"""The enrichment layer: Docling -> sentence-transformers/Chroma
 -> BERTopic -> Pandoc/LaTeX.
 
 Most of what's in here needs pyproject.toml's "heavy" Poetry group
 (`poetry install --with heavy`), installed in a venv (PEP 668 blocks
-system pip on the host this was built on). The stdlib-only core
-pipeline in src/ (sync, retrieval, citation_gate) does not depend on
-anything here and keeps working regardless.
+system pip on the host this was built on). The stdlib-only corpus and
+drafting layers in src/ (sync, retrieval, citation_gate) do not depend on
+anything here and keep working regardless.
 
 Exception: render_output.py needs only stdlib plus src.config /
 src.citation_gate / src.references (also stdlib-only) -- it runs fine

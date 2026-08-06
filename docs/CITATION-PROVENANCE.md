@@ -7,15 +7,17 @@ Status: **implemented.** Written 2026-08-01.
 Skip this section if you already know the codebase.
 
 This project turns a personal reference library into cited prose. It runs
-as two jobs that never mix.
+as two layers that never mix.
 
-**Job 1 is deterministic and has no AI in it.** You export a `.bib` file
+**The corpus layer is deterministic and has no AI in it.** You export a
+`.bib` file
 from your reference manager. `python -m src.sync` reads it, records every
 entry in a small SQLite "ledger" (`content/ledger.sqlite`), and extracts
 each attached PDF's text into `content/parsed/<citekey>.txt`. Nothing is
 generated; the bib file is the source of truth.
 
-**Job 2 drafts documents**, on demand, using those extracted sources.
+**The drafting layer drafts documents**, on demand, using those extracted
+sources.
 
 A **citekey** is the identifier BibTeX assigns an entry -- for example
 `larsen_engineering_2024`. In a draft it appears as `[@larsen_engineering_2024]`.
@@ -34,7 +36,7 @@ Two other terms used here:
 
 - **Parser backend** -- how a PDF becomes text. `pdftotext` (fast, the
   default) or `docling` (slow, layout-aware). Set in `config.toml`.
-- **The heavy pipeline** -- optional, opt-in stages under `src/heavy/`
+- **The enrichment layer** -- optional, opt-in stages under `src/heavy/`
   run by `scripts/full_pipeline.py`: layout-aware Docling parsing,
   embeddings, topic modelling, and rendering to PDF/LaTeX.
 
@@ -102,7 +104,7 @@ python -m src.citation_provenance content/drafts/<slug>.md
 
 Writes `content/provenance/<slug>.provenance.md`, plus `.tex` and `.pdf`
 renders of the same report when `pandoc`/`pdflatex` are available. It is
-also a stage of the heavy pipeline:
+also a stage of the enrichment layer:
 
 ```
 python scripts/full_pipeline.py --stages provenance --input content/drafts/<slug>.md
@@ -173,7 +175,8 @@ is appropriate. It surfaces the evidence and leaves the judgment where it
 belongs.
 
 **It does not call an LLM.** Everything in the deterministic half of this
-pipeline (job 1) is local and reproducible; a semantic matcher would be
+pipeline (the corpus layer) is local and reproducible; a semantic matcher
+would be
 both non-deterministic and a new dependency, for a tool whose output a
 human reads anyway.
 
@@ -250,8 +253,8 @@ documents detected as single-column. Works for 100% of the corpus, needs
 no Docling run, stays stdlib-only.
 
 **Phase 2 -- Docling passage sidecar, if quoting proves necessary.**
-Persist `{text, label, page, bbox}` per item during the heavy Docling
-stage, and score against those items instead of flat windows. Buys real
+Persist `{text, label, page, bbox}` per item during the enrichment layer's
+Docling stage, and score against those items instead of flat windows. Buys real
 quotable passages, section-level context ("in §2.2 Structural Design
 Process", often more useful to a human than a page number), exclusion of
 running heads and footers from scoring, and bbox highlighting for free.
@@ -274,6 +277,79 @@ because false precision invites trust.
   the tool needs the Phase 1 path regardless -- Phase 2 can only ever be
   an enhancement for users who have paid the Docling cost, never a
   replacement.
+
+## What the corpus layer discards when it uses docling
+
+Docling appears twice in this repository, for two different purposes, and
+the two do not share their work. The corpus layer's parser
+(`[parser].backend = "docling"`) and the enrichment layer's `docling` stage
+are independent consumers of the same library. That has a consequence for
+provenance that is worth stating plainly, because it runs against
+intuition: **choosing the better parser here does not give you better
+quotations, and on its own it gives you worse ones.**
+
+When `sync` parses with Docling it builds the full document model --
+verified on a real 17-page paper, 336 of 336 text items carried a page
+number, a bounding box and a semantic label -- and then keeps only
+`export_to_markdown()`, writing that string to
+`content/parsed/<citekey>.txt`. Reading order survives inside the text.
+Page numbers, labels and boxes do not; the document object is discarded.
+
+Follow what the passage ladder then does:
+
+```mermaid
+flowchart TB
+
+  ASK(["a claim cites <code>talasila_composable_2025</code> —<br/>which passage supports it?"])
+
+  R1{"<b>rung 1</b><br/>content/docling/&lt;citekey&gt;.passages.json"}
+  R2{"<b>rung 2</b><br/>content/parsed/&lt;citekey&gt;.txt,<br/>split on page breaks"}
+  R3["<b>rung 3</b><br/>run <code>pdftotext -layout</code> on the PDF"]
+
+  GOOD(["<b>quotable</b><br/><small>a real, reading-ordered paragraph<br/>with the page it sits on</small>"])
+  MEH(["<b>page-level only</b><br/><small>the passage carries no text —<br/><code>quotable</code> is false, by design</small>"])
+
+  ASK --> R1
+  R1 -- "the enrichment layer's docling stage has run" --> GOOD
+  R1 -- "missing" --> R2
+  R2 -- "the backend left page breaks<br/><i>(pdftotext does)</i>" --> MEH
+  R2 -- "one page, or none<br/><i>(every docling parse)</i>" --> R3
+  R3 --> MEH
+
+  classDef ask fill:#fff7ed,stroke:#c2410c,color:#431407
+  classDef rung fill:#eef2ff,stroke:#4f46e5,stroke-width:1.5px,color:#1e1b4b
+  classDef good fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#052e16
+  classDef meh fill:#f8fafc,stroke:#94a3b8,color:#0f172a
+
+  class ASK ask
+  class R1,R2,R3 rung
+  class GOOD good
+  class MEH meh
+```
+
+A corpus-layer Docling parse writes Markdown, which carries no form feeds, so
+rung 2 sees a single page and declines. The ladder falls to rung 3 and
+re-extracts the PDF with `pdftotext` -- the tool whose column splicing
+this whole section exists to work around. Two further consequences follow
+from the same missing page breaks: `scripts/verbatim_check.py locate`
+reports `pdf p.1` for every hit on such a citekey, and a later
+`--stages docling` run re-parses those same PDFs from scratch, because the
+enrichment stage keeps its own cache and has no way to know the corpus
+layer already did
+the work.
+
+**What to do about it today.** If you want quotable passages, run the
+heavy stage: `full_pipeline.py --stages docling` writes the
+`<citekey>.passages.json` sidecar that rung 1 wants, whichever backend
+the corpus layer used. If you are not going to run it, `[parser].backend =
+"pdftotext"` (the default) keeps page-level locating working, which is the
+better of the two remaining rungs. The combination that helps least is
+Docling in the corpus layer with no enrichment stage: you pay the slowest
+parse and land on rung 3 anyway.
+
+The fix -- having the corpus layer write the sidecar from the document
+model it already holds, rather than throwing it away -- is recorded as a known gap
+in [DEVELOPER.md](../DEVELOPER.md#open-questions-and-unbuilt-features).
 
 ## Worked example
 
