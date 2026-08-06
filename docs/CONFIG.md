@@ -253,7 +253,13 @@ removed through that same seam.
 **Losing page boundaries is not cosmetic.**
 `scripts/verbatim_check.py` reports which PDF page a verbatim run came
 from by splitting on those form feeds, so a citekey parsed with `docling`
-reports `pdf p.1` for every hit regardless of where the text sits.
+reports `pdf p.1` for every hit regardless of where the text sits. The
+same missing form feeds drop the citation-provenance passage ladder to its
+bottom rung, where it re-runs `pdftotext` on the PDF anyway -- so choosing
+`docling` here, without also running the heavy `docling` stage, buys worse
+quotations at the highest parse cost. The mechanism and what to do about
+it are in
+[CITATION-PROVENANCE.md](CITATION-PROVENANCE.md#what-job-1-discards-when-it-uses-docling).
 
 [PDF-PARSER.md](PDF-PARSER.md) has the full fidelity comparison.
 

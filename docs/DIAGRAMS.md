@@ -15,15 +15,17 @@ Every diagram here describes the same pipeline. They come in three groups:
 Read the one that matches your question and ignore the rest.
 
 One property holds in all eleven: **a genre skill loops on the citation
-gate until it exits 0, and shows you nothing before that.** Every SKILL.md
-in `.claude/skills/` carries the same sentence -- *"Fix and re-run until
-`OK`. Never present a draft that hasn't passed."* A gate failure is
-normally something you never see.
+gate until it exits 0, and shows you nothing before that.** All five
+SKILL.md files in `.claude/skills/` carry that instruction, four of them
+in the same words -- *"Fix and re-run until `OK`. Never present a draft
+that hasn't passed."* A gate failure is normally something you never see.
 
-The sources are the fenced `mermaid` blocks below. GitHub renders them
-inline, and they are the versions to edit -- kept here rather than as
-checked-in images so a change to the pipeline and a change to its diagram
-land in the same diff.
+The fenced `mermaid` blocks below are the source of truth, and GitHub
+renders them inline, so a change to the pipeline and a change to its
+diagram land in the same diff. `docs/diagrams/` carries the same eleven as
+standalone `.mmd` sources and `.svg` exports, for slides, a paper, or a
+viewer that doesn't render Mermaid -- see [Editing these](#editing-these)
+at the end.
 
 ---
 
@@ -160,9 +162,9 @@ flowchart TB
 **Written for:** Someone reading the source.
 **Answers:** what actually runs, what does it write, and where does the module I'm looking at fit?
 
-The reference diagram, and the one in
-[the README's Architecture section](../README.md#architecture). Everything
-in `src/` appears here exactly once.
+The reference diagram. Everything in `src/` appears here exactly once.
+[ARCHITECTURE.md](ARCHITECTURE.md) is the prose companion to it -- the
+same system in words, plus what each part needs to run.
 
 Three things it is drawn to make unmissable. The thick edge from
 `content/ledger.sqlite` to the gate is the entire safety argument -- the
@@ -229,7 +231,7 @@ flowchart TB
   %% ─────────────── 4 · GATE ───────────────
   GATE{{"<b>THE CITATION GATE</b> · <code>python3 -m src.citation_gate</code><br/>Is every citekey in this draft present in the ledger?<br/><small>run twice: by the PostToolUse hook on every write under content/drafts/,<br/>and by the skill itself before it shows you anything</small>"}}
   BLOCK["<b>REFUSED</b> · exit 1<br/><small>the write is blocked and the chain stops</small>"]
-  ITER["<b>the skill fixes it and re-runs — itself</b><br/><small>“Fix and re-run until <code>OK</code>. Never present a draft that hasn't<br/>passed.” — all five SKILL.md files say this, in those words.<br/>It swaps the bad key for one retrieval actually returned, or drops<br/>the claim. You are shown nothing until the gate is green.</small>"]
+  ITER["<b>the skill fixes it and re-runs — itself</b><br/><small>“Fix and re-run until <code>OK</code>. Never present a draft that hasn't<br/>passed.” — every SKILL.md carries this instruction.<br/>It swaps the bad key for one retrieval actually returned, or drops<br/>the claim. You are shown nothing until the gate is green.</small>"]
 
   %% ─────────────── 5 · PUBLISH ───────────────
   subgraph S5["<b>5 · PUBLISH</b> — stdlib only, no venv needed"]
@@ -954,13 +956,38 @@ stateDiagram-v2
 
 ## Editing these
 
-Each diagram is plain Mermaid in a fenced block. GitHub renders them, and
-so does any Mermaid-aware editor. To regenerate SVG or PNG copies for a
-slide deck or a paper:
+Each diagram is plain Mermaid in a fenced block above. GitHub renders
+them, and so does any Mermaid-aware editor. **That block is the source of
+truth.**
+
+The same eleven are also checked in as standalone files, so you can drop
+one into a slide deck or a paper without copying it out of this document:
+
+| Path | What it is |
+|---|---|
+| `docs/diagrams/<name>.mmd` | the Mermaid source, with a title line |
+| `docs/diagrams/svg/<name>.svg` | the rendered export, ~1900px wide on a white background |
+
+| Diagram | `<name>` |
+|---|---|
+| 1. One glance | `v1-overview` |
+| 2. Your first run | `v2-first-run` |
+| 3. The full workflow | `00-main-workflow` |
+| 4. Everything on disk | `v3-artifacts` |
+| 5. Gates and exit codes | `v4-gates-and-failure` |
+| 6. Inside one parse | `v5-parallelism` |
+| Genre A: corpus-led | `g1-corpus-led` |
+| Genre B: teaching | `g2-teaching` |
+| Genre C: LaTeX-native | `g3-thesis` |
+| Appendix: one draft, in time order | `extra-sequence` |
+| Appendix: the life of a single citekey | `extra-ledger-state` |
+
+Those are exports, not a second source. Edit the fenced block first, then
+re-render, or the two drift apart:
 
 ```bash
 npm install -g @mermaid-js/mermaid-cli
-mmdc -i diagram.mmd -o diagram.svg -b white -w 1900
+mmdc -i docs/diagrams/v1-overview.mmd -o docs/diagrams/svg/v1-overview.svg -b white -w 1900
 ```
 
 Keep them honest the way the rest of this repository stays honest: if a

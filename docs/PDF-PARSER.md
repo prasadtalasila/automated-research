@@ -83,7 +83,7 @@ Use `pdftotext`.
 Use `docling`.
 
 ### If references and scholarly metadata are the priority
-`papers/bibliography.bib` already supplies these -- it is the source of truth for title, authors, year, and DOI (see README's "Configuration"). No parser needs to re-derive them.
+`papers/bibliography.bib` already supplies these -- it is the source of truth for title, authors, year, and DOI (see [CONFIG.md](CONFIG.md)). No parser needs to re-derive them.
 
 ## Notes on cross-platform support
 

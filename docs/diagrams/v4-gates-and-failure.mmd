@@ -1,0 +1,65 @@
+---
+title: "Level 4 — gates and exit codes: what makes a run stop"
+---
+flowchart TB
+
+  START(["<code>python -m src.sync</code>"]) --> Q2
+
+  Q2{"<b>config.toml present?</b><br/><small>read once at import,<br/>before anything else happens</small>"}
+  Q2 -- no --> EC["<b>refuses to import</b><br/><small>cp config.toml.example config.toml</small>"]
+  Q2 -- yes --> Q1
+
+  Q1{"<b>run lock free?</b><br/><small>content/pipeline.lock.db</small>"}
+  Q1 -- "no · another writer holds it" --> E2["<b>exit 2</b><br/>cycle skipped, no work lost<br/><small>readers were never blocked</small>"]
+  Q1 -- yes --> Q3
+
+  Q3{"<b>bibliography.bib readable?</b>"}
+  Q3 -- no --> EF["<b>FileNotFoundError</b><br/><small>export from Zotero first</small>"]
+  Q3 -- yes --> LOOP
+
+  LOOP["<b>for each citekey in the bib</b><br/><small>upsert the ledger row</small>"] --> Q4
+
+  Q4{"<b>has a resolvable PDF?</b>"}
+  Q4 -- no --> SN["status <code>no_pdf</code><br/><small>reported with a reason;<br/>the run still succeeds</small>"]
+  Q4 -- yes --> Q5
+
+  Q5{"<b>bytes changed since<br/>the last parse?</b><br/><small>size+mtime, then sha256</small>"}
+  Q5 -- no --> SK["<b>skipped</b><br/><small>this is why a re-run costs<br/>close to nothing</small>"]
+  Q5 -- yes --> PARSE["<b>parse the PDF</b><br/><small>pdftotext or docling ·<br/>serial, or a clamped worker pool</small>"]
+
+  PARSE --> Q6
+  Q6{"<b>parse result</b>"}
+  Q6 -- "complete" --> OK["status <code>parsed</code><br/><small>content/parsed/&lt;citekey&gt;.txt written</small>"]
+  Q6 -- "partial success" --> PF
+  Q6 -- "backend can't read it" --> PF["status <code>parse_failed</code> · <i>deterministic</i><br/><small>never retried — same minutes, same answer —<br/>but fails every run until fixed</small>"]
+  Q6 -- "worker died · timeout · CUDA OOM" --> PT2["status <code>parse_failed</code> · <i>transient</i><br/><small>retried automatically next run</small>"]
+
+  OK --> AGG
+  SN --> AGG
+  SK --> AGG
+  PF --> AGG
+  PT2 --> AGG
+
+  AGG{"<b>anything unresolved?</b>"} -- no --> E0["<b>exit 0</b><br/>corpus in sync"]
+  AGG -- yes --> E1["<b>exit 1</b><br/>corpus not in sync,<br/>human attention needed"]
+
+  E0 --> GATEIN(["a skill drafts against this corpus"])
+  GATEIN --> G{"<b>src.citation_gate</b><br/>every citekey resolvable?"}
+  G -- "yes · <b>exit 0</b>" --> GOOD["references → render<br/><small>the only path to a rendered draft</small>"]
+  G -- "no · <b>exit 1</b>" --> GBAD["<b>the write is blocked.</b><br/><small>Treated like a failing test,<br/>not a lint warning.</small>"]
+  GBAD --> GLOOP["<b>the skill re-drafts and re-runs the gate</b><br/><small>“Fix and re-run until <code>OK</code>. Never present a draft<br/>that hasn't passed.” — all five SKILL.md files.<br/>This exit 1 is the only one nobody has to see:<br/>the loop is inside the skill, not in front of you.</small>"]
+  GLOOP == "<b>loop until exit 0</b>" ==> G
+  GLOOP -. "unless the paper genuinely isn't in the corpus —<br/>then it stops and tells you to sync" .-> E1
+
+  classDef q fill:#eef2ff,stroke:#4f46e5,color:#1e1b4b
+  classDef ok fill:#f0fdf4,stroke:#16a34a,color:#052e16
+  classDef warn fill:#fefce8,stroke:#a16207,color:#422006
+  classDef bad fill:#fef2f2,stroke:#dc2626,stroke-width:2px,color:#450a0a
+  classDef hard fill:#dc2626,stroke:#7f1d1d,color:#ffffff
+
+  class Q1,Q2,Q3,Q4,Q5,Q6,AGG,LOOP,PARSE,G q
+  class E0,OK,SK,GOOD ok
+  class GLOOP warn
+  class E2,SN,PT2 warn
+  class E1,PF,EC,EF bad
+  class GBAD hard

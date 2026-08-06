@@ -91,8 +91,8 @@ non-empty ledger, for the same reason at the extreme -- see
 - **Job 1 -- deterministic pipeline** (`python -m src.sync`): bib file read
   -> ledger update -> PDF text extraction (paths come straight from the bib
   file's `file` field; `src/pdf_text.py` dispatches to pdftotext (default),
-  or docling per `config.PARSER` -- see README's "Choosing a
-  parser backend") -> advisory duplicate-citekey check (`src/dedup.py`)
+  or docling per `config.PARSER` -- see docs/CONFIG.md's "backend:
+  pdftotext or docling") -> advisory duplicate-citekey check (`src/dedup.py`)
   -> stale-citekey report, or removal with `--remove-stale` (see "The bib
   file is the source of truth" above). No LLM calls, no judgment calls,
   idempotent. Safe to run unattended or on a schedule.

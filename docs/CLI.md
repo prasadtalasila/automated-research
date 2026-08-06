@@ -24,23 +24,30 @@ short path; this is the full set.
 
 ## Which interpreter
 
-Commands below are written with the interpreter they need.
+Three tiers. Commands below are written with the interpreter they need.
 
-**`.venv-full/bin/python`** -- needs the venv (`bibtexparser`, or the
-heavy stack):
+| Tier | Interpreter | Commands |
+|---|---|---|
+| 1 | **`python3`** -- stdlib only, no venv | `src.citation_gate`, `src.references`, `src.heavy.render_output`, `src.ledger`, `src.citation_provenance`, `src.citation_coverage`, `scripts/verbatim_check.py` |
+| 2 | **`.venv-full/bin/python`** -- venv, for `bibtexparser` | `src.sync` |
+| 3 | **`.venv-full/bin/python`** -- venv with the `heavy` group | `scripts/full_pipeline.py` |
 
-- `src.sync`, `src.citation_coverage`, `scripts/full_pipeline.py`,
-  `scripts/verbatim_check.py`
+Tier 1 is deliberate, not incidental. The chain that enforces the one rule
+-- `citation_gate` -> `references` -> `render_output` -- imports nothing
+outside the standard library, so it cannot be blocked by a virtual
+environment that is broken, missing, or built for a different Python.
+`docs/ARCHITECTURE.md` has the [full
+reasoning](ARCHITECTURE.md#which-interpreter-and-why).
 
-**`python3`** -- stdlib-only, no venv:
+Two commands look like they belong in a higher tier and don't:
 
-- `src.citation_gate`, `src.references`, `src.ledger`,
-  `src.citation_provenance`, `src.heavy.render_output`
-
-`render_output` lives under `src/heavy/` but needs only stdlib plus
-`src.config`/`src.citation_gate`/`src.references`; it shells out to the
-`pandoc`/`pdflatex` binaries, which are OS packages rather than Python
-dependencies.
+- `render_output` lives under `src/heavy/` but needs only stdlib plus
+  `src.config`/`src.citation_gate`/`src.references`. It shells out to the
+  `pandoc`/`pdflatex` binaries, which are OS packages rather than Python
+  dependencies.
+- `src.citation_coverage` and `scripts/verbatim_check.py` are review aids
+  built on `src.retrieval` and `src.config`, both stdlib. `verbatim_check`
+  calls the `pdftotext` binary, again an OS package.
 
 Using the wrong interpreter is the most likely first error you will hit:
 `ModuleNotFoundError: No module named 'bibtexparser'` means you ran
@@ -194,7 +201,8 @@ python3 -m src.references content/drafts/survey.md
 
 How much of what retrieval surfaced actually made it into a draft's
 citations. **Informational, not a gate**, and unlike the gate it never
-runs automatically.
+runs automatically. Stdlib-only, like `citation_gate` and `references` --
+it reuses `src.retrieval`, which is itself stdlib.
 
 | Flag | Default | What it does |
 |---|---|---|
@@ -204,7 +212,7 @@ runs automatically.
 | `--k K` | `5` | Top-k results per query |
 
 ```bash
-.venv-full/bin/python -m src.citation_coverage content/drafts/survey.md \
+python3 -m src.citation_coverage content/drafts/survey.md \
     --query "digital twin composability" \
     --query "runtime verification"
 # ... --k 10
@@ -307,8 +315,9 @@ correct answer rather than a bug.
 ### `scripts/verbatim_check.py`
 
 Review aid with two subcommands: verbatim overlap between a draft and a
-source, and page location for a phrase. **Needs the venv.** Run with no
-arguments to print its usage.
+source, and page location for a phrase. Stdlib-only -- but `locate` shells
+out to the `pdftotext` binary, so that subcommand needs poppler-utils on
+`PATH`. Run with no arguments to print its usage.
 
 | Subcommand | Arguments | What it does |
 |---|---|---|
@@ -316,9 +325,9 @@ arguments to print its usage.
 | `locate` | `<citekey> "<phrase>" [more...]` | Which PDF page each phrase (or its distinctive words) appears on |
 
 ```bash
-.venv-full/bin/python scripts/verbatim_check.py overlap content/drafts/survey.md talasila_composable_2025
-# .venv-full/bin/python scripts/verbatim_check.py overlap content/drafts/survey.md talasila_composable_2025 --n 12
-# .venv-full/bin/python scripts/verbatim_check.py locate talasila_composable_2025 "a digital twin is"
+python3 scripts/verbatim_check.py overlap content/drafts/survey.md talasila_composable_2025
+# python3 scripts/verbatim_check.py overlap content/drafts/survey.md talasila_composable_2025 --n 12
+# python3 scripts/verbatim_check.py locate talasila_composable_2025 "a digital twin is"
 ```
 
 `locate` reports page numbers by splitting on the form-feed characters

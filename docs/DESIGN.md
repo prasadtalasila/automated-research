@@ -85,42 +85,6 @@ That is a good fit for a tiered research workflow.
 ### 6. Repository-style persistence layer
 `ledger.py` functions as a small persistence/repository layer over SQLite. It keeps the rest of the code from directly dealing with SQL details.
 
-## SOLID review
-
-### S — Single Responsibility Principle
-Mostly good.
-
-- `config.py` is focused.
-- `ledger.py` is focused.
-- `pdf_text.py` is focused.
-- `citation_gate.py` is focused.
-
-The main exception is orchestration modules like `sync.py` and `full_pipeline.py`, which coordinate multiple concerns. That is acceptable for entrypoints, but they should stay orchestration-only.
-
-### O — Open/Closed Principle
-Moderately good.
-
-The heavy pipeline is extensible by stage, and retrieval has an upgrade path from BM25 to embeddings. However, many concrete integrations are still hard-coded to specific tools. Introducing explicit backend interfaces would improve openness.
-
-### L — Liskov Substitution Principle
-Reasonably good.
-
-`CorpusDoc` is used consistently, and the code avoids inheritance-heavy designs. There is little sign of substitution problems, but this also means there are few abstractions to test.
-
-### I — Interface Segregation Principle
-Fairly good.
-
-The modules expose small APIs, which is positive. The remaining opportunity is to split larger helpers into smaller, more specialized interfaces, especially in retrieval and parsing stages.
-
-### D — Dependency Inversion Principle
-This is the weakest SOLID area.
-
-Most integrations depend directly on concrete tools and binaries. That is understandable for a pipeline repo, but it makes portability and testing harder.
-
-Suggested improvement:
-- define small interfaces for text extraction, structured parsing, retrieval, and embedding
-- inject implementations where practical instead of importing concrete tools everywhere
-
 ## Concurrency and conflict policy
 
 The rule the rest of this section implements. Every change to how runs
@@ -363,20 +327,3 @@ This would improve evidence quality substantially.
 [PDF-PARSER.md](PDF-PARSER.md) owns the backend comparison -- the
 tradeoffs, the two backends evaluated and removed, and the measured
 speed figures. It is not restated here.
-
-## Overall assessment
-
-The codebase has a strong conceptual model:
-- safe citation handling
-- deterministic core pipeline
-- clear heavy-stage upgrade path
-- incremental caching
-- good test coverage around key invariants
-- an opt-in concurrency model that is clamped to the host rather than to
-  the request, and whose failure modes are each handled where they occur
-
-Its main opportunities are:
-- more structure-aware indexing (the Docling passage sidecars exist but
-  retrieval still tokenises flat text)
-- reranking on top of BM25
-- improved cross-platform ergonomics

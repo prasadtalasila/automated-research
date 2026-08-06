@@ -1,0 +1,52 @@
+---
+title: "Level 2 — your first run, in the order you actually type it"
+---
+flowchart TB
+
+  A["<b>1 · Export from Zotero</b><br/><code>papers/bibliography.bib</code><br/><small>Format: BibTeX &nbsp;·&nbsp; tick <b>Export Files</b></small>"]
+  A1{{"Did you tick<br/><b>Export Files</b>?"}}
+  ATRAP["<b>The trap.</b> Without it you get metadata and no PDFs.<br/>Every entry then reports <i>no PDF attachment</i> — not an error,<br/>just an empty corpus. Same if you rename the companion folder:<br/><code>bib_reader</code> resolves <code>file</code> fields relative to the .bib.<br/><small>docs/ZOTERO.md</small>"]
+
+  B["<b>2 · Make a config</b><br/><code>cp config.toml.example config.toml</code><br/><small>every key is optional — but the file must exist,<br/>or <code>src.config</code> refuses to import</small>"]
+
+  C["<b>3 · Install</b><br/><code>pipx install poetry</code><br/><code>bash scripts/install_full_pipeline.sh all</code><br/><small><b>all</b> = OS packages (pdftotext, TeX Live, Pandoc) + Python.<br/>No stage argument = Python only.</small>"]
+
+  D["<b>4 · Sync the corpus</b><br/><code>source .venv-full/bin/activate</code><br/><code>python -m src.sync</code><br/><small>needs the venv — this is the one command that does</small>"]
+  D1{{"exit code?"}}
+  DFAIL["<b>1</b> — something didn't parse.<br/><small>The summary names each one.<br/>Fix or remove it; re-running is cheap.</small>"]
+  DBUSY["<b>2</b> — another run holds the lock.<br/><small>Nothing was lost. Try again later.</small>"]
+
+  E["<b>5 · Look at what it found</b><br/><code>python3 -m src.ledger</code><br/><small>read-only, takes no lock, needs no venv —<br/>safe to run <i>while</i> a sync is going</small>"]
+  E1{{"Rows with status<br/><code>parsed</code>?"}}
+  EEMPTY["Nothing is citable yet.<br/><small>Almost always the Export Files trap above.<br/><code>--status no_pdf</code> tells you which entries and why.</small>"]
+
+  F["<b>6 · Ask for a draft</b><br/><i>“write a survey section on digital twin composability”</i><br/><small>in Claude Code. The matching skill in <code>.claude/skills/</code><br/>picks it up and runs its own gate → references → render chain,<br/><b>looping on the gate until it exits 0</b> before showing you anything.</small>"]
+
+  G["<b>7 · Or drive that chain by hand</b><br/><code>python3 -m src.citation_gate &lt;draft&gt;</code> &nbsp;<i>← fix and repeat until OK</i><br/><code>python3 -m src.references &lt;draft&gt;</code><br/><code>python3 -m src.heavy.render_output &lt;draft&gt; --format pdf</code><br/><small>bare <code>python3</code> — none of these need the venv</small>"]
+
+  DONE(["<b>content/rendered/&lt;slug&gt;.pdf</b>"])
+
+  A --> A1
+  A1 -- no --> ATRAP
+  ATRAP -. "re-export" .-> A
+  A1 -- yes --> B --> C --> D --> D1
+  D1 -- "1" --> DFAIL
+  D1 -- "2" --> DBUSY
+  DBUSY -. "re-run" .-> D
+  DFAIL -. "re-run" .-> D
+  D1 -- "<b>0</b> — corpus in sync" --> E --> E1
+  E1 -- no --> EEMPTY
+  EEMPTY -. "fix the export" .-> A
+  E1 -- yes --> F --> DONE
+  F -. "same chain, manually" .-> G
+  G --> DONE
+
+  classDef step fill:#eef2ff,stroke:#4f46e5,stroke-width:1.5px,color:#1e1b4b
+  classDef check fill:#fefce8,stroke:#a16207,stroke-width:1.5px,color:#422006
+  classDef trap fill:#fef2f2,stroke:#dc2626,stroke-width:1.5px,color:#450a0a
+  classDef done fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#052e16
+
+  class A,B,C,D,E,F,G step
+  class A1,D1,E1 check
+  class ATRAP,EEMPTY,DFAIL,DBUSY trap
+  class DONE done

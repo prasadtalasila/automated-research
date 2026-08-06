@@ -275,6 +275,78 @@ because false precision invites trust.
   an enhancement for users who have paid the Docling cost, never a
   replacement.
 
+## What job 1 discards when it uses docling
+
+Docling appears twice in this repository, for two different purposes, and
+the two do not share their work. Job 1's parser
+(`[parser].backend = "docling"`) and the heavy pipeline's `docling` stage
+are independent consumers of the same library. That has a consequence for
+provenance that is worth stating plainly, because it runs against
+intuition: **choosing the better parser in job 1 does not give you better
+quotations, and on its own it gives you worse ones.**
+
+When `sync` parses with Docling it builds the full document model --
+verified on a real 17-page paper, 336 of 336 text items carried a page
+number, a bounding box and a semantic label -- and then keeps only
+`export_to_markdown()`, writing that string to
+`content/parsed/<citekey>.txt`. Reading order survives inside the text.
+Page numbers, labels and boxes do not; the document object is discarded.
+
+Follow what the passage ladder then does:
+
+```mermaid
+flowchart TB
+
+  ASK(["a claim cites <code>talasila_composable_2025</code> —<br/>which passage supports it?"])
+
+  R1{"<b>rung 1</b><br/>content/docling/&lt;citekey&gt;.passages.json"}
+  R2{"<b>rung 2</b><br/>content/parsed/&lt;citekey&gt;.txt,<br/>split on page breaks"}
+  R3["<b>rung 3</b><br/>run <code>pdftotext -layout</code> on the PDF"]
+
+  GOOD(["<b>quotable</b><br/><small>a real, reading-ordered paragraph<br/>with the page it sits on</small>"])
+  MEH(["<b>page-level only</b><br/><small>the passage carries no text —<br/><code>quotable</code> is false, by design</small>"])
+
+  ASK --> R1
+  R1 -- "the heavy docling stage has run" --> GOOD
+  R1 -- "missing" --> R2
+  R2 -- "the backend left page breaks<br/><i>(pdftotext does)</i>" --> MEH
+  R2 -- "one page, or none<br/><i>(every docling parse)</i>" --> R3
+  R3 --> MEH
+
+  classDef ask fill:#fff7ed,stroke:#c2410c,color:#431407
+  classDef rung fill:#eef2ff,stroke:#4f46e5,stroke-width:1.5px,color:#1e1b4b
+  classDef good fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#052e16
+  classDef meh fill:#f8fafc,stroke:#94a3b8,color:#0f172a
+
+  class ASK ask
+  class R1,R2,R3 rung
+  class GOOD good
+  class MEH meh
+```
+
+A job-1 Docling parse writes Markdown, which carries no form feeds, so
+rung 2 sees a single page and declines. The ladder falls to rung 3 and
+re-extracts the PDF with `pdftotext` -- the tool whose column splicing
+this whole section exists to work around. Two further consequences follow
+from the same missing page breaks: `scripts/verbatim_check.py locate`
+reports `pdf p.1` for every hit on such a citekey, and a later
+`--stages docling` run re-parses those same PDFs from scratch, because the
+heavy stage keeps its own cache and has no way to know job 1 already did
+the work.
+
+**What to do about it today.** If you want quotable passages, run the
+heavy stage: `full_pipeline.py --stages docling` writes the
+`<citekey>.passages.json` sidecar that rung 1 wants, whichever backend
+job 1 used. If you are not going to run it, `[parser].backend =
+"pdftotext"` (the default) keeps page-level locating working, which is the
+better of the two remaining rungs. The combination that helps least is
+Docling in job 1 with no heavy stage: you pay the slowest parse and land
+on rung 3 anyway.
+
+The fix -- having job 1 write the sidecar from the document model it
+already holds, rather than throwing it away -- is recorded as a known gap
+in [DEVELOPER.md](../DEVELOPER.md#open-questions-and-unbuilt-features).
+
 ## Worked example
 
 Run against a real 13-citation draft over a 10-paper corpus, the report

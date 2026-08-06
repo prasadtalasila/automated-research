@@ -132,7 +132,15 @@ docs/                     reference docs that ship in the release zip -- everyth
   CLI.md                    every command, and which interpreter each one needs
   CONFIG.md                 every setting, with config.toml.example reproduced in full
   PDF-PARSER.md             parser backend tradeoffs, and why grobid/markitdown were removed
-  DESIGN.md                 architecture and design decisions
+  ARCHITECTURE.md           what runs, what each part writes, what is optional, and which interpreter
+                            each command needs -- the user-facing companion to DESIGN.md
+  RETRIEVAL.md              BM25 vs embeddings vs topic model: which answers what, and what to build
+  DESIGN.md                 architecture and design decisions -- the rationale, not the map
+  DIAGRAMS.md               the workflow drawn eleven ways; the fenced mermaid blocks are the source
+  diagrams/                 the same eleven as standalone files, for use outside this repo
+    *.mmd                     mermaid sources with a title line
+    svg/*.svg                 rendered exports (mmdc -b white -w 1900). Exports only -- edit the
+                              fenced block in DIAGRAMS.md, then re-render
   CITATION-PROVENANCE.md    what src/citation_provenance.py reports and how to read it
 LICENSE                   MIT
 assets/                   data files the pipeline reads at runtime, tracked and shipped
@@ -147,7 +155,7 @@ assets/                   data files the pipeline reads at runtime, tracked and 
                           scripts/release.py's zip, publishes it to a GitHub Release)
 config.toml.example       tracked template for the central config -- paths, parser backend, worker
                           count, embedding model. Copy to config.toml (gitignored, per-host) before
-                          anything imports src.config; see README's "Configuration"
+                          anything imports src.config; see docs/CONFIG.md
 papers/                   gitignored, per-host data -- not shipped in the repo
   bibliography.bib          BibTeX export -- source of truth for citekeys/metadata (config.toml's [bib].path default)
   pdfs/                     [source_pdfs].dir default -- raw PDFs gathered outside the bib file, never citable;
@@ -318,3 +326,59 @@ the following tasks need to be completed in priority order:
    Python invoked by absolute path
    (`/workspace/git/chitragupta/.venv-full/bin/python`) -- cron
    doesn't source your shell profile or activate venvs.
+
+### Job 1 throws away Docling's document model
+
+With `[parser].backend = "docling"`, `pdf_text._extract_docling` builds a
+full `DoclingDocument` -- page numbers, bounding boxes, semantic labels on
+every text item -- and keeps only `export_to_markdown()`, writing that to
+`content/parsed/<citekey>.txt`. Everything else is garbage-collected.
+
+The user-visible consequence is in
+[docs/CITATION-PROVENANCE.md](docs/CITATION-PROVENANCE.md#what-job-1-discards-when-it-uses-docling):
+the passage ladder falls past rung 2 (Markdown has no form feeds, so the
+split yields one page) to rung 3, which re-runs `pdftotext` on the PDF.
+The best parser therefore produces the worst passages, and a later
+`--stages docling` run re-parses the same PDFs from scratch.
+
+Two mitigations, in increasing order of size:
+
+1. **Pass `page_break_placeholder="\f"`** to `export_to_markdown()` in
+   `_extract_docling`. Verified present in the pinned `docling-core`
+   (2.89.0, `types/doc/document.py`); `save_as_markdown` takes it too.
+   This alone restores rung 2 and fixes `verbatim_check.py locate`
+   reporting `pdf p.1` for every hit. `\f` is whitespace, so BM25
+   tokenisation and `run_together_ratio` are unaffected.
+2. **Write the `<citekey>.passages.json` sidecar from job 1**, from the
+   document it already holds. The obstacle is the dependency direction --
+   `src/heavy/` imports the core, never the reverse (see
+   `docling_parse._executor_for`'s docstring) -- so `pdf_text.py` must not
+   import `_passage_records` from `src/heavy/`. Hoisting
+   `_passage_records` and `_PASSAGE_LABELS` into `src/passages.py` fits:
+   that module is stdlib-only, is already the sidecar's *reader*, and the
+   function is pure `getattr` duck-typing with no docling import. Both
+   writers then share one implementation. Whichever writes it must also
+   invalidate it -- a `--reparse` back to `pdftotext` leaves a sidecar
+   nothing will refresh.
+
+Going further -- letting a job-1 Docling parse satisfy the heavy stage's
+cache outright -- is a bigger change than it looks. With
+`[heavy].docling_images` off the two produce byte-identical Markdown
+(both call `export_to_markdown()` with no arguments), but job 1 knows
+nothing of `_CACHE_VERSION` or `DOCLING_IMAGES`, works in the `citekey`
+namespace rather than `doc_id`, and never sees the `papers/pdfs/`
+documents the heavy corpus includes. `embed_index.get_text`'s
+docling-first ladder is the precedent that the reuse pattern already
+exists; the cache-key reconciliation is the work.
+
+### `content/topics.json` has no consumer
+
+`src/heavy/topic_model.py` writes it and nothing reads it -- no module, no
+genre skill. `survey-writer` groups themes by judgement and says so
+explicitly ("With a small corpus there's no BERTopic step"). That is
+defensible today: clustering is whole-corpus, so assignments are not
+stable between runs, and on a small corpus every document legitimately
+lands in the outlier topic. If it is ever wired in, `survey-writer`'s
+"Cluster by judgment" step is the seam, gated on the file existing and on
+there being non-`-1` assignments -- the same shape the existing skills use
+to gate on `content/chroma/`.
