@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from src import ledger
+from src import config, ledger, passages
 
 from tests.conftest import make_reference
 
@@ -219,6 +219,7 @@ class TestUpsertReference:
         pdf.write_bytes(b"same content")
         ref = make_reference(pdf_path=str(pdf))
         ledger.upsert_reference(ledger_con, ref)
+        (tmp_path / "parsed.txt").write_text("parsed text")
         ledger.mark_parsed(ledger_con, ref.citekey, tmp_path / "parsed.txt")
 
         assert ledger.upsert_reference(ledger_con, ref) is False
@@ -227,11 +228,79 @@ class TestUpsertReference:
         ).fetchone()
         assert row[0] == "parsed"  # status preserved, not reset
 
+    def test_missing_parsed_text_needs_reparse(self, ledger_con, tmp_path):
+        """The row says parsed; the file it names is gone. Without this
+        the document is counted "unchanged" on every later run and stays
+        missing forever."""
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"same content")
+        ref = make_reference(pdf_path=str(pdf))
+        ledger.upsert_reference(ledger_con, ref)
+        parsed = tmp_path / "parsed.txt"
+        parsed.write_text("parsed text")
+        ledger.mark_parsed(ledger_con, ref.citekey, parsed)
+        parsed.unlink()
+
+        assert ledger.upsert_reference(ledger_con, ref) is True
+
+    def test_missing_passage_sidecar_needs_reparse_under_docling(
+        self, ledger_con, monkeypatch, tmp_path
+    ):
+        """What upgrades an existing corpus. A citekey parsed before this
+        project kept Docling's document model has the .txt but no
+        sidecar, and its PDF hasn't changed -- so only this check will
+        ever give it quotable passages."""
+        monkeypatch.setattr(config, "PARSER", "docling")
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"same content")
+        ref = make_reference(pdf_path=str(pdf))
+        ledger.upsert_reference(ledger_con, ref)
+        parsed = tmp_path / "parsed.txt"
+        parsed.write_text("parsed text")
+        ledger.mark_parsed(ledger_con, ref.citekey, parsed)
+
+        assert ledger.upsert_reference(ledger_con, ref) is True
+
+    def test_a_sidecar_is_not_required_of_pdftotext(
+        self, ledger_con, monkeypatch, tmp_path
+    ):
+        """pdftotext resolves no reading order and writes no sidecar, so
+        demanding one would re-parse the whole corpus on every run."""
+        monkeypatch.setattr(config, "PARSER", "pdftotext")
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"same content")
+        ref = make_reference(pdf_path=str(pdf))
+        ledger.upsert_reference(ledger_con, ref)
+        parsed = tmp_path / "parsed.txt"
+        parsed.write_text("parsed text")
+        ledger.mark_parsed(ledger_con, ref.citekey, parsed)
+
+        assert ledger.upsert_reference(ledger_con, ref) is False
+
+    def test_a_present_sidecar_settles_it_under_docling(
+        self, ledger_con, monkeypatch, tmp_path
+    ):
+        """The steady state after one upgrade run: nothing re-parses
+        again. An empty sidecar counts, which is why extract_text writes
+        one even for a document with no prose."""
+        monkeypatch.setattr(config, "PARSER", "docling")
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"same content")
+        ref = make_reference(pdf_path=str(pdf))
+        ledger.upsert_reference(ledger_con, ref)
+        parsed = tmp_path / "parsed.txt"
+        parsed.write_text("parsed text")
+        ledger.mark_parsed(ledger_con, ref.citekey, parsed)
+        passages.write_sidecar(ref.citekey, [])
+
+        assert ledger.upsert_reference(ledger_con, ref) is False
+
     def test_changed_pdf_hash_needs_reparse(self, ledger_con, tmp_path):
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"version 1")
         ref = make_reference(pdf_path=str(pdf))
         ledger.upsert_reference(ledger_con, ref)
+        (tmp_path / "parsed.txt").write_text("parsed text")
         ledger.mark_parsed(ledger_con, ref.citekey, tmp_path / "parsed.txt")
 
         pdf.write_bytes(b"version 2, totally different")
@@ -533,6 +602,7 @@ class TestFailedParseIsRetried:
         ref = make_reference(pdf_path=str(pdf))
 
         ledger.upsert_reference(ledger_con, ref)
+        (tmp_path / "out.txt").write_text("parsed text")
         ledger.mark_parsed(ledger_con, ref.citekey, tmp_path / "out.txt")
 
         assert ledger.upsert_reference(ledger_con, ref) is False
@@ -611,6 +681,7 @@ class TestFailureKind:
         pdf.write_bytes(b"%PDF-1.4 content")
         ref = make_reference(pdf_path=str(pdf))
         ledger.upsert_reference(con=ledger_con, ref=ref)
+        (tmp_path / "out.txt").write_text("parsed text")
         ledger.mark_parsed(ledger_con, ref.citekey, tmp_path / "out.txt")
 
         assert ledger.upsert_reference(ledger_con, ref) is False

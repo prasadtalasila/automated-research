@@ -6,6 +6,7 @@ short path; this is the full set.
 
 ## Table of contents
 
+- [Upgrading a corpus parsed by an earlier version](#upgrading-a-corpus-parsed-by-an-earlier-version)
 - [Upgrading from 2.x](#upgrading-from-2x)
 - [Which interpreter](#which-interpreter)
 - [The full first run, step by step](#the-full-first-run-step-by-step)
@@ -22,6 +23,24 @@ short path; this is the full set.
   - [`scripts/install_full_pipeline.sh`](#scriptsinstall_full_pipelinesh)
   - [`scripts/release.py`](#scriptsreleasepy)
 - [Environment variables](#environment-variables)
+
+## Upgrading a corpus parsed by an earlier version
+
+If you already ran `sync` with `[parser].backend = "docling"`, those
+citekeys were parsed before this project kept Docling's page breaks and
+passage records, and their PDFs haven't changed -- so the ledger would
+normally skip them forever.
+
+It doesn't. `sync` now treats a document it calls `parsed` whose passage
+sidecar is missing as one that needs parsing again, so the next run
+upgrades exactly those documents and nothing else. It costs one re-parse
+each, once (6.65s per PDF serial, 0.62s at twelve workers -- see
+[PERFORMANCE.md](PERFORMANCE.md)), and the run reports them the way it
+reports any other parse. The same check restores a `.txt` or a sidecar
+you delete by hand.
+
+Nothing to do, in other words -- but if you would rather force it all at
+once, `python -m src.sync --reparse` still re-extracts everything.
 
 ## Upgrading from 2.x
 

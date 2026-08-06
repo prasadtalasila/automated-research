@@ -487,13 +487,40 @@ class TestReusingTheCorpusLayersParse:
         docling_parse.parse_doc(doc)
         assert FakeDocumentConverter.call_count == 1
 
-    def test_reused_docs_never_reach_a_worker(self, isolated_config, fake_docling, tmp_path):
+    def test_reused_docs_never_reach_a_worker(
+        self, isolated_config, monkeypatch, fake_docling, tmp_path
+    ):
         """parse_corpus must not dispatch them: a worker costs a process
-        and a model load to discover there was nothing to parse."""
-        doc = self._corpus_parsed(tmp_path)
-        status = docling_parse.parse_corpus([doc])
-        assert status[doc.doc_id].startswith("ok:")
-        assert FakeDocumentConverter.build_count == 0
+        and a model load to discover there was nothing to parse.
+
+        Deliberately run with enough un-reusable documents alongside to
+        put the pool on the parallel path -- with only the reusable one,
+        `pending` would be empty, parse_corpus would take the serial
+        branch, and this would pass even with the exclusion removed.
+        """
+        dispatched = []
+
+        def fake_map(jobs_fn, jobs):
+            dispatched.extend(d.doc_id for d, _threads in jobs)
+            return [(d.doc_id, "ok: parsed", [1, 2]) for d, _threads in jobs]
+
+        monkeypatch.setattr(docling_parse, "_executor_for", lambda workers: types.SimpleNamespace(
+            map=fake_map, shutdown=lambda **kw: None))
+        monkeypatch.setattr(pdf_text, "resolve_workers", lambda n: (4, None))
+
+        reusable = self._corpus_parsed(tmp_path)
+        others = []
+        for i in range(3):
+            pdf = tmp_path / f"other{i}.pdf"
+            pdf.write_bytes(b"%PDF-1.4")
+            others.append(CorpusDoc(doc_id=f"other{i}", citekey=f"other{i}", source="bib",
+                                    title="t", pdf_path=str(pdf)))
+
+        status = docling_parse.parse_corpus([reusable, *others])
+
+        assert reusable.doc_id not in dispatched
+        assert sorted(dispatched) == ["other0", "other1", "other2"]
+        assert status[reusable.doc_id].startswith("ok:")
 
 
 class TestPassageSidecar:

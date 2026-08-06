@@ -302,7 +302,7 @@ layer's `docling` stage are separate consumers of the same library, and
 what each keeps decides what you can quote.
 
 **This section used to describe a gap, and now describes how it was
-closed.** Until v3.0.1 the corpus layer built the full document model --
+closed.** Previously the corpus layer built the full document model --
 verified on a real 17-page paper, 336 of 336 text items carried a page
 number, a bounding box and a semantic label -- kept only
 `export_to_markdown()`, and discarded the object. Reading order survived

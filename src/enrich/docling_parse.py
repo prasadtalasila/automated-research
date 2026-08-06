@@ -370,9 +370,13 @@ def _reuse_corpus_parse(doc: CorpusDoc, out_path: Path, stem: str) -> bool:
     # than being deleted: Docling writes them surrounded by blank lines,
     # but a form feed flush against the text either side would otherwise
     # fuse the last word of one page onto the first word of the next.
-    out_path.write_text(re.sub(r"\n{3,}", "\n\n", markdown.replace("\f", "\n\n")))
+    # encoding spelled out on the way back down, not just on the way up:
+    # write_text without one encodes with the *platform* encoding, so any
+    # non-ASCII paper fails with UnicodeEncodeError under a C-locale host.
+    out_path.write_text(re.sub(r"\n{3,}", "\n\n", markdown.replace("\f", "\n\n")),
+                        encoding="utf-8")
     (config.DOCLING_DIR / f"{stem}.passages.json").write_text(
-        passages.sidecar_path(doc.citekey).read_text(encoding="utf-8")
+        passages.sidecar_path(doc.citekey).read_text(encoding="utf-8"), encoding="utf-8"
     )
     return True
 
@@ -499,7 +503,7 @@ def parse_doc(doc: CorpusDoc, cache: dict | None = None, converter=None) -> Path
         figures_path = config.DOCLING_DIR / f"{stem}.figures.json"
         figures_path.write_text(json.dumps(_figure_records(doc, dl_doc, image_names), indent=2))
     else:
-        out_path.write_text(dl_doc.export_to_markdown())
+        out_path.write_text(dl_doc.export_to_markdown(), encoding="utf-8")
 
     # Written for every doc, images on or off: src/citation_provenance.py
     # reads it to quote a real passage rather than a window sliced out of

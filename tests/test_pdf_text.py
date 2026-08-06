@@ -380,15 +380,27 @@ class TestCorpusLayerPassageSidecar:
         records = json.loads(passages.sidecar_path("smith_2024").read_text())
         assert [r["text"] for r in records] == ["Revised wording."]
 
-    def test_a_document_with_no_prose_leaves_no_sidecar(
+    def test_a_document_with_no_prose_still_writes_an_empty_sidecar(
         self, isolated_config, fake_docling, tmp_path
     ):
-        """An empty record list is not written as an empty sidecar: the
-        ladder's rung 2 would then match and yield nothing, instead of
-        falling through to the page-level rung that still works."""
+        """Written even when empty, so the file's presence answers "did a
+        reading-order backend parse this?" -- which is what src/ledger.py
+        checks before skipping a document it believes is parsed. Were it
+        omitted here, that check would re-parse this document on every
+        single run, forever."""
         FakeDoclingConverter.next_texts = [FakeTextItem("Journal of Things", label="page_header")]
         pdf_text.extract_text(str(tmp_path / "paper.pdf"), "smith_2024")
-        assert not passages.sidecar_path("smith_2024").exists()
+        assert json.loads(passages.sidecar_path("smith_2024").read_text()) == []
+
+    def test_an_empty_sidecar_does_not_capture_the_ladder(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        """The other half of writing it empty: rung 2 must decline rather
+        than match and yield nothing, so the page-level rung still
+        answers."""
+        assert passages._from_sidecar(passages.sidecar_path("smith_2024")) is None
+        passages.write_sidecar("smith_2024", [])
+        assert passages._from_sidecar(passages.sidecar_path("smith_2024")) is None
 
 
 class TestUnknownParser:

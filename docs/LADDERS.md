@@ -185,6 +185,13 @@ not write and cannot reproduce. Rung 1 wins when both exist, because the
 enrichment stage parses the PDF a second time under its own OCR and figure
 settings.
 
+Rung 2 is self-healing. `sync` treats a citekey it calls `parsed` whose
+sidecar is missing as one that needs parsing again, so a corpus parsed
+before this project kept Docling's document model gains passages on the
+next run, and a sidecar deleted by hand comes back. That check is skipped
+for `pdftotext`, which resolves no reading order and writes no sidecar --
+demanding one would re-parse the whole corpus on every run.
+
 **What the bottom two rungs cost you.** `pdftotext -layout` preserves a
 page's *visual* arrangement rather than its reading order, so on a
 two-column paper a single output line can splice together two unrelated

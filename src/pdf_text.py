@@ -837,16 +837,17 @@ def is_available() -> bool:
     return importlib.util.find_spec(config.PARSER) is not None
 
 
-def _extract_pdftotext(pdf_path: str, out_path: Path, threads: int | None = None) -> list[dict]:
+def _extract_pdftotext(pdf_path: str, out_path: Path, threads: int | None = None) -> None:
     # threads is accepted and ignored: pdftotext is a single-threaded
     # external binary. The parameter exists so _EXTRACTORS stays a plain
     # uniform table rather than growing a per-backend call signature.
     #
-    # Returns no passage records, for the reason src/passages.py exists:
-    # `-layout` output preserves a page's visual arrangement, so a span
-    # cut from it can splice two columns together and must not be quoted.
-    # An empty list is the honest answer, and extract_text turns it into
-    # "no sidecar" rather than a sidecar full of collages.
+    # Returns None -- not an empty list -- for the reason src/passages.py
+    # exists: `-layout` output preserves a page's visual arrangement, so a
+    # span cut from it can splice two columns together and must not be
+    # quoted. The distinction matters to extract_text: None means "this
+    # backend resolves no reading order", where an empty list would mean
+    # "it did, and this document has no prose in it".
     try:
         subprocess.run(
             ["pdftotext", "-layout", pdf_path, str(out_path)],
@@ -865,7 +866,6 @@ def _extract_pdftotext(pdf_path: str, out_path: Path, threads: int | None = None
         ) from exc
     except subprocess.CalledProcessError as exc:
         raise ExtractionError(exc.stderr or str(exc)) from exc
-    return []
 
 
 # One converter, reused for the whole process. Docling's
@@ -1168,7 +1168,13 @@ def extract_text(pdf_path: str, citekey: str, threads: int | None = None) -> Pat
     out_path = config.PARSED_DIR / f"{citekey}.txt"
     passages.clear_sidecar(citekey)
     records = _EXTRACTORS[config.PARSER](pdf_path, out_path, threads)
-    if records:
+    # `is not None`, so a backend that resolved reading order and found no
+    # prose still writes an (empty) sidecar. That keeps the file's
+    # presence a reliable answer to "did a reading-order backend parse
+    # this?" -- which is what src/ledger.py checks before skipping a
+    # document it believes is already parsed. The ladder is unaffected: it
+    # declines an empty sidecar and falls to the page-level rung.
+    if records is not None:
         passages.write_sidecar(citekey, records)
     return out_path
 
