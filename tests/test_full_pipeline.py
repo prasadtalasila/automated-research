@@ -118,7 +118,7 @@ class TestParseArgs:
 class TestMain:
     def test_runs_only_selected_stages_and_prints_summary(self, monkeypatch, capsys):
         docs = [CorpusDoc(doc_id="a", citekey="a", source="bib", title="t", pdf_path=None)]
-        monkeypatch.setattr(full_pipeline.corpus, "build_corpus", lambda: docs)
+        monkeypatch.setattr(full_pipeline.corpus, "build_corpus", lambda: (docs, []))
         monkeypatch.setattr(sys, "argv", ["full_pipeline.py", "--stages", "docling,embed"])
 
         called = []
@@ -135,12 +135,33 @@ class TestMain:
         assert "=== Summary ===" in out
         assert "WARNING: unknown stage" not in out  # every selected name is real
 
+    def test_corpus_complaints_are_printed_before_any_stage_runs(self, monkeypatch, capsys):
+        """What went into the corpus decides what every stage indexes, so
+        a skipped duplicate or an uncitable document has to be visible
+        while the run is still cheap to stop (issue #42)."""
+        docs = [CorpusDoc(doc_id="a", citekey="a", source="bib", title="t", pdf_path=None)]
+        complaints = ["  skipped dup.pdf: same PDF as a", "  NOTE 1 document(s) ... never be cited"]
+        monkeypatch.setattr(full_pipeline.corpus, "build_corpus", lambda: (docs, complaints))
+        monkeypatch.setattr(sys, "argv", ["full_pipeline.py", "--stages", "embed"])
+        monkeypatch.setitem(
+            full_pipeline.STAGE_FUNCS, "embed",
+            lambda d, a: {"status": "ok", "detail": "e"},
+        )
+
+        rc = full_pipeline.main()
+        out = capsys.readouterr().out
+
+        assert rc == 0
+        assert "skipped dup.pdf" in out
+        assert "never be cited" in out
+        assert out.index("skipped dup.pdf") < out.index("=== embed ===")
+
     def test_warns_on_unknown_stage(self, monkeypatch, capsys):
         """Naming a stage this pipeline no longer has would otherwise be
         a silent no-op -- main() iterates STAGE_ORDER and skips anything
         unselected, so an unused name never surfaces."""
         docs = [CorpusDoc(doc_id="a", citekey="a", source="bib", title="t", pdf_path=None)]
-        monkeypatch.setattr(full_pipeline.corpus, "build_corpus", lambda: docs)
+        monkeypatch.setattr(full_pipeline.corpus, "build_corpus", lambda: (docs, []))
         monkeypatch.setattr(sys, "argv", ["full_pipeline.py", "--stages", "retired-stage,embed"])
         monkeypatch.setitem(full_pipeline.STAGE_FUNCS, "embed", lambda d, a: {"status": "ok", "detail": "e"})
 
@@ -156,7 +177,7 @@ class TestMain:
         normalisation the space makes a real stage look unknown and the
         trailing comma puts a blank name in the warning."""
         docs = [CorpusDoc(doc_id="a", citekey="a", source="bib", title="t", pdf_path=None)]
-        monkeypatch.setattr(full_pipeline.corpus, "build_corpus", lambda: docs)
+        monkeypatch.setattr(full_pipeline.corpus, "build_corpus", lambda: (docs, []))
         monkeypatch.setattr(sys, "argv", ["full_pipeline.py", "--stages", "docling, embed,"])
 
         called = []
@@ -172,7 +193,7 @@ class TestMain:
 
     def test_stage_exception_does_not_abort_other_stages(self, monkeypatch, capsys):
         docs = [CorpusDoc(doc_id="a", citekey="a", source="bib", title="t", pdf_path=None)]
-        monkeypatch.setattr(full_pipeline.corpus, "build_corpus", lambda: docs)
+        monkeypatch.setattr(full_pipeline.corpus, "build_corpus", lambda: (docs, []))
         monkeypatch.setattr(sys, "argv", ["full_pipeline.py", "--stages", "docling,embed"])
 
         def raise_boom(d, a):

@@ -121,6 +121,28 @@ membership in the ledger, and a `doc:` identifier can never be a BibTeX
 citekey. Read them freely -- but to cite one, add the paper to your
 reference manager, re-export, and re-run `sync`.
 
+`full_pipeline.py` counts them at the top of every run, before any stage
+touches them, so you know how much of what you are about to index cannot
+be cited:
+
+```
+  NOTE 3 document(s) from papers/pdfs have no bib entry, so they have no
+  citekey and can never be cited.
+```
+
+A raw PDF that the ledger *already* covers -- the same file, or a
+byte-identical copy under another name -- is skipped instead of indexed
+twice, and named:
+
+```
+  skipped rossi-2023.pdf: same PDF as rossi_composable_2023, which is
+  already in the ledger.
+```
+
+That is the case that used to be silent, and it arises normally: catalogue
+a raw PDF in your reference manager, re-export, re-run `sync`, and the
+copy still sitting in `papers/pdfs/` is now a duplicate of a citable row.
+
 **Who uses it.** `survey-writer` and `deep-research` name it as the
 alternative to BM25, and `deep-research`'s subagents check that
 `content/chroma/` exists before reaching for it. The other three genre

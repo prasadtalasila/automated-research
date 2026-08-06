@@ -206,7 +206,10 @@ session rather than a standalone API call.
 default `papers/pdfs/*.pdf`) get `doc:<filename stem>`, which can never
 collide with a bib citekey (those never contain a colon) and which
 `citation_gate.py` will always reject. Keep it that way -- don't give a
-`source-pdfs`-sourced doc anything citekey-shaped. (`source-pdfs` here is
+`source-pdfs`-sourced doc anything citekey-shaped. `build_corpus()` also
+skips a source PDF the ledger already covers (same path, or same
+size-and-digest) and returns a complaint naming it, so the same paper
+never enters the corpus twice, once citable and once not. (`source-pdfs` here is
 `CorpusDoc.source`'s internal tag value, not the name of a directory you
 should expect to find on disk.)
 

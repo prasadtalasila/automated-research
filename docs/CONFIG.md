@@ -98,7 +98,13 @@ used as given.
 - **`[source_pdfs] dir`** -- raw PDFs with no bibliography entry, for the
   enrichment layer's topic modelling and embeddings. **Never citable**: a
   PDF here has no citekey, so add it to your reference manager,
-  re-export, and re-run `sync` before citing it.
+  re-export, and re-run `sync` before citing it. Keep it separate from
+  your reference manager's exported attachment folder: this is a
+  different mechanism, and pointing both at one directory is what
+  [ZOTERO.md](ZOTERO.md) warns against. A PDF here that the ledger
+  already covers is skipped and named at the start of the run rather than
+  indexed a second time -- see
+  [RETRIEVAL.md](RETRIEVAL.md).
 
 ### `[render]` -- citation style
 
