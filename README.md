@@ -91,12 +91,20 @@ deep-research mode -- and all five obey the same grounding rules.
 ## Quickstart
 
 ```bash
-# 1. Export Zotero's library
-#     BibTeX: papers/bibliography.bib
-#     PDF files: papers/pdfs
-#    the file path in bibliography.bib must match the relative path
-#    Ex: file = {Full Text PDF:pdfs/16/paper-name.pdf:application/pdf}
-mkdir -p papers && cp /path/to/your/exported-library.bib papers/bibliography.bib
+# 1. Export Zotero's library: format BibTeX, tick "Export Files", and save
+#    it as `bibliography` inside papers/. Zotero writes the .bib plus a
+#    companion attachment folder beside it:
+#      papers/bibliography.bib
+#      papers/bibliography/files/<id>/<name>.pdf
+#    Each entry's file field is a path relative to the .bib, so don't
+#    rename or move that folder afterwards -- see docs/ZOTERO.md.
+#      Ex: file = {Full Text PDF:bibliography/files/16/paper-name.pdf:application/pdf}
+mkdir -p papers && cp -r /path/to/your/export/. papers/
+
+# Optional, and a different mechanism: papers/pdfs/ is where you drop a
+# raw PDF you have not cataloged in Zotero yet. The enrichment layer will
+# read it, but it has no citekey and can never be cited -- catalog it and
+# re-export to do that. Zotero's own exported attachments don't go here.
 
 cp config.toml.example config.toml
 
