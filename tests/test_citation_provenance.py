@@ -225,6 +225,111 @@ class TestBlockShapedClaims:
         assert claim == "Simulation has become a cornerstone of developing and validating these systems."
 
 
+class TestLatexBlockShapedClaims:
+    """The same defect in the other syntax every skill also exports.
+
+    A `tabular` row ends at `\\\\`, not at a newline, and `\\item` opens a
+    list item -- neither is a sentence boundary, so a LaTeX draft
+    collapsed exactly as a markdown one did. It was worse in one way:
+    `\\begin{tabular}{lll}`, `\\toprule` and `\\midrule` reached the score
+    as though `begin`, `tabular`, `lll` and `toprule` were content words
+    the source ought to contain.
+    """
+
+    TABULAR = (
+        "Approaches differ in how they compose twins.\n"
+        "\n"
+        "\\begin{tabular}{lll}\n"
+        "\\toprule\n"
+        "Approach & Composition mechanism & Limitation \\\\\n"
+        "\\midrule\n"
+        "Ontology-driven & Shared semantic model \\citep{a_2024} & Heavy modelling effort \\\\\n"
+        "Service-oriented & Message contracts \\citep{b_2024} & Weak behavioural guarantees \\\\\n"
+        "\\bottomrule\n"
+        "\\end{tabular}\n"
+    )
+
+    def test_a_tabular_row_is_the_claim_not_the_whole_table(self, isolated_config):
+        found = {k: c for _, k, c in cp.claims(self.TABULAR)}
+
+        assert "Shared semantic model" in found["a_2024"]
+        assert "Message contracts" not in found["a_2024"], "the next row leaked in"
+        assert found["a_2024"] != found["b_2024"]
+
+    def test_table_markup_is_not_scored_as_content(self, isolated_config):
+        found = {k: c for _, k, c in cp.claims(self.TABULAR)}
+
+        for noise in ("begin", "tabular", "lll", "toprule", "midrule", "&", "\\\\"):
+            assert noise not in found["a_2024"], f"{noise!r} is markup, not a claim"
+        assert found["a_2024"] == "Ontology-driven -- Shared semantic model -- Heavy modelling effort"
+
+    def test_a_row_wrapped_across_lines_is_one_claim(self, isolated_config):
+        """A LaTeX row ends at `\\\\`, so unlike a markdown row it can span
+        source lines -- and the hard-wrap fix has to keep applying."""
+        draft = (
+            "\\begin{tabular}{ll}\n"
+            "Ontology-driven & Shared semantic model with an agreed\n"
+            "vocabulary \\citep{a_2024} \\\\\n"
+            "Service-oriented & Message contracts \\citep{b_2024} \\\\\n"
+            "\\end{tabular}\n"
+        )
+        found = {k: c for _, k, c in cp.claims(draft)}
+
+        assert found["a_2024"] == "Ontology-driven -- Shared semantic model with an agreed vocabulary"
+        assert "Message contracts" not in found["a_2024"]
+
+    def test_an_escaped_ampersand_stays_inside_its_cell(self, isolated_config):
+        draft = "Research \\& development & funded separately \\citep{a_2024} \\\\\n"
+        (_, _, claim), = cp.claims(draft)
+        assert claim == "Research \\& development -- funded separately"
+
+    def test_an_itemize_item_is_the_claim_not_the_whole_list(self, isolated_config):
+        draft = (
+            "\\begin{itemize}\n"
+            "  \\item data, gathered from sensors on the asset \\citep{a_2024}\n"
+            "  \\item models, fitted to that data \\citep{b_2024}\n"
+            "\\end{itemize}\n"
+        )
+        found = {k: c for _, k, c in cp.claims(draft)}
+
+        assert found["a_2024"] == "data, gathered from sensors on the asset"
+        assert "models" not in found["a_2024"]
+
+    def test_a_row_scores_on_its_own_words(self, isolated_config):
+        _add_item("a_2024", parsed_text="shared semantic model heavy modelling effort\fpage two")
+        path = config.CONTENT_DIR / "chapter.tex"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(self.TABULAR)
+
+        report = cp.build_report(path)
+        row = next(f for f in report.findings if f.citekey == "a_2024")
+        assert row.score >= config.PROVENANCE_GOOD_SCORE
+
+    def test_an_item_opened_on_the_environment_line_drops_its_marker(self, isolated_config):
+        draft = "\\begin{itemize} \\item data from sensors \\citep{a_2024}\n"
+        (_, _, claim), = cp.claims(draft)
+        assert claim == "data from sensors"
+
+    def test_a_sectioning_command_is_not_part_of_the_paragraph_below(self, isolated_config):
+        draft = (
+            "\\section{Standards and interoperability}\n"
+            "The prose beneath it, with no blank line between \\citep{a_2024}.\n"
+        )
+        (_, _, claim), = cp.claims(draft)
+        assert claim == "The prose beneath it, with no blank line between."
+
+    def test_latex_prose_is_untouched_by_block_splitting(self, isolated_config):
+        """The regression guard on the other side: a hard-wrapped LaTeX
+        paragraph is still read whole, then split into sentences."""
+        draft = (
+            "Simulation has become a cornerstone of developing\n"
+            "and validating these systems \\citep{a_2024}. A second\n"
+            "sentence follows it.\n"
+        )
+        (_, _, claim), = cp.claims(draft)
+        assert claim == "Simulation has become a cornerstone of developing and validating these systems."
+
+
 class TestScoring:
     def test_overlap_survives_paraphrase(self, isolated_config):
         """The reason this uses overlap rather than verbatim n-grams:

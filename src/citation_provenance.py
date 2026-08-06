@@ -90,16 +90,50 @@ _SEPARATOR_CELL = re.compile(r":?-{2,}:?")
 # cell in half.
 _ROW_SPLIT = re.compile(r"(?<!\\)\|")
 
+# The same two shapes in LaTeX, since every genre skill exports .tex and
+# .pdf alongside the Markdown. Two differences from Markdown: a tabular
+# row ends at `\\` rather than at a newline, so one row can span several
+# hard-wrapped lines; and the environment and rule commands are structure
+# that would otherwise be scored as though `tabular` and `toprule` were
+# words the cited paper ought to contain.
+_TEX_ITEM = re.compile(r"^\s*\\item\b\s*")
+_TEX_ROW_END = re.compile(r"\\\\\s*$")
+_TEX_HEADING = re.compile(r"^\s*\\(?:chapter|(?:sub){0,2}section|paragraph)\*?\{")
+_TEX_STRUCTURE = re.compile(
+    r"\\(?:begin|end)\{[^}]*\}(?:\[[^\]]*\]|\{[^}]*\})*"
+    r"|\\(?:top|mid|bottom)rule|\\hline|\\cline\{[^}]*\}"
+)
+_TEX_CELL_SPLIT = re.compile(r"(?<!\\)&")
+
+
+def _cells_prose(cells: list[str]) -> str:
+    """Table cells as something quotable: joined with " -- ".
+
+    Cells are phrases, not sentences, and a row's own delimiters would
+    otherwise reach the report inside a blockquote -- where pandoc renders
+    every `|` as `\\textbar{}`, so a cited table arrived as a wall of
+    escapes.
+    """
+    stripped = (cell.strip() for cell in cells)
+    return " -- ".join(c for c in stripped if c and not _SEPARATOR_CELL.fullmatch(c))
+
 
 def _row_prose(row: str) -> str:
-    """A table row as something quotable: cells joined with " -- ".
+    """A markdown table row, flattened."""
+    return _cells_prose(_ROW_SPLIT.split(row.strip().strip("|")))
 
-    Cells are phrases, not sentences, and the row's own pipes would reach
-    the report as a `> | a | b |` blockquote -- and pandoc renders each one
-    as `\\textbar{}`, so a cited table arrived as a wall of escapes.
+
+def _tex_row_prose(text: str) -> str:
+    """A LaTeX row or environment fragment, flattened.
+
+    Structure first, then cells: dropping `\\begin{tabular}{lll}` before
+    splitting keeps its `{lll}` column spec out of the first cell.
     """
-    cells = [cell.strip() for cell in _ROW_SPLIT.split(row.strip().strip("|"))]
-    return " -- ".join(c for c in cells if c and not _SEPARATOR_CELL.fullmatch(c))
+    without_structure = _TEX_ROW_END.sub("", _TEX_STRUCTURE.sub(" ", text)).strip()
+    # `\begin{itemize} \item ...` on one line reaches here rather than the
+    # marker branch, and "item" is not a word the source has to contain.
+    without_marker = _TEX_ITEM.sub("", without_structure, count=1)
+    return _cells_prose(_TEX_CELL_SPLIT.split(without_marker))
 
 
 def _claim_spans(lines: list[str]) -> list[tuple[int, int, str]]:
@@ -116,11 +150,14 @@ def _claim_spans(lines: list[str]) -> list[tuple[int, int, str]]:
         block_start = start
         for index in range(start, end + 1):
             line = lines[index - 1]
-            if block and _OPENS_BLOCK.match(line):
+            if block and (_OPENS_BLOCK.match(line) or _TEX_ITEM.match(line)):
                 spans.append((block_start, index - 1, _block_text(block)))
                 block, block_start = [], index
             block.append(line)
-            if _STANDS_ALONE.match(line):
+            # A markdown row or heading ends with its line; a LaTeX row
+            # ends at `\\`, wherever in the block that falls; a sectioning
+            # command is a heading either way.
+            if _STANDS_ALONE.match(line) or _TEX_ROW_END.search(line) or _TEX_HEADING.match(line):
                 spans.append((block_start, index, _block_text(block)))
                 block, block_start = [], index + 1
         if block:
@@ -133,7 +170,9 @@ def _block_text(block: list[str]) -> str:
     if _TABLE_ROW.match(block[0]):
         return _row_prose(block[0])
     joined = " ".join(line.strip() for line in block)
-    for marker in (_LIST_ITEM, _HEADING):
+    if _TEX_STRUCTURE.search(joined) or _TEX_ROW_END.search(joined):
+        return _tex_row_prose(joined)
+    for marker in (_LIST_ITEM, _TEX_ITEM, _HEADING):
         if marker.match(block[0]):
             return marker.sub("", joined, count=1)
     return joined
@@ -160,8 +199,10 @@ def claims(draft_text: str) -> list[tuple[int, str, str]]:
     boundary at all, so reading it whole quoted the entire table back as
     the claim -- once per citekey in it -- and scored each row against the
     whole table's vocabulary, which is the same identical-claims failure
-    one level up. `_claim_spans` splits those into rows and items;
-    ordinary prose is unaffected.
+    one level up. `_claim_spans` splits those into rows and items, in
+    Markdown and in LaTeX -- every genre skill exports `.tex` and `.pdf`
+    beside the `.md`, so both syntaxes reach this module. Ordinary prose
+    is unaffected: it is one block, read exactly as before.
     """
     lines = draft_text.splitlines()
     spans = _claim_spans(lines)

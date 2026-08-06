@@ -114,7 +114,7 @@ For each citing passage in the draft, emit:
 
 | Field | Meaning |
 |---|---|
-| Draft location | Line number and the citing sentence -- or, in a table or a list, that row or item alone |
+| Draft location | Line number and the citing sentence -- or, in a table or a list (Markdown or LaTeX), that row or item alone |
 | Citekey | The key cited there |
 | Best-matching source passage | The span of that paper's text closest to the claim |
 | Page | Where that passage sits in the PDF |
@@ -443,6 +443,24 @@ table row and a list item are each their own claim, a row is flattened to
 is not glued to the paragraph beneath it. Prose is unaffected -- it is
 one block, read exactly as before. The same draft now yields 9 distinct
 claims of ~27 words and 0 pipe characters.
+
+**Both syntaxes, because every genre skill exports `.tex` and `.pdf`
+beside the Markdown.** A `tabular` had the same defect with one extra
+cost: `\begin{tabular}{lll}`, `\toprule` and `\midrule` reached the
+scorer as though `begin`, `tabular`, `lll` and `toprule` were content
+words the cited paper ought to contain -- noise that no source can ever
+match, so the dilution was guaranteed rather than merely likely. The
+LaTeX rules mirror the Markdown ones, with the one structural difference
+that matters: a `tabular` row ends at `\\`, not at a newline, so a row
+hard-wrapped over three lines is still one claim.
+
+| | Markdown | LaTeX |
+|---|---|---|
+| Row | a `\|` line | text up to `\\` |
+| Cells | split on unescaped `\|` | split on unescaped `&` |
+| List item | `-`, `*`, `+`, `1.` | `\item` |
+| Heading | `#`..`######` | `\chapter`, `\section`, `\subsection`, `\paragraph` |
+| Dropped as structure | the `\|---\|` separator row | `\begin`/`\end`, `\toprule`, `\midrule`, `\bottomrule`, `\hline`, `\cline` |
 
 The general lesson, since it is the second instance: the claim unit has a
 *correct size*, and both failures came from choosing that size by
