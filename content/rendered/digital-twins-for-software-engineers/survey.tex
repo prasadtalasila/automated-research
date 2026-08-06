@@ -1,0 +1,597 @@
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+\documentclass[
+  12pt,
+  a4paper,
+]{article}
+\usepackage{xcolor}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\setcounter{secnumdepth}{-\maxdimen} % remove section numbering
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math} % this also loads fontspec
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+\ifPDFTeX\else
+  % xetex/luatex font selection
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{longtable,booktabs,array}
+\usepackage{calc} % for calculating minipage widths
+% Correct order of tables after \paragraph or \subparagraph
+\usepackage{etoolbox}
+\makeatletter
+\patchcmd\longtable{\par}{\if@noskipsec\mbox{}\fi\par}{}{}
+\makeatother
+% Allow footnotes in longtable head/foot
+\IfFileExists{footnotehyper.sty}{\usepackage{footnotehyper}}{\usepackage{footnote}}
+\makesavenoteenv{longtable}
+% definitions for citeproc citations
+\NewDocumentCommand\citeproctext{}{}
+\NewDocumentCommand\citeproc{mm}{%
+  \begingroup\def\citeproctext{#2}\cite{#1}\endgroup}
+\makeatletter
+ % allow citations to break across lines
+ \let\@cite@ofmt\@firstofone
+ % avoid brackets around text for \cite:
+ \def\@biblabel#1{}
+ \def\@cite#1#2{{#1\if@tempswa , #2\fi}}
+\makeatother
+\newlength{\cslhangindent}
+\setlength{\cslhangindent}{1.5em}
+\newlength{\csllabelwidth}
+\setlength{\csllabelwidth}{3em}
+\newenvironment{CSLReferences}[2] % #1 hanging-indent, #2 entry-spacing
+ {\begin{list}{}{%
+  \setlength{\itemindent}{0pt}
+  \setlength{\leftmargin}{0pt}
+  \setlength{\parsep}{0pt}
+  % turn on hanging indent if param 1 is 1
+  \ifodd #1
+   \setlength{\leftmargin}{\cslhangindent}
+   \setlength{\itemindent}{-1\cslhangindent}
+  \fi
+  % set entry spacing
+  \setlength{\itemsep}{#2\baselineskip}}}
+ {\end{list}}
+\usepackage{calc}
+\newcommand{\CSLBlock}[1]{\hfill\break\parbox[t]{\linewidth}{\strut\ignorespaces#1\strut}}
+\newcommand{\CSLLeftMargin}[1]{\parbox[t]{\csllabelwidth}{\strut#1\strut}}
+\newcommand{\CSLRightInline}[1]{\parbox[t]{\linewidth - \csllabelwidth}{\strut#1\strut}}
+\newcommand{\CSLIndent}[1]{\hspace{\cslhangindent}#1}
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\usepackage{bookmark}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same}
+\hypersetup{
+  hidelinks,
+  pdfcreator={LaTeX via pandoc}}
+
+\author{}
+\date{}
+
+\begin{document}
+
+\section{Digital twins for software engineers: a survey through a potted
+plant}\label{digital-twins-for-software-engineers-a-survey-through-a-potted-plant}
+
+\subsection{Scope}\label{scope}
+
+This survey maps the digital twin (DT) literature for one reader: a
+software engineer at home with message brokers, containers and
+continuous integration (CI), who has been handed a digital twin to build
+or assess. It covers what separates a twin from the systems you already
+ship, the architectural and deployment choices on offer, the platforms
+that claim to spare you the work, the failure modes that recur, and the
+exemplars worth cloning. It excludes the physics inside the models,
+manufacturing process detail, control theory, and adoption economics.
+One example anchors every section: a potted plant, a soil-moisture
+probe, and a small pump.
+
+\subsection{1. The connection is the twin, not the
+model}\label{the-connection-is-the-twin-not-the-model}
+
+The literature's sharpest distinction is about coupling, not fidelity.
+Kritzinger et al.~grade digital counterparts by level of integration,
+separating a Digital Model from a Digital Shadow and from a Digital
+Twin, and find that work at the highest stage is the scarcest {[}1{]}.
+Ellwein et al.~restate the criterion as the degree of \emph{automated}
+integration: a Digital Model needs a person to carry changes across by
+hand {[}2{]}. A Digital Shadow has ``an automated one-way data flow''
+from the physical object to the digital one {[}3{]}, and shadow and twin
+are treated as a paired distinction in manufacturing {[}4{]}.
+
+Apply that to the pot. A service that ingests moisture readings and
+draws a chart is a digital shadow. It becomes a twin when the same
+service decides to run the pump, and the soil gets wetter because the
+software said so.
+
+Do not expect the term to carry that meaning on someone else's
+requirements document. Definitions vary widely enough that the variance
+is itself a reported problem {[}5{]}, {[}6{]}, and a twin reflects only
+the properties that matter ``within a specific application context''
+{[}7{]} --- which is what licenses you to model a living plant as three
+numbers. The sources also disagree on the central point: the Digital
+Twin Consortium definition quoted by Bhandal et al.~asks for a virtual
+representation ``synchronized at a specified frequency and fidelity''
+and names no automated flow back to the physical side {[}8{]}. Under
+Kritzinger, your read-only moisture logger is not a twin; under the
+Consortium, it is.
+
+\subsection{2. Architecture: familiar shapes, one unfamiliar
+edge}\label{architecture-familiar-shapes-one-unfamiliar-edge}
+
+The software architecture community has claimed twins as its own
+subject, with a growing body of peer-reviewed architectural solutions
+{[}9{]}. Two pattern catalogs offer shapes to instantiate rather than
+principles to derive: one for twin architecture {[}10{]}, one for giving
+twin models behaviour rather than structure alone {[}11{]}.
+
+The live architectural split is whether a twin is data or a process.
+Commercial platforms represent twins as passive JSON entities, while
+research increasingly treats them as orchestrated microservices {[}12{]}
+--- realised through microservices and serverless functions across the
+cloud-to-edge continuum {[}13{]}, or on Kubernetes with ordinary
+cloud-native tooling {[}14{]}. Deployments span centralised cloud
+platforms, edge-deployable brokers and containerised twins, and managing
+them across that range remains under-explored {[}15{]}.
+
+The unfamiliar edge is that one of your services now writes to a pump.
+That makes the twin a security boundary: an adversary can attack from
+the digital side to reach physical assets, and the attack surface is
+large because the paradigm joins two worlds {[}16{]}. Near-real-time
+twin traffic can carry critical signals, and adding a twin expands an
+already growing attack surface {[}17{]}.
+
+\subsection{3. Buy, compose, or write it}\label{buy-compose-or-write-it}
+
+Reuse is the field's answer to twin construction cost. Talasila et
+al.~argue that building a twin is hard because of the variety of assets,
+models, data and services to marshal, and propose a generic platform
+assembling twins from reusable components offered as a service {[}18{]},
+later demonstrating composition of twins from parts {[}19{]}. Gil et
+al.~survey the open-source frameworks through a case study {[}20{]}, and
+this Digital-Twin-as-a-Service (DTaaS) framing recurs independently
+elsewhere {[}21{]}, {[}22{]}.
+
+That last survey supplies vocabulary worth adopting: \emph{twin
+fidelity} is how completely the twin represents its counterpart's state
+and structure, \emph{twin granularity} is which parts get modelled at
+all {[}22{]}. ``Should the plant model include root depth'' is a
+granularity question; ``how close should the predicted moisture curve
+sit to the probe'' is a fidelity one. Both are easier to answer than
+``how good should the model be''.
+
+\subsection{4. Where these projects actually
+fail}\label{where-these-projects-actually-fail}
+
+Three failure modes recur, and each is a familiar distributed-systems
+problem wearing new clothes.
+
+\textbf{Clocks.} Coupling a simulation to hardware forces simulation
+time to follow wall-clock time, making the execution time of a single
+simulation iteration a critical parameter {[}23{]}. A plant model that
+takes 90 seconds to compute a 60-second step will never close the loop.
+
+\textbf{Update cadence.} Zhang et al.~put both sides of the cost
+plainly: too frequent updates burn communication and computation, while
+delayed updates let the model drift from reality {[}24{]}. Heithoff et
+al. add that consuming everything the sensors produce would stop the
+software delivering results in meaningful time {[}3{]}. Your probe's
+sampling rate is a design decision, not a device property, and the link
+carrying the samples is itself engineered {[}25{]}.
+
+\textbf{Trust.} The simulation-reality gap is named as the main
+challenge across worked case studies {[}26{]}, and organisations often
+cannot tell how well a twin matches reality or whether to rely on it for
+critical decisions {[}27{]}. If the twin waters the plant while you are
+away, that judgement is yours.
+
+\subsection{5. Twins inside the development
+pipeline}\label{twins-inside-the-development-pipeline}
+
+A twin is a long-lived deployed system, and the literature treats its
+operations accordingly. TwinOps connects twins to DevOps practice
+{[}28{]}; Barbie tests twin prototypes through automated integration
+tests in a CI pipeline, communication protocols included, with a
+smart-farming case study and open artefacts for replication {[}29{]};
+Dalibor et al.~map the software engineering literature on twins across
+domains {[}30{]}. Twins also change under new requirements, which
+motivates notation for their continuous evolution {[}31{]} and
+automation of their lifecycle management {[}32{]}. Kamburjan et
+al.~frame twin and counterpart together as a self-adaptive system: a
+greenhouse plant that becomes infected needs a different watering
+regime, so the physical system's stage changes which twin components
+apply {[}33{]}.
+
+\subsection{6. Comparison: where to
+start}\label{comparison-where-to-start}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.2500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.2500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.2500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.2500}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Starting point
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Citekey
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Core idea
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Stated limitation
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Architecture pattern catalog & \texttt{tekinerdogan\_systems\_2020} & A
+catalog of twin architecture patterns to instantiate & Patterns for
+structure; behaviour is addressed separately \\
+Behaviour pattern catalog & \texttt{lehner\_pattern\_2023} & Augments
+twin models with behaviour via model-driven engineering & Assumes a
+modelling-layer/realisation-layer split \\
+Entanglement-aware middleware &
+\texttt{bellavista\_entanglement-aware\_2024} & Middleware that keeps
+twin and asset coupled, rather than storing twin state & Contrasts
+itself with commercial platforms it does not replace \\
+Serverless/Kubernetes platform & \texttt{wermann\_ktwin\_2024} &
+Cloud-native tooling, open standards for models & Prototype-stage
+evaluation \\
+Open-source framework survey & \texttt{gil\_survey\_2024} & Compares
+frameworks through one case study & Single case limits generalisation \\
+DTaaS platform & \texttt{talasila\_realising\_2024},
+\texttt{talasila\_composable\_2025} & One tenant-facing platform hosting
+many twins built from shared parts & Reuse depends on components
+existing for your assets \\
+Plant-and-pump exemplar & \texttt{kamburjan\_greenhousedt\_2024} &
+Plants, sensors and water pumps as the physical system; asset model in a
+knowledge base & A deliberately simple, low-cost greenhouse \\
+Tutorial-grade exemplar & \texttt{gomes\_digital\_2025} & Incubator twin
+using ordinary differential equations, Kalman filtering and a
+service-oriented architecture & Single case study \\
+Closed-loop exemplar & \texttt{goffi\_engineering\_2025} & Direct
+control of a physical process as a finite state machine &
+Domain-specific process constraints \\
+\end{longtable}
+
+For this use case, GreenhouseDT is the closest published match: an
+extensible architecture whose physical system is plants, sensors and
+water pumps, with the asset model held in the twin's knowledge base
+{[}34{]}.
+
+\subsection{7. Gaps in this corpus}\label{gaps-in-this-corpus}
+
+Three gaps stand out. First, scale: after reformulating queries across
+agriculture, greenhouse, sensor-actuator and small-exemplar phrasings,
+only a handful of sources sit at consumer scale {[}19{]},
+{[}34{]}--{[}36{]}. Manufacturing and infrastructure dominate, so
+guidance about one pot is extrapolated from factories. Second, the
+disagreement in §1 is unresolved in the literature, not merely unsettled
+here: whether an automated write path to the physical side is required
+separates Kritzinger's grading {[}1{]}, {[}2{]} from the Digital Twin
+Consortium's synchronisation-only definition {[}8{]}, and no retrieved
+source reconciles them. Third, no retrieved source addresses the running
+cost --- compute, energy, maintenance --- of keeping a twin synchronised
+over years, which for a single plant may exceed the value of the
+decisions it makes.
+
+\subsection{References}\label{references}
+
+\protect\phantomsection\label{refs}
+\begin{CSLReferences}{0}{0}
+\bibitem[\citeproctext]{ref-kritzinger_digital_2018}
+\CSLLeftMargin{{[}1{]} }%
+\CSLRightInline{W. Kritzinger, M. Karner, G. Traar, J. Henjes, and W.
+Sihn, {``Digital {Twin} in manufacturing: {A} categorical literature
+review and classification,''} \emph{Ifac-PapersOnline}, vol. 51, no. 11,
+pp. 1016--1022, 2018, Accessed: Dec. 11, 2024. {[}Online{]}. Available:
+\url{https://www.sciencedirect.com/science/article/pii/S2405896318316021}}
+
+\bibitem[\citeproctext]{ref-ellwein_rethinking_2025}
+\CSLLeftMargin{{[}2{]} }%
+\CSLRightInline{C. Ellwein \emph{et al.}, {``Rethinking {Asset}
+{Administration} {Shell} {Communication} {Types}: {A} {Systematic}
+{Mapping} {Study} and {Portfolio}-{Based} {Classification},''}
+\emph{Production Engineering}, vol. 20, Dec. 2025, doi:
+\href{https://doi.org/10.1007/s11740-025-01378-3}{10.1007/s11740-025-01378-3}.}
+
+\bibitem[\citeproctext]{ref-heithoff_model-based_2024}
+\CSLLeftMargin{{[}3{]} }%
+\CSLRightInline{M. Heithoff, N. Jansen, J. Michael, F. Rademacher, and
+B. Rumpe, {``Model-{Based} {Engineering} of {Multi}-{Purpose} {Digital}
+{Twins} in {Manufacturing},''} in \emph{Digital {Twin}: {Fundamentals}
+and {Applications}}, S. Sabri, K. Alexandridis, and N. Lee, Eds., Cham:
+Springer Nature Switzerland, 2024, pp. 89--126. doi:
+\href{https://doi.org/10.1007/978-3-031-67778-6_5}{10.1007/978-3-031-67778-6\_5}.}
+
+\bibitem[\citeproctext]{ref-bergs_concept_2021}
+\CSLLeftMargin{{[}4{]} }%
+\CSLRightInline{T. Bergs, S. Gierlings, T. Auerbach, A. Klink, D.
+Schraknepper, and T. Augspurger, {``The concept of digital twin and
+digital shadow in manufacturing,''} \emph{Procedia CIRP}, vol. 101, pp.
+81--84, 2021, Accessed: Jan. 21, 2025. {[}Online{]}. Available:
+\url{https://www.sciencedirect.com/science/article/pii/S2212827121006612}}
+
+\bibitem[\citeproctext]{ref-vanderhorn_digital_2021}
+\CSLLeftMargin{{[}5{]} }%
+\CSLRightInline{E. VanDerHorn and S. Mahadevan, {``Digital {Twin}:
+{Generalization}, characterization and implementation,''} \emph{Decision
+Support Systems}, vol. 145, p. 113524, Jun. 2021, doi:
+\href{https://doi.org/10.1016/j.dss.2021.113524}{10.1016/j.dss.2021.113524}.}
+
+\bibitem[\citeproctext]{ref-semeraro_digital_2021}
+\CSLLeftMargin{{[}6{]} }%
+\CSLRightInline{C. Semeraro, M. Lezoche, H. Panetto, and M. Dassisti,
+{``Digital twin paradigm: {A} systematic literature review,''}
+\emph{Computers in Industry}, vol. 130, p. 103469, Sep. 2021, doi:
+\href{https://doi.org/10.1016/j.compind.2021.103469}{10.1016/j.compind.2021.103469}.}
+
+\bibitem[\citeproctext]{ref-minerva_digital_2020}
+\CSLLeftMargin{{[}7{]} }%
+\CSLRightInline{R. Minerva, G. M. Lee, and N. Crespi, {``Digital twin in
+the {IoT} context: {A} survey on technical features, scenarios, and
+architectural models,''} \emph{Proceedings of the IEEE}, vol. 108, no.
+10, pp. 1785--1824, 2020, Accessed: Feb. 25, 2025. {[}Online{]}.
+Available: \url{https://ieeexplore.ieee.org/abstract/document/9120192/}}
+
+\bibitem[\citeproctext]{ref-bhandal_conceptualising_2024}
+\CSLLeftMargin{{[}8{]} }%
+\CSLRightInline{R. Bhandal, {``Conceptualising the {Application} of
+{Digital} {Twins} in {Supply} {Chain} {Management}: {A} {Path} {Towards}
+{Supply} {Chain} {Resilience},''} in \emph{Digital {Twin}:
+{Fundamentals} and {Applications}}, S. Sabri, K. Alexandridis, and N.
+Lee, Eds., Cham: Springer Nature Switzerland, 2024, pp. 173--189. doi:
+\href{https://doi.org/10.1007/978-3-031-67778-6_8}{10.1007/978-3-031-67778-6\_8}.}
+
+\bibitem[\citeproctext]{ref-ferko_architecting_2022}
+\CSLLeftMargin{{[}9{]} }%
+\CSLRightInline{E. Ferko, A. Bucaioni, and M. Behnam, {``Architecting
+{Digital} {Twins},''} \emph{IEEE Access}, vol. 10, pp. 50335--50350,
+2022, doi:
+\href{https://doi.org/10.1109/ACCESS.2022.3172964}{10.1109/ACCESS.2022.3172964}.}
+
+\bibitem[\citeproctext]{ref-tekinerdogan_systems_2020}
+\CSLLeftMargin{{[}10{]} }%
+\CSLRightInline{B. Tekinerdogan and C. Verdouw, {``Systems
+{Architecture} {Design} {Pattern} {Catalog} for {Developing} {Digital}
+{Twins},''} \emph{Sensors}, vol. 20, no. 18, p. 5103, Jan. 2020, doi:
+\href{https://doi.org/10.3390/s20185103}{10.3390/s20185103}.}
+
+\bibitem[\citeproctext]{ref-lehner_pattern_2023}
+\CSLLeftMargin{{[}11{]} }%
+\CSLRightInline{D. Lehner, S. Sint, M. Eisenberg, and M. Wimmer, {``A
+pattern catalog for augmenting {Digital} {Twin} models with behavior,''}
+\emph{at - Automatisierungstechnik}, vol. 71, no. 6, pp. 423--443, Jun.
+2023, doi:
+\href{https://doi.org/10.1515/auto-2022-0144}{10.1515/auto-2022-0144}.}
+
+\bibitem[\citeproctext]{ref-bellavista_entanglement-aware_2024}
+\CSLLeftMargin{{[}12{]} }%
+\CSLRightInline{P. Bellavista, N. Bicocchi, M. Fogli, C. Giannelli, M.
+Mamei, and M. Picone, {``An {Entanglement}-{Aware} {Middleware} for
+{Digital} {Twins},''} \emph{ACM Trans. Internet Things}, Oct. 2024, doi:
+\href{https://doi.org/10.1145/3699520}{10.1145/3699520}.}
+
+\bibitem[\citeproctext]{ref-bellavista_exploiting_2024}
+\CSLLeftMargin{{[}13{]} }%
+\CSLRightInline{P. Bellavista, N. Bicocchi, M. Fogli, C. Giannelli, M.
+Mamei, and M. Picone, {``Exploiting microservices and serverless for
+{Digital} {Twins} in the cloud-to-edge continuum,''} \emph{Future
+Generation Computer Systems}, vol. 157, pp. 275--287, Aug. 2024, doi:
+\href{https://doi.org/10.1016/j.future.2024.03.052}{10.1016/j.future.2024.03.052}.}
+
+\bibitem[\citeproctext]{ref-wermann_ktwin_2024}
+\CSLLeftMargin{{[}14{]} }%
+\CSLRightInline{A. G. Wermann and J. A. Wickboldt, {``{KTWIN}: {A}
+{Serverless} {Kubernetes}-based {Digital} {Twin} {Platform}.''} arXiv,
+Aug. 2024. doi:
+\href{https://doi.org/10.48550/arXiv.2408.01635}{10.48550/arXiv.2408.01635}.}
+
+\bibitem[\citeproctext]{ref-barbone_digital_2024}
+\CSLLeftMargin{{[}15{]} }%
+\CSLRightInline{A. Barbone, S. Burattini, M. Martinelli, M. Picone, A.
+Ricci, and A. Virdis, {``Digital {Twin} {Continuum}: A {Key} {Enabler}
+for {Pervasive} {Cyber}-{Physical} {Environments},''} in \emph{2024 33rd
+{International} {Conference} on {Computer} {Communications} and
+{Networks} ({ICCCN})}, Jul. 2024, pp. 1--9. doi:
+\href{https://doi.org/10.1109/ICCCN61486.2024.10637565}{10.1109/ICCCN61486.2024.10637565}.}
+
+\bibitem[\citeproctext]{ref-alcaraz_digital_2022}
+\CSLLeftMargin{{[}16{]} }%
+\CSLRightInline{C. Alcaraz and J. Lopez, {``Digital {Twin}: {A}
+{Comprehensive} {Survey} of {Security} {Threats},''} \emph{IEEE
+Communications Surveys \& Tutorials}, vol. 24, no. 3, pp. 1475--1503,
+2022, doi:
+\href{https://doi.org/10.1109/COMST.2022.3171465}{10.1109/COMST.2022.3171465}.}
+
+\bibitem[\citeproctext]{ref-kulik_security_2024}
+\CSLLeftMargin{{[}17{]} }%
+\CSLRightInline{T. Kulik, Z. Kazemi, and P. G. Larsen, {``Security and
+{Privacy}-related {Issues} in a {Digital} {Twin} {Context},''} in
+\emph{The {Engineering} of {Digital} {Twins}}, J. Fitzgerald, C. Gomes,
+and P. G. Larsen, Eds., Cham: Springer International Publishing, 2024,
+pp. 313--344. doi:
+\href{https://doi.org/10.1007/978-3-031-66719-0_13}{10.1007/978-3-031-66719-0\_13}.}
+
+\bibitem[\citeproctext]{ref-talasila_realising_2024}
+\CSLLeftMargin{{[}18{]} }%
+\CSLRightInline{P. Talasila, P. H. Mikkelsen, S. Gil, and P. G. Larsen,
+{``Realising {Digital} {Twins},''} in \emph{The {Engineering} of
+{Digital} {Twins}}, J. Fitzgerald, C. Gomes, and P. G. Larsen, Eds.,
+Cham: Springer International Publishing, 2024, pp. 225--256. doi:
+\href{https://doi.org/10.1007/978-3-031-66719-0_11}{10.1007/978-3-031-66719-0\_11}.}
+
+\bibitem[\citeproctext]{ref-talasila_composable_2025}
+\CSLLeftMargin{{[}19{]} }%
+\CSLRightInline{P. Talasila \emph{et al.}, {``Composable digital twins
+on {Digital} {Twin} as a {Service} platform,''} \emph{SIMULATION}, vol.
+101, no. 3, pp. 287--311, Mar. 2025, doi:
+\href{https://doi.org/10.1177/00375497241298653}{10.1177/00375497241298653}.}
+
+\bibitem[\citeproctext]{ref-gil_survey_2024}
+\CSLLeftMargin{{[}20{]} }%
+\CSLRightInline{S. Gil, P. H. Mikkelsen, C. Gomes, and P. G. Larsen,
+{``Survey on open‐source digital twin frameworks--{A} case study
+approach,''} \emph{Software: Practice and Experience}, vol. 54, no. 6,
+pp. 929--960, Jun. 2024, doi:
+\href{https://doi.org/10.1002/spe.3305}{10.1002/spe.3305}.}
+
+\bibitem[\citeproctext]{ref-zech_digital-twins-as-x2d-service_2024}
+\CSLLeftMargin{{[}21{]} }%
+\CSLRightInline{P. Zech, C. Nardin, S. Ristov, M. Flora, and R. Breu,
+{``Digital-{Twins}-as-a-{Service} in {Construction} {Engineering},''} in
+\emph{2024 {IEEE} 20th {International} {Conference} on {Automation}
+{Science} and {Engineering} ({CASE})}, Aug. 2024, pp. 3004--3010. doi:
+\href{https://doi.org/10.1109/CASE59546.2024.10711409}{10.1109/CASE59546.2024.10711409}.}
+
+\bibitem[\citeproctext]{ref-duran_toward_2026}
+\CSLLeftMargin{{[}22{]} }%
+\CSLRightInline{K. Duran \emph{et al.}, {``Toward {Digital}
+{Twin}-as-a-{Service} ({DTaaS}) {Platforms}: {A} {Survey} on
+{Architecture}, {Design} {Requirements}, and {Performance} {Metrics},''}
+\emph{IEEE Communications Surveys \& Tutorials}, vol. 28, pp.
+1845--1878, 2026, doi:
+\href{https://doi.org/10.1109/COMST.2025.3635582}{10.1109/COMST.2025.3635582}.}
+
+\bibitem[\citeproctext]{ref-frasheri_addressing_2023}
+\CSLLeftMargin{{[}23{]} }%
+\CSLRightInline{M. Frasheri \emph{et al.}, {``Addressing time
+discrepancy between digital and physical twins,''} \emph{Robotics and
+Autonomous Systems}, vol. 161, p. 104347, Mar. 2023, doi:
+\href{https://doi.org/10.1016/j.robot.2022.104347}{10.1016/j.robot.2022.104347}.}
+
+\bibitem[\citeproctext]{ref-zhang_knowledge_2024}
+\CSLLeftMargin{{[}24{]} }%
+\CSLRightInline{N. Zhang, R. Bahsoon, N. Tziritas, and G.
+Theodoropoulos, {``Knowledge {Equivalence} in {Digital} {Twins} of
+{Intelligent} {Systems},''} \emph{ACM Transactions on Modeling and
+Computer Simulation}, vol. 34, no. 1, pp. 1--37, Jan. 2024, doi:
+\href{https://doi.org/10.1145/3635306}{10.1145/3635306}.}
+
+\bibitem[\citeproctext]{ref-gomes_sensing_2024}
+\CSLLeftMargin{{[}25{]} }%
+\CSLRightInline{C. Gomes, D. E. L. Rötter, A. Iosifidis, H. Feng, H.
+Ejersbo, and M. Frasheri, {``Sensing and {Communication} of {Data} from
+the {Physical} {Twin},''} in \emph{The {Engineering} of {Digital}
+{Twins}}, J. Fitzgerald, C. Gomes, and P. G. Larsen, Eds., Cham:
+Springer International Publishing, 2024, pp. 147--171. doi:
+\href{https://doi.org/10.1007/978-3-031-66719-0_7}{10.1007/978-3-031-66719-0\_7}.}
+
+\bibitem[\citeproctext]{ref-oakes_case_2024}
+\CSLLeftMargin{{[}26{]} }%
+\CSLRightInline{B. J. Oakes \emph{et al.}, {``Case {Studies} in
+{Digital} {Twins},''} in \emph{The {Engineering} of {Digital} {Twins}},
+J. Fitzgerald, C. Gomes, and P. G. Larsen, Eds., Cham: Springer
+International Publishing, 2024, pp. 257--310. doi:
+\href{https://doi.org/10.1007/978-3-031-66719-0_12}{10.1007/978-3-031-66719-0\_12}.}
+
+\bibitem[\citeproctext]{ref-committee_on_foundational_research_gaps_and_future_directions_for_digital_twins_foundational_2024}
+\CSLLeftMargin{{[}27{]} }%
+\CSLRightInline{\emph{Foundational {Research} {Gaps} and {Future}
+{Directions} for {Digital} {Twins}}. Washington, D.C.: National
+Academies Press, 2024. doi:
+\href{https://doi.org/10.17226/26894}{10.17226/26894}.}
+
+\bibitem[\citeproctext]{ref-hugues_twinops_2022}
+\CSLLeftMargin{{[}28{]} }%
+\CSLRightInline{J. Hugues, J. Yankel, J. Hudak, and A. Hristozov,
+{``Twinops: {Digital} twins meets devops,''} \emph{CARNEGIE-MELLON UNIV
+PITTSBURGH PA, Tech. Rep.}, 2022, Accessed: Jan. 08, 2025. {[}Online{]}.
+Available: \url{https://apps.dtic.mil/sti/trecms/pdf/AD1168471.pdf}}
+
+\bibitem[\citeproctext]{ref-barbie_toward_2024}
+\CSLLeftMargin{{[}29{]} }%
+\CSLRightInline{A. Barbie and W. Hasselbring, {``Toward
+{Reproducibility} of {Digital} {Twin} {Research}: {Exemplified} with the
+{PiCar}-{X}.''} arXiv, Aug. 2024. doi:
+\href{https://doi.org/10.48550/arXiv.2408.13866}{10.48550/arXiv.2408.13866}.}
+
+\bibitem[\citeproctext]{ref-dalibor_cross-domain_2022}
+\CSLLeftMargin{{[}30{]} }%
+\CSLRightInline{M. Dalibor \emph{et al.}, {``A {Cross}-{Domain}
+{Systematic} {Mapping} {Study} on {Software} {Engineering} for {Digital}
+{Twins},''} \emph{Journal of Systems and Software}, vol. 193, p. 111361,
+Nov. 2022, doi:
+\href{https://doi.org/10.1016/j.jss.2022.111361}{10.1016/j.jss.2022.111361}.}
+
+\bibitem[\citeproctext]{ref-mertens_continuous_2024}
+\CSLLeftMargin{{[}31{]} }%
+\CSLRightInline{J. Mertens, S. Klikovits, F. Bordeleau, J. Denil, and Ø.
+Haugen, {``Continuous {Evolution} of {Digital} {Twins} using the
+{DarTwin} {Notation}.''} arXiv, Oct. 2024. Accessed: Nov. 11, 2024.
+{[}Online{]}. Available: \url{http://arxiv.org/abs/2410.23389}}
+
+\bibitem[\citeproctext]{ref-beaumont_towards_2025}
+\CSLLeftMargin{{[}32{]} }%
+\CSLRightInline{G. Beaumont, A. Beugnard, S. Martínez, C. Urtado, and S.
+Vauttier, {``Towards {Automating} the {Life} {Cycle} {Management} of
+{Digital} {Twins},''} in \emph{{ER2025}-44th {International}
+{Conference} on {Conceptual} {Modeling}}, 2025. Accessed: Oct. 22, 2025.
+{[}Online{]}. Available: \url{https://hal.science/hal-05225783/}}
+
+\bibitem[\citeproctext]{ref-kamburjan_declarative_2024}
+\CSLLeftMargin{{[}33{]} }%
+\CSLRightInline{E. Kamburjan, N. Bencomo, S. L. Tapia Tarifa, and E. B.
+Johnsen, {``Declarative {Lifecycle} {Management} in {Digital}
+{Twins},''} in \emph{Proceedings of the {ACM}/{IEEE} 27th
+{International} {Conference} on {Model} {Driven} {Engineering}
+{Languages} and {Systems}}, Linz Austria: ACM, Sep. 2024, pp. 353--363.
+doi:
+\href{https://doi.org/10.1145/3652620.3688248}{10.1145/3652620.3688248}.}
+
+\bibitem[\citeproctext]{ref-kamburjan_greenhousedt_2024}
+\CSLLeftMargin{{[}34{]} }%
+\CSLRightInline{E. Kamburjan \emph{et al.}, {``{GreenhouseDT}: {An}
+{Exemplar} for {Digital} {Twins},''} in \emph{Proceedings of the 19th
+{International} {Symposium} on {Software} {Engineering} for {Adaptive}
+and {Self}-{Managing} {Systems}}, in {SEAMS} '24. New York, NY, USA:
+Association for Computing Machinery, Jun. 2024, pp. 175--181. doi:
+\href{https://doi.org/10.1145/3643915.3644108}{10.1145/3643915.3644108}.}
+
+\bibitem[\citeproctext]{ref-goffi_engineering_2025}
+\CSLLeftMargin{{[}35{]} }%
+\CSLRightInline{P.-E. Goffi, R. Tremblay, and B. Oakes, {``Engineering a
+{Digital} {Twin} for the {Monitoring} and {Control} of {Beer}
+{Fermentation} {Sampling}.''} arXiv, Aug. 2025. doi:
+\href{https://doi.org/10.48550/arXiv.2508.18452}{10.48550/arXiv.2508.18452}.}
+
+\bibitem[\citeproctext]{ref-gomes_digital_2025}
+\CSLLeftMargin{{[}36{]} }%
+\CSLRightInline{C. Gomes \emph{et al.}, {``Digital {Twin} {Tutorial}:
+{The} {Incubator} {Case} {Study},''} in \emph{Engineering {Trustworthy}
+{Software} {Systems}: 6th {International} {School}, {SETSS} 2024,
+{Chongqing}, {China}, {April} 14--21, 2024, {Tutorial} {Lectures}}, J.
+P. Bowen, C. Gomes, and Z. Liu, Eds., Singapore: Springer Nature, 2025,
+pp. 68--101. doi:
+\href{https://doi.org/10.1007/978-981-96-4656-2_3}{10.1007/978-981-96-4656-2\_3}.}
+
+\end{CSLReferences}
+
+\end{document}
