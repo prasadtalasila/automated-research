@@ -217,6 +217,14 @@ Five distinct failure modes, each handled where it can be:
 - **A slow document.** `[parser].document_timeout` is honoured by each
   backend's own mechanism, and they are not equally strong: a real kill
   for `pdftotext`, a cooperative between-stages check for `docling`.
+  Reported apart from the failure below, and named citekey by citekey in
+  the summary, because the two want opposite fixes: this one is the
+  setting being too low for the host, not the PDF being unreadable, and
+  the generic "fix or remove the PDF" advice sends its reader nowhere.
+  Which of the two a failure is comes from the backend, not from parsing
+  its message -- `pdftotext`'s `TimeoutExpired` and `docling`'s
+  `FailureCategory.TIMEOUT` both set a `timed_out` mark on the exception,
+  the same idiom the `transient` mark already uses.
 - **A document the backend cannot read.** Distinguished from the four
   below by *cause*, recorded as such, and deliberately not retried: the
   backend already read this PDF and could not parse it, so re-reading it

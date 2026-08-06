@@ -410,8 +410,20 @@ failed and retried next run, not lost -- and a warning is printed at half
 the budget before anything is given up on.
 
 Either way a timed-out document is **reported as a failure, not silently
-truncated**, and is retried on the next run. Choosing a safe value means
-knowing your slowest legitimate document; see
+truncated** -- but what happens next differs, because the two guards
+blame different things:
+
+- A **`document_timeout`** casualty is named on its own line in `sync`'s
+  summary (`WARNING: 2 document(s) hit the 120.0s
+  [parser].document_timeout and were not parsed: <citekeys>`), and is
+  **not** retried. The limit that expired is a setting, so the next run
+  under the same setting would spend the same minutes to reach the same
+  answer. Raise `document_timeout` and re-run with `--reparse`.
+- A **`stall_timeout`** casualty *is* retried, automatically: those
+  documents were never given a fair attempt, so they are recorded as
+  transient failures and come back next run.
+
+Choosing a safe value means knowing your slowest legitimate document; see
 [PERFORMANCE.md](PERFORMANCE.md#parserdocument_timeout----what-a-safe-value-looks-like).
 
 ### The parse-quality guard

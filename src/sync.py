@@ -301,6 +301,7 @@ def run(remove_stale: bool = False, reparse: bool = False) -> int:
     con = ledger.connect()
     parsed, failed, skipped, no_pdf, backend_unavailable = 0, 0, 0, 0, 0
     low_quality: list[str] = []
+    timed_out: list[str] = []
     no_pdf_reasons: Counter[str] = Counter()
     pruned: list[tuple[str, str | None]] = []
     stale: list[tuple[str, str | None]] = []
@@ -384,6 +385,14 @@ def run(remove_stale: bool = False, reparse: bool = False) -> int:
                     con, citekey, str(exc), transient=getattr(exc, "transient", False)
                 )
                 failed += 1
+                # Deliberately not also transient: a document that ran
+                # out of time will run out of it again next run, so
+                # retrying automatically would burn the same minutes
+                # every run and never converge. It is collected here
+                # instead, to be named in the summary with the fix that
+                # actually applies -- see the report below.
+                if getattr(exc, "timed_out", False):
+                    timed_out.append(citekey)
                 print(f"  FAILED  {citekey}: {exc}", file=sys.stderr)
         # Only the ledger row is removed -- see prune_missing's own
         # docstring for why the corresponding content/parsed/<citekey>.txt
@@ -452,6 +461,24 @@ def run(remove_stale: bool = False, reparse: bool = False) -> int:
     if backend_unavailable:
         summary += f" {backend_unavailable} skipped ({config.PARSER} unavailable)."
     print(summary)
+    if timed_out:
+        # Reported on its own line because the "needs attention" advice
+        # above is wrong for this one failure: the fix is a config value,
+        # not the PDF, and a reader following "fix or remove the PDF" on
+        # a document that is merely long has nothing to fix.
+        #
+        # Named rather than counted, for the same reason as low_quality
+        # below: a couple of citekeys points at those documents (a large
+        # scan, OCR on), while most of the corpus tripping it points at
+        # the limit being too low for this host -- and the list is what
+        # tells the two apart.
+        print(
+            f"  WARNING: {len(timed_out)} document(s) hit the "
+            f"{config.PARSER_DOCUMENT_TIMEOUT}s [parser].document_timeout and were "
+            f"not parsed: {', '.join(timed_out)}. Raise that setting (or switch it "
+            "off) and re-run with --reparse -- a timeout is recorded as a "
+            "deterministic failure, so it is not retried on its own."
+        )
     if low_quality:
         # Named in full rather than counted: a handful of citekeys points
         # at those documents, while most of the corpus tripping it points

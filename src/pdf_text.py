@@ -860,10 +860,15 @@ def _extract_pdftotext(pdf_path: str, out_path: Path, threads: int | None = None
             timeout=config.PARSER_DOCUMENT_TIMEOUT,
         )
     except subprocess.TimeoutExpired as exc:
-        raise ExtractionError(
+        error = ExtractionError(
             f"pdftotext exceeded the {config.PARSER_DOCUMENT_TIMEOUT}s "
             "[parser].document_timeout and was killed"
-        ) from exc
+        )
+        # Marked, not just worded: sync reports timeouts separately from
+        # the PDFs a backend genuinely cannot read, and reading that back
+        # out of the message would tie the report to this string.
+        error.timed_out = True
+        raise error from exc
     except subprocess.CalledProcessError as exc:
         raise ExtractionError(exc.stderr or str(exc)) from exc
 
@@ -933,6 +938,33 @@ def _docling_converter(threads: int | None = None):
     return _DOCLING_CONVERTER
 
 
+def _is_docling_timeout(error, message: str) -> bool:
+    """Did this ErrorItem come from `document_timeout` expiring?
+
+    Read from docling's own `FailureCategory` rather than the wording,
+    because the two code paths that can expire a document_timeout word
+    themselves differently -- "Document processing timeout: exceeded
+    ...s limit" from the page-batch loop, "document timeout exceeded"
+    from the threaded pipeline -- and a third wording is one upstream
+    release away.
+
+    `.value`, not `str()`: FailureCategory is a str-Enum, so `str()`
+    gives "FailureCategory.TIMEOUT" where the value it compares equal to
+    is "timeout". Getting that wrong would silently classify every real
+    timeout as an unreadable PDF, which is the failure this exists to
+    prevent.
+
+    The wording is consulted only when there is no category at all --
+    what a docling build predating the field looks like -- rather than
+    as a second opinion, so a categorised non-timeout error that happens
+    to mention the word is not miscounted.
+    """
+    category = getattr(error, "category", None)
+    if category is not None:
+        return getattr(category, "value", category) == "timeout"
+    return "timeout" in message.lower()
+
+
 def check_docling_status(result) -> None:
     """Reject a conversion Docling only half-finished.
 
@@ -958,19 +990,26 @@ def check_docling_status(result) -> None:
     # "document timeout exceeded" in a single line. The distinct reasons
     # are the diagnostic; the repetition is noise that buries the summary
     # line after it.
-    seen, ordered = set(), []
+    seen, ordered, timed_out = set(), [], False
     for error in getattr(result, "errors", []):
         message = str(getattr(error, "error_message", error))
+        # Classified over every error, not just the ones that survive the
+        # cap below: docling appends one per failed page and the timeout
+        # arrives last, so a book long enough to time out is exactly the
+        # case where the deciding error is off the end of the list.
+        timed_out = timed_out or _is_docling_timeout(error, message)
         if message not in seen:
             seen.add(message)
             ordered.append(message)
     errors = "; ".join(ordered[:_MAX_DOCLING_ERRORS])
     if len(ordered) > _MAX_DOCLING_ERRORS:
         errors += f"; (+{len(ordered) - _MAX_DOCLING_ERRORS} more)"
-    raise ExtractionError(
+    failure = ExtractionError(
         f"docling returned {name} rather than SUCCESS -- the extracted text would "
         f"be incomplete{': ' + errors if errors else ''}"
     )
+    failure.timed_out = timed_out
+    raise failure
 
 
 def is_cuda_oom(exc: BaseException) -> bool:
