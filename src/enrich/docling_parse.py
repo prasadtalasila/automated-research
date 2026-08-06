@@ -365,7 +365,18 @@ def _reuse_corpus_parse(doc: CorpusDoc, out_path: Path, stem: str) -> bool:
     """
     if not _corpus_parse_available(doc):
         return False
-    markdown = Path(doc.text_path).read_text(encoding="utf-8", errors="replace")
+    # Both reads before either write, and a damaged one declines the reuse
+    # instead of raising. A sidecar truncated mid-write by a killed
+    # process can split a multi-byte character, which fails to decode --
+    # src/passages.py's reader already tolerates exactly that, for the
+    # same reason. Here the cost of not tolerating it would be worse than
+    # a fallback: parse_doc would report a hard error for a document whose
+    # PDF is sitting right there, perfectly parseable.
+    try:
+        markdown = Path(doc.text_path).read_text(encoding="utf-8", errors="replace")
+        records = passages.sidecar_path(doc.citekey).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
     # Each form feed becomes the paragraph break it sits inside, rather
     # than being deleted: Docling writes them surrounded by blank lines,
     # but a form feed flush against the text either side would otherwise
@@ -375,9 +386,7 @@ def _reuse_corpus_parse(doc: CorpusDoc, out_path: Path, stem: str) -> bool:
     # non-ASCII paper fails with UnicodeEncodeError under a C-locale host.
     out_path.write_text(re.sub(r"\n{3,}", "\n\n", markdown.replace("\f", "\n\n")),
                         encoding="utf-8")
-    (config.DOCLING_DIR / f"{stem}.passages.json").write_text(
-        passages.sidecar_path(doc.citekey).read_text(encoding="utf-8"), encoding="utf-8"
-    )
+    (config.DOCLING_DIR / f"{stem}.passages.json").write_text(records, encoding="utf-8")
     return True
 
 
@@ -616,14 +625,18 @@ def parse_corpus(docs: list[CorpusDoc]) -> dict[str, str]:
     # worker, or the run pays a process and a model load to discover
     # there was nothing to parse. parse_doc does the actual adoption,
     # in whichever process ends up calling it.
-    reusable = [d for d in docs if d.pdf_path and not _is_cached(d, cache)
-                and _corpus_parse_available(d)]
+    # A set of doc_ids rather than a list of docs: `d not in [...]` would
+    # compare every doc against every reusable one, which is quadratic in
+    # the corpus and compares whole dataclasses to do it. doc_id is unique
+    # by construction (corpus.assert_no_citekey_collision).
+    reusable = {d.doc_id for d in docs if d.pdf_path and not _is_cached(d, cache)
+                and _corpus_parse_available(d)}
     if reusable:
         print(f"  reusing the corpus layer's docling parse for "
               f"{len(reusable)} document(s) -- no second parse needed")
 
     pending = [d for d in docs if d.pdf_path and not _is_cached(d, cache)
-               and d not in reusable]
+               and d.doc_id not in reusable]
     workers, complaint = pdf_text.resolve_workers(len(pending))
     if complaint:
         print(complaint)

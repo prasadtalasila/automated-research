@@ -487,6 +487,40 @@ class TestReusingTheCorpusLayersParse:
         docling_parse.parse_doc(doc)
         assert FakeDocumentConverter.call_count == 1
 
+    def test_a_torn_sidecar_falls_back_to_a_real_parse(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        """A sidecar truncated mid-write by a killed process can split a
+        multi-byte character. Declining the reuse costs one parse; raising
+        would report a hard error for a document whose PDF is fine."""
+        doc = self._corpus_parsed(tmp_path)
+        # Cut inside the two bytes of "é", leaving a lone continuation
+        # byte -- the write is truncated, not merely invalid JSON.
+        torn = '[{"text": "café'.encode("utf-8")[:-1]
+        assert torn.endswith(b"\xc3")
+        passages.sidecar_path(doc.citekey).write_bytes(torn)
+
+        out = docling_parse.parse_doc(doc)
+
+        assert FakeDocumentConverter.call_count == 1
+        assert "Parsed content" in out.read_text()
+
+    def test_an_unreadable_sidecar_leaves_no_half_written_markdown(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        """Both reads happen before either write, so a reuse that
+        declines has written nothing for the real parse to clean up."""
+        doc = self._corpus_parsed(tmp_path)
+        passages.sidecar_path(doc.citekey).unlink()
+        Path(doc.text_path).write_text("corpus text that must not be adopted")
+        # No sidecar at all is the ordinary "not a docling parse" case,
+        # so force the read to fail on a sidecar that does exist.
+        passages.sidecar_path(doc.citekey).mkdir()
+
+        assert docling_parse._reuse_corpus_parse(
+            doc, config.DOCLING_DIR / "a2024.md", "a2024") is False
+        assert not (config.DOCLING_DIR / "a2024.md").exists()
+
     def test_reused_docs_never_reach_a_worker(
         self, isolated_config, monkeypatch, fake_docling, tmp_path
     ):
