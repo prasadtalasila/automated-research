@@ -198,9 +198,12 @@ the papers a draft happens to cite.**
   produced, including entries whose reference-manager record has no PDF
   attached at all.
 - **every `papers/pdfs/*.pdf` the ledger does not already cover.** A
-  source PDF matching one already attached to a citekey is skipped and
-  reported, so the same paper cannot enter the corpus twice -- once
-  citable, once not.
+  source PDF that duplicates one already attached to a citekey is skipped
+  and reported by name, so the same paper cannot enter the corpus twice --
+  once citable, once not. The check is resolved path first, then sha256
+  against the ledger PDFs of matching size, so a copy saved under a
+  different name is caught too. (Issue #42, fixed in #46. That fix is
+  about *this* bullet only -- it did not narrow the first one.)
 
 Every stage then receives that whole list. Nothing anywhere filters by
 draft, by reference list, or by citation: a draft citing eleven papers
