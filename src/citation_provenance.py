@@ -179,30 +179,31 @@ def _block_text(block: list[str]) -> str:
 
 
 def claims(draft_text: str) -> list[tuple[int, str, str]]:
-    """(line number, citekey, the sentence carrying it) for every citation.
+    """(line number, citekey, the text carrying it) for every citation.
 
-    The sentence is reconstructed from the whole *paragraph*, not from the
-    single line the citekey sits on. Every draft this project produces is
-    hard-wrapped, so a sentence routinely spans three or four lines and
-    the citation lands on whichever one happens to hold it -- reading just
-    that line yields fragments like "." or ", or equivalently as
-    combinations of", which score against nothing and make the report
-    worthless precisely where it is meant to be used.
+    That text is whatever unit actually makes a claim where the citation
+    sits: the citing **sentence** in prose, the citing **row** in a table,
+    the citing **item** in a list. It is never the raw line the citekey
+    sits on, and never a whole paragraph.
 
-    Still the sentence rather than the whole paragraph, though: a
-    paragraph citing three papers would otherwise be scored identically
-    against all three, which tells a reviewer nothing about which
-    citation is the weak one.
+    Both of those were tried. Reading the *line* fails because every draft
+    this project produces is hard-wrapped, so a sentence spans three or
+    four lines and the citation lands on whichever one happens to hold it
+    -- yielding fragments like "." or ", or equivalently as combinations
+    of", which score against nothing. Reading the whole *paragraph* fails
+    the other way: a paragraph citing three papers scores identically
+    against all three, telling a reviewer nothing about which citation is
+    the weak one.
 
-    "Paragraph" means a *block*, not everything between two blank lines.
-    A table or a list is one blank-line block containing no sentence
-    boundary at all, so reading it whole quoted the entire table back as
-    the claim -- once per citekey in it -- and scored each row against the
-    whole table's vocabulary, which is the same identical-claims failure
-    one level up. `_claim_spans` splits those into rows and items, in
-    Markdown and in LaTeX -- every genre skill exports `.tex` and `.pdf`
-    beside the `.md`, so both syntaxes reach this module. Ordinary prose
-    is unaffected: it is one block, read exactly as before.
+    So the unit is the block (`_claim_spans`), then the sentence within it
+    (`_sentence_around`). That matters because a table or a list is one
+    blank-line paragraph containing no sentence boundary at all: reading
+    it whole quoted the entire table back as the claim, once per citekey
+    in it, and scored every row against the whole table's vocabulary --
+    the same identical-claims failure one level up. Blocks are recognised
+    in Markdown and in LaTeX, since every genre skill exports `.tex` and
+    `.pdf` beside the `.md`. Ordinary prose is unaffected: it is one
+    block, read exactly as before.
     """
     lines = draft_text.splitlines()
     spans = _claim_spans(lines)
