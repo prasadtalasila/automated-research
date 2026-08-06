@@ -95,6 +95,267 @@ class TestClaims:
         assert cp.claims("Plain prose with no citations.\n") == []
 
 
+class TestBlockShapedClaims:
+    """A citation inside a table or a list is not inside a sentence.
+
+    Both are one blank-line-separated block, so the paragraph reading
+    that fixed hard-wrapped prose quoted the *entire* table back as the
+    claim -- once per citekey in it -- and scored every row against the
+    whole table's vocabulary (GitHub issue #19).
+    """
+
+    TABLE = (
+        "Models fall into three families.\n"
+        "\n"
+        "| Model type | What it is built from | Typical use |\n"
+        "|---|---|---|\n"
+        "| Physics-based | Known structural equations [@a_2024] | Simulating a bridge |\n"
+        "| Statistical | Measured hysteresis data [@b_2024] | Identifying behaviour |\n"
+    )
+
+    def test_a_table_row_is_the_claim_not_the_whole_table(self, isolated_config):
+        found = {k: c for _, k, c in cp.claims(self.TABLE)}
+
+        assert "Known structural equations" in found["a_2024"]
+        assert "Measured hysteresis data" not in found["a_2024"], "the other row leaked in"
+        assert "Model type" not in found["a_2024"], "the header row leaked in"
+
+    def test_table_cells_read_as_prose(self, isolated_config):
+        found = {k: c for _, k, c in cp.claims(self.TABLE)}
+
+        assert found["a_2024"] == "Physics-based -- Known structural equations -- Simulating a bridge"
+        assert "|" not in found["a_2024"], "a raw pipe becomes a wall of \\textbar{} in the tex render"
+        assert "---" not in found["b_2024"], "the |---|---| separator row is not content"
+
+    def test_two_citations_in_one_table_are_told_apart(self, isolated_config):
+        """The whole point of scoring a sentence rather than a paragraph:
+        a reviewer has to see *which* citation is the weak one."""
+        found = {k: c for _, k, c in cp.claims(self.TABLE)}
+        assert found["a_2024"] != found["b_2024"]
+
+    def test_a_row_scores_on_its_own_words(self, isolated_config):
+        """Whole-table claims inflate the denominator -- measured at ~4x on
+        a real draft -- pushing a genuinely supported citation under the
+        band thresholds."""
+        _add_item("a_2024", parsed_text="known structural equations simulating a bridge deck\fpage two")
+        path = config.CONTENT_DIR / "d.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(self.TABLE)
+
+        report = cp.build_report(path)
+        row = next(f for f in report.findings if f.citekey == "a_2024")
+        assert row.score >= config.PROVENANCE_GOOD_SCORE
+
+    def test_the_report_quotes_the_row_not_the_table(self, isolated_config):
+        _add_item("a_2024", parsed_text="known structural equations\fpage two")
+        _add_item("b_2024", parsed_text="measured hysteresis data\fpage two")
+        path = config.CONTENT_DIR / "d.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(self.TABLE)
+
+        quoted = [line for line in cp.render_markdown(cp.build_report(path)).splitlines()
+                  if line.startswith("> ")]
+        assert quoted, "the report quotes the citing claim"
+        assert not any("|" in line for line in quoted)
+
+    def test_a_list_item_is_the_claim_not_the_whole_list(self, isolated_config):
+        """Bullets carry no sentence boundary the splitter recognises --
+        a marker is not a capital letter -- so the list collapsed the same
+        way a table did, with or without terminal punctuation."""
+        draft = (
+            "The building blocks are:\n"
+            "\n"
+            "- data, from sensors on the asset [@a_2024]\n"
+            "- models, fitted to that data [@b_2024]\n"
+            "- algorithms that act on both\n"
+        )
+        found = {k: c for _, k, c in cp.claims(draft)}
+
+        assert found["a_2024"] == "data, from sensors on the asset"
+        assert "models" not in found["a_2024"]
+
+    def test_a_wrapped_list_item_keeps_its_continuation_lines(self, isolated_config):
+        """The hard-wrap fix still applies *within* a block: an item that
+        runs over two lines is one claim, not a fragment."""
+        draft = (
+            "- data, gathered from sensors placed on the asset itself and\n"
+            "  sampled continuously [@a_2024]\n"
+            "- models, fitted to that data [@b_2024]\n"
+        )
+        found = {k: c for _, k, c in cp.claims(draft)}
+
+        assert found["a_2024"].startswith("data, gathered from sensors")
+        assert "sampled continuously" in found["a_2024"]
+        assert "models" not in found["a_2024"]
+
+    def test_numbered_list_items_split_the_same_way(self, isolated_config):
+        draft = (
+            "1. First, calibrate the model [@a_2024]\n"
+            "2. Then validate it against measurements [@b_2024]\n"
+        )
+        found = {k: c for _, k, c in cp.claims(draft)}
+
+        assert found["a_2024"] == "First, calibrate the model"
+        assert found["b_2024"] == "Then validate it against measurements"
+
+    def test_a_heading_is_not_part_of_the_sentence_below_it(self, isolated_config):
+        draft = (
+            "## Standards and interoperability [@a_2024]\n"
+            "The prose beneath it, with no blank line between [@b_2024].\n"
+        )
+        found = {k: c for _, k, c in cp.claims(draft)}
+
+        assert found["a_2024"] == "Standards and interoperability"
+        assert found["b_2024"] == "The prose beneath it, with no blank line between."
+
+    def test_an_escaped_pipe_stays_inside_its_cell(self, isolated_config):
+        draft = "| Notation | a \\| b means either [@a_2024] |\n"
+        (_, _, claim), = cp.claims(draft)
+        assert claim == "Notation -- a \\| b means either"
+
+    def test_prose_paragraphs_are_untouched_by_block_splitting(self, isolated_config):
+        """The regression guard for the fix itself: ordinary hard-wrapped
+        prose must still be read a whole paragraph at a time."""
+        draft = (
+            "Simulation has become a cornerstone of developing\n"
+            "and validating these systems\n"
+            "[@a_2024]. A second sentence follows it.\n"
+        )
+        (_, _, claim), = cp.claims(draft)
+        assert claim == "Simulation has become a cornerstone of developing and validating these systems."
+
+
+class TestLatexBlockShapedClaims:
+    """The same defect in the other syntax every skill also exports.
+
+    A `tabular` row ends at `\\\\`, not at a newline, and `\\item` opens a
+    list item -- neither is a sentence boundary, so a LaTeX draft
+    collapsed exactly as a markdown one did. It was worse in one way:
+    `\\begin{tabular}{lll}`, `\\toprule` and `\\midrule` reached the score
+    as though `begin`, `tabular`, `lll` and `toprule` were content words
+    the source ought to contain.
+    """
+
+    TABULAR = (
+        "Approaches differ in how they compose twins.\n"
+        "\n"
+        "\\begin{tabular}{lll}\n"
+        "\\toprule\n"
+        "Approach & Composition mechanism & Limitation \\\\\n"
+        "\\midrule\n"
+        "Ontology-driven & Shared semantic model \\citep{a_2024} & Heavy modelling effort \\\\\n"
+        "Service-oriented & Message contracts \\citep{b_2024} & Weak behavioural guarantees \\\\\n"
+        "\\bottomrule\n"
+        "\\end{tabular}\n"
+    )
+
+    def test_a_tabular_row_is_the_claim_not_the_whole_table(self, isolated_config):
+        found = {k: c for _, k, c in cp.claims(self.TABULAR)}
+
+        assert "Shared semantic model" in found["a_2024"]
+        assert "Message contracts" not in found["a_2024"], "the next row leaked in"
+        assert found["a_2024"] != found["b_2024"]
+
+    def test_table_markup_is_not_scored_as_content(self, isolated_config):
+        found = {k: c for _, k, c in cp.claims(self.TABULAR)}
+
+        for noise in ("begin", "tabular", "lll", "toprule", "midrule", "&", "\\\\"):
+            assert noise not in found["a_2024"], f"{noise!r} is markup, not a claim"
+        assert found["a_2024"] == "Ontology-driven -- Shared semantic model -- Heavy modelling effort"
+
+    def test_a_row_wrapped_across_lines_is_one_claim(self, isolated_config):
+        """A LaTeX row ends at `\\\\`, so unlike a markdown row it can span
+        source lines -- and the hard-wrap fix has to keep applying."""
+        draft = (
+            "\\begin{tabular}{ll}\n"
+            "Ontology-driven & Shared semantic model with an agreed\n"
+            "vocabulary \\citep{a_2024} \\\\\n"
+            "Service-oriented & Message contracts \\citep{b_2024} \\\\\n"
+            "\\end{tabular}\n"
+        )
+        found = {k: c for _, k, c in cp.claims(draft)}
+
+        assert found["a_2024"] == "Ontology-driven -- Shared semantic model with an agreed vocabulary"
+        assert "Message contracts" not in found["a_2024"]
+
+    def test_an_escaped_ampersand_stays_inside_its_cell(self, isolated_config):
+        draft = "Research \\& development & funded separately \\citep{a_2024} \\\\\n"
+        (_, _, claim), = cp.claims(draft)
+        assert claim == "Research \\& development -- funded separately"
+
+    def test_an_itemize_item_is_the_claim_not_the_whole_list(self, isolated_config):
+        draft = (
+            "\\begin{itemize}\n"
+            "  \\item data, gathered from sensors on the asset \\citep{a_2024}\n"
+            "  \\item models, fitted to that data \\citep{b_2024}\n"
+            "\\end{itemize}\n"
+        )
+        found = {k: c for _, k, c in cp.claims(draft)}
+
+        assert found["a_2024"] == "data, gathered from sensors on the asset"
+        assert "models" not in found["a_2024"]
+
+    def test_a_row_scores_on_its_own_words(self, isolated_config):
+        _add_item("a_2024", parsed_text="shared semantic model heavy modelling effort\fpage two")
+        path = config.CONTENT_DIR / "chapter.tex"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(self.TABULAR)
+
+        report = cp.build_report(path)
+        row = next(f for f in report.findings if f.citekey == "a_2024")
+        assert row.score >= config.PROVENANCE_GOOD_SCORE
+
+    def test_an_item_opened_on_the_environment_line_drops_its_marker(self, isolated_config):
+        draft = "\\begin{itemize} \\item data from sensors \\citep{a_2024}\n"
+        (_, _, claim), = cp.claims(draft)
+        assert claim == "data from sensors"
+
+    def test_a_sectioning_command_is_not_part_of_the_paragraph_below(self, isolated_config):
+        draft = (
+            "\\section{Standards and interoperability}\n"
+            "The prose beneath it, with no blank line between \\citep{a_2024}.\n"
+        )
+        (_, _, claim), = cp.claims(draft)
+        assert claim == "The prose beneath it, with no blank line between."
+
+    def test_prose_running_straight_into_a_tabular_does_not_leak_into_the_first_row(self, isolated_config):
+        """A lead-in ending in a colon is the normal way to introduce a
+        table, and `\\begin{tabular}` after it has no blank line before it.
+        Unlike a markdown `|` row, the environment line is not itself a
+        row, so it has to open the block explicitly or the lead-in is
+        still attached when the first row closes it.
+        """
+        draft = (
+            "The model families are as follows:\n"
+            "\\begin{tabular}{ll}\n"
+            "Physics-based & known structural laws \\citep{a_2024} \\\\\n"
+            "\\end{tabular}\n"
+        )
+        (_, _, claim), = cp.claims(draft)
+        assert claim == "Physics-based -- known structural laws"
+
+    def test_a_sectioning_command_after_prose_opens_its_own_block(self, isolated_config):
+        draft = (
+            "A lead-in with no blank line after it:\n"
+            "\\section{Standards and interoperability \\citep{a_2024}}\n"
+        )
+        (_, _, claim), = cp.claims(draft)
+        assert claim == "Standards and interoperability"
+        assert "lead-in" not in claim
+        assert "\\section" not in claim, "the command is markup, not part of the heading"
+
+    def test_latex_prose_is_untouched_by_block_splitting(self, isolated_config):
+        """The regression guard on the other side: a hard-wrapped LaTeX
+        paragraph is still read whole, then split into sentences."""
+        draft = (
+            "Simulation has become a cornerstone of developing\n"
+            "and validating these systems \\citep{a_2024}. A second\n"
+            "sentence follows it.\n"
+        )
+        (_, _, claim), = cp.claims(draft)
+        assert claim == "Simulation has become a cornerstone of developing and validating these systems."
+
+
 class TestScoring:
     def test_overlap_survives_paraphrase(self, isolated_config):
         """The reason this uses overlap rather than verbatim n-grams:

@@ -73,31 +73,161 @@ def _paragraph_spans(lines: list[str]) -> list[tuple[int, int, str]]:
     return spans
 
 
+# Markdown block openers. A table row and a heading are each complete in
+# one line, so they are blocks by themselves; a list item opens one that
+# runs until the next opener or the end of the paragraph, so a
+# hard-wrapped bullet stays whole.
+_TABLE_ROW = re.compile(r"^\s*\|")
+_LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
+_HEADING = re.compile(r"^\s*#{1,6}\s+")
+_OPENS_BLOCK = re.compile(
+    r"^\s*(?:"
+    r"\||[-*+]\s|\d+[.)]\s|#{1,6}\s"                        # markdown
+    r"|\\item\b|\\(?:begin|end)\{"                           # LaTeX environments
+    r"|\\(?:chapter|(?:sub){0,2}section|paragraph)\*?\{"     # LaTeX headings
+    r")"
+)
+# A row and a heading are complete in one line: whatever follows starts
+# its own block, so prose under a heading is not glued to the heading.
+_STANDS_ALONE = re.compile(r"^\s*(?:\||#{1,6}\s)")
+# A cell of the |---|:--:|---| separator row: alignment, not content.
+_SEPARATOR_CELL = re.compile(r":?-{2,}:?")
+# Split a row on its unescaped pipes only -- `\|` is markdown's way of
+# putting a literal pipe inside a cell, and splitting there would cut a
+# cell in half.
+_ROW_SPLIT = re.compile(r"(?<!\\)\|")
+
+# The same two shapes in LaTeX, since every genre skill exports .tex and
+# .pdf alongside the Markdown. Two differences from Markdown: a tabular
+# row ends at `\\` rather than at a newline, so one row can span several
+# hard-wrapped lines; and the environment and rule commands are structure
+# that would otherwise be scored as though `tabular` and `toprule` were
+# words the cited paper ought to contain.
+_TEX_ITEM = re.compile(r"^\s*\\item\b\s*")
+_TEX_ROW_END = re.compile(r"\\\\\s*$")
+_TEX_HEADING = re.compile(r"^\s*\\(?:chapter|(?:sub){0,2}section|paragraph)\*?\{")
+# The same command with its braced title, so `\section{Standards}` is
+# quoted as "Standards" rather than as its own markup -- the counterpart
+# of dropping a markdown heading's leading `#`.
+_TEX_HEADING_TITLE = re.compile(r"\\(?:chapter|(?:sub){0,2}section|paragraph)\*?\{([^}]*)\}")
+_TEX_STRUCTURE = re.compile(
+    r"\\(?:begin|end)\{[^}]*\}(?:\[[^\]]*\]|\{[^}]*\})*"
+    r"|\\(?:top|mid|bottom)rule|\\hline|\\cline\{[^}]*\}"
+)
+_TEX_CELL_SPLIT = re.compile(r"(?<!\\)&")
+
+
+def _cells_prose(cells: list[str]) -> str:
+    """Table cells as something quotable: joined with " -- ".
+
+    Cells are phrases, not sentences, and a row's own delimiters would
+    otherwise reach the report inside a blockquote -- where pandoc renders
+    every `|` as `\\textbar{}`, so a cited table arrived as a wall of
+    escapes.
+    """
+    stripped = (cell.strip() for cell in cells)
+    return " -- ".join(c for c in stripped if c and not _SEPARATOR_CELL.fullmatch(c))
+
+
+def _row_prose(row: str) -> str:
+    """A markdown table row, flattened."""
+    return _cells_prose(_ROW_SPLIT.split(row.strip().strip("|")))
+
+
+def _tex_row_prose(text: str) -> str:
+    """A LaTeX row or environment fragment, flattened.
+
+    Structure first, then cells: dropping `\\begin{tabular}{lll}` before
+    splitting keeps its `{lll}` column spec out of the first cell.
+    """
+    without_structure = _TEX_ROW_END.sub("", _TEX_STRUCTURE.sub(" ", text)).strip()
+    # `\begin{itemize} \item ...` on one line reaches here rather than the
+    # marker branch, and "item" is not a word the source has to contain.
+    without_marker = _TEX_ITEM.sub("", without_structure, count=1)
+    return _cells_prose(_TEX_CELL_SPLIT.split(without_marker))
+
+
+def _claim_spans(lines: list[str]) -> list[tuple[int, int, str]]:
+    """(first line, last line, text) per *block*, subdividing paragraphs.
+
+    A paragraph of prose comes back as one span, exactly as before. A
+    paragraph that is a table or a list comes back as one span per row or
+    item, because those carry no sentence boundary for `_sentence_around`
+    to find and so would otherwise be quoted and scored whole.
+    """
+    spans = []
+    for start, end, _ in _paragraph_spans(lines):
+        block: list[str] = []
+        block_start = start
+        for index in range(start, end + 1):
+            line = lines[index - 1]
+            if block and _OPENS_BLOCK.match(line):
+                spans.append((block_start, index - 1, _block_text(block)))
+                block, block_start = [], index
+            block.append(line)
+            # A markdown row or heading ends with its line; a LaTeX row
+            # ends at `\\`, wherever in the block that falls; a sectioning
+            # command is a heading either way.
+            if _STANDS_ALONE.match(line) or _TEX_ROW_END.search(line) or _TEX_HEADING.match(line):
+                spans.append((block_start, index, _block_text(block)))
+                block, block_start = [], index + 1
+        if block:
+            spans.append((block_start, end, _block_text(block)))
+    return spans
+
+
+def _block_text(block: list[str]) -> str:
+    """The block's text as prose: a row flattened, a marker dropped."""
+    if _TABLE_ROW.match(block[0]):
+        return _row_prose(block[0])
+    joined = " ".join(line.strip() for line in block)
+    if _TEX_HEADING.match(block[0]):
+        return _TEX_HEADING_TITLE.sub(r"\1", joined)
+    if _TEX_STRUCTURE.search(joined) or _TEX_ROW_END.search(joined):
+        return _tex_row_prose(joined)
+    for marker in (_LIST_ITEM, _TEX_ITEM, _HEADING):
+        if marker.match(block[0]):
+            return marker.sub("", joined, count=1)
+    return joined
+
+
 def claims(draft_text: str) -> list[tuple[int, str, str]]:
-    """(line number, citekey, the sentence carrying it) for every citation.
+    """(line number, citekey, the text carrying it) for every citation.
 
-    The sentence is reconstructed from the whole *paragraph*, not from the
-    single line the citekey sits on. Every draft this project produces is
-    hard-wrapped, so a sentence routinely spans three or four lines and
-    the citation lands on whichever one happens to hold it -- reading just
-    that line yields fragments like "." or ", or equivalently as
-    combinations of", which score against nothing and make the report
-    worthless precisely where it is meant to be used.
+    That text is whatever unit actually makes a claim where the citation
+    sits: the citing **sentence** in prose, the citing **row** in a table,
+    the citing **item** in a list, the **heading** itself when the
+    citation is in one. It is never the raw line the citekey sits on, and
+    never a whole paragraph.
 
-    Still the sentence rather than the whole paragraph, though: a
-    paragraph citing three papers would otherwise be scored identically
-    against all three, which tells a reviewer nothing about which
-    citation is the weak one.
+    Both of those were tried. Reading the *line* fails because every draft
+    this project produces is hard-wrapped, so a sentence spans three or
+    four lines and the citation lands on whichever one happens to hold it
+    -- yielding fragments like "." or ", or equivalently as combinations
+    of", which score against nothing. Reading the whole *paragraph* fails
+    the other way: a paragraph citing three papers scores identically
+    against all three, telling a reviewer nothing about which citation is
+    the weak one.
+
+    So the unit is the block (`_claim_spans`), then the sentence within it
+    (`_sentence_around`). That matters because a table or a list is one
+    blank-line paragraph containing no sentence boundary at all: reading
+    it whole quoted the entire table back as the claim, once per citekey
+    in it, and scored every row against the whole table's vocabulary --
+    the same identical-claims failure one level up. Blocks are recognised
+    in Markdown and in LaTeX, since every genre skill exports `.tex` and
+    `.pdf` beside the `.md`. Ordinary prose is unaffected: it is one
+    block, read exactly as before.
     """
     lines = draft_text.splitlines()
-    spans = _paragraph_spans(lines)
+    spans = _claim_spans(lines)
     out = []
     for line_no, citekey in citation_gate.extract_citekeys(draft_text):
-        paragraph = next(
+        block = next(
             (text for start, end, text in spans if start <= line_no <= end),
             lines[line_no - 1] if 0 < line_no <= len(lines) else "",
         )
-        out.append((line_no, citekey, _sentence_around(paragraph, citekey)))
+        out.append((line_no, citekey, _sentence_around(block, citekey)))
     return out
 
 

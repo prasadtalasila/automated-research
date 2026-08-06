@@ -78,7 +78,7 @@ collapse_citations = true
 #                dependency, and the only backend whose output keeps page
 #                boundaries (form feeds between pages).
 #   "docling"    best structural fidelity (reading order, sections,
-#                tables), needs the "heavy" dependency group.
+#                tables), needs the "enrich" dependency group.
 #
 # Two things to know before switching:
 #   - docling is roughly 42x slower than pdftotext, so a first sync over
@@ -247,8 +247,11 @@ weak_score = 0.20
 good_score = 0.50
 
 [enrich]
-# Used only by src/enrich/* (the "heavy" dependency group), never by sync
-# or the citation gate.
+# Used only by src/enrich/* (the "enrich" dependency group), never by sync
+# or the citation gate. This table was called [heavy] before 3.0.0, and
+# there is no fallback to the old name: a config.toml still spelling it
+# that way gets the defaults below, silently. See docs/CLI.md's
+# "Upgrading from 2.x".
 
 # Which sentence-transformers model backs semantic search.
 #

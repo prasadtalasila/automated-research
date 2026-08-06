@@ -301,31 +301,15 @@ the following tasks need to be completed in priority order:
    continuous auto-export, `bibliography.bib` is a manual, point-in-time
    snapshot -- a cron job watching only its mtime does nothing until a
    human re-exports it.
-2. ~~The enrichment stages have no incremental skip logic.~~ **Done.**
-   `src/enrich/embed_index.py`'s `build_index()` skips `model.encode()`
-   for docs whose text hash is unchanged since the last call;
-   `src/enrich/topic_model.py` caches per-doc whole-text embeddings the
-   same way, re-clustering the full corpus but only re-encoding changed
-   docs. `src/enrich/docling_parse.py`'s `parse_doc()`/`parse_corpus()`
-   now skip a PDF whose `(size, mtime_ns)` is unchanged since the last
-   call (cached in `config.DOCLING_CACHE_PATH`) and whose output file
-   still exists -- closing the one stage this item used to call out as
-   still reprocessing every PDF on every call (373 seconds for 5 PDFs,
-   documented above).
-3. **No scheduling mechanism exists yet** -- no crontab entry, no systemd
+2. **No scheduling mechanism exists yet** -- no crontab entry, no systemd
    timer. Given `sync` is already cheap and idempotent, a stateless cron
    entry polling every N minutes is the right shape (survives reboots
    without supervision) rather than a long-running watchdog daemon.
-4. ~~**No lock file.**~~ **Done.** `src/runlock.py` holds a
-   one-writer-at-a-time lock over `content/` for the whole of `sync` and
-   `enrich.py`; a second run exits 2 immediately. It is a dedicated
-   sqlite file rather than a PID file, so a killed holder releases it
-   with no staleness heuristic, and readers are never blocked.
-5. **No log file / failure surfacing.** `sync` prints to stdout/stderr;
+3. **No log file / failure surfacing.** `sync` prints to stdout/stderr;
    unattended it needs redirecting to a log (with rotation) and a way to
    notice repeated failures, since cron's default "mail root" often goes
    unread.
-6. **Cron's minimal environment.** A crontab entry needs the venv's
+4. **Cron's minimal environment.** A crontab entry needs the venv's
    Python invoked by absolute path
    (`/workspace/git/chitragupta/.venv-full/bin/python`) -- cron
    doesn't source your shell profile or activate venvs.
@@ -375,35 +359,6 @@ namespace rather than `doc_id`, and never sees the `papers/pdfs/`
 documents the enrichment corpus includes. `embed_index.get_text`'s
 docling-first ladder is the precedent that the reuse pattern already
 exists; the cache-key reconciliation is the work.
-
-### A dependency can shadow the standard library in spawned workers
-
-OpenCV -- transitively required by docling -- appends its own package
-directory to `sys.path` when imported, and that directory contains a
-`typing/` package. In this process the standard library usually wins the
-lookup, so nothing looks wrong. In a `spawn`ed worker it does not: spawn
-rebuilds `sys.path` from the parent's, the OpenCV entry can land ahead of
-the standard library, and `import typing` resolves to `cv2.typing`, which
-imports `cv2.dnn`, which needs `libGL.so.1`.
-
-On a host without that library -- any slim container -- every worker then
-dies before running a line of this project's code, and the parse reports
-each document as failed for a reason that names OpenCV and mentions
-neither PDFs nor docling. The entry is left on the path even when
-`import cv2` itself *fails*, so a host where OpenCV is merely broken
-poisons workers exactly like one where it works.
-
-`pdf_text.drop_stdlib_shadowing_path_entries()` removes such entries, and
-`process_pool_context()` calls it before any pool is built.
-`tests/conftest.py` does the same once per session, because the
-cross-process tests in `tests/test_runlock.py` spawn directly rather than
-through that seam.
-
-This was found as a test-suite hang (#45): the suite reached those tests,
-their spawned child died on import, and the parent waited out a timeout
-that no longer existed once a second Event entered the picture -- see
-`tests/lock_holder.py` for why the child is now killed rather than
-signalled.
 
 ### `content/topics.json` has no consumer
 
