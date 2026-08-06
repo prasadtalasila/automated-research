@@ -385,12 +385,13 @@ def run(remove_stale: bool = False, reparse: bool = False) -> int:
                     con, citekey, str(exc), transient=getattr(exc, "transient", False)
                 )
                 failed += 1
-                # Deliberately not also transient: a document that ran
-                # out of time will run out of it again next run, so
-                # retrying automatically would burn the same minutes
-                # every run and never converge. It is collected here
-                # instead, to be named in the summary with the fix that
-                # actually applies -- see the report below.
+                # Collected rather than marked transient above: what
+                # expired is a *setting*, so a document that ran out of
+                # time will run out of it again next run, and retrying
+                # automatically would spend the same minutes every run
+                # without ever converging. Naming it in the summary with
+                # the fix that applies is the useful thing to do
+                # instead -- see the report after the summary.
                 if getattr(exc, "timed_out", False):
                     timed_out.append(citekey)
                 print(f"  FAILED  {citekey}: {exc}", file=sys.stderr)
