@@ -15,6 +15,7 @@ short path; this is the full set.
   - [`src.ledger`](#python3--m-srcledger)
   - [`src.citation_gate`](#python3--m-srccitation_gate)
   - [`src.references`](#python3--m-srcreferences)
+  - [`src.dossier`](#python3--m-srcdossier)
   - [`src.citation_coverage`](#python3--m-srccitation_coverage)
   - [`src.citation_provenance`](#python3--m-srccitation_provenance)
   - [`src.render_output`](#python3--m-srcrender_output)
@@ -247,6 +248,60 @@ title and year until the next `python -m src.sync`.
 python3 -m src.references content/drafts/survey.md
 # python3 -m src.references content/drafts/thesis.md --heading "6. References"
 ```
+
+### `python3 -m src.dossier`
+
+The working state behind a draft: create it, inspect it, back it up,
+restore it. A dossier lives at `content/dossiers/` plus the draft's path
+relative to `content/drafts/`, minus the suffix -- so
+`content/drafts/dt/survey.md` gets `content/dossiers/dt/survey/`. Six
+Markdown files hold the reader, the scope, the glossary, the kept
+evidence, the rejected candidates and why, the user's steering, and a
+revision log. [DRAFT-ITERATION.md](DRAFT-ITERATION.md) is the design.
+
+Stdlib only, and never a gate: it takes no lock, only ever opens the
+ledger read-only, and reports rather than failing when there is no ledger
+or no dossier.
+
+| Subcommand | What it does |
+|---|---|
+| `init <draft> --genre G` | Create the skeleton. Only ever adds missing files -- safe to re-run |
+| `status <draft>` | What each file holds, the draft's section count, and whether the corpus moved since |
+| `sections <draft>` | Heading -> line range, for reading and editing one section instead of the file |
+| `list` | Every dossier on this machine |
+| `export [<name> ...]` | Bundle drafts + dossiers to a `.tar.gz` |
+| `restore <archive>` | Unpack a bundle. **Dry run unless `--force`** |
+
+| Flag | Applies to | What it does |
+|---|---|---|
+| `--genre GENRE` | `init` | Required: `survey`, `thesis-chapter`, `textbook-chapter`, `tutorial`, `deep-research` |
+| `--out FILE` | `export` | Archive path (default `drafts-<name>-<date>.tar.gz`) |
+| `--with-rendered` | `export` | Include `content/rendered/` too -- large, it holds the PDFs |
+| `--force` | `restore` | Actually write, overwriting what is already there |
+
+```bash
+python3 -m src.dossier init content/drafts/survey.md --genre survey
+python3 -m src.dossier status content/drafts/survey.md
+python3 -m src.dossier sections content/drafts/survey.md
+
+# Back up everything, then one topic with its PDFs
+python3 -m src.dossier export
+python3 -m src.dossier export digital-twins-for-software-engineers --with-rendered
+
+# Restore: look first, then commit to it
+python3 -m src.dossier restore drafts-all-2026-08-06.tar.gz
+python3 -m src.dossier restore drafts-all-2026-08-06.tar.gz --force
+```
+
+A bundle carries `drafts/`, `dossiers/` and optionally `rendered/`, with
+paths relative to `content/` so it restores into a checkout whose
+`[content].dir` points elsewhere. It does **not** carry
+`content/ledger.sqlite` (regenerate with `python -m src.sync`) or
+`papers/bibliography.bib` (your reference manager's export, which
+AGENTS.md keeps as the source of truth rather than something this
+pipeline copies). Restore refuses the whole archive -- rather than
+skipping a member -- if any entry is a link or device node, escapes the
+extraction directory, or sits outside those three directories.
 
 ### `python3 -m src.citation_coverage`
 

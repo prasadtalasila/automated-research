@@ -138,6 +138,13 @@ CONTENT_DIR = REPO_ROOT / _get("CONTENT_DIR", "content", "dir", default="content
 PARSED_DIR = CONTENT_DIR / "parsed"
 LEDGER_PATH = CONTENT_DIR / "ledger.sqlite"
 PROVENANCE_DIR = CONTENT_DIR / "provenance"
+# Where a genre skill saves its draft, and where src/dossier.py keeps the
+# working state that produced it -- one dossier directory per draft,
+# mirroring the draft's own path under DRAFTS_DIR (docs/DRAFT-ITERATION.md).
+# Separate from PROVENANCE_DIR, which holds generated review reports
+# (src/citation_provenance.py) rather than state a later session reads back.
+DRAFTS_DIR = CONTENT_DIR / "drafts"
+DOSSIERS_DIR = CONTENT_DIR / "dossiers"
 # Cached BM25 term-frequency index for src/retrieval.py -- keyed by a
 # cheap per-item fingerprint (parsed-file stat, not content), so a
 # search() call only re-tokenizes docs whose text actually changed since
