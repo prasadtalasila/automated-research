@@ -59,7 +59,7 @@ import re
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-from src import config, pdf_text
+from src import config, passages, pdf_text
 from src.enrich.corpus import CorpusDoc, safe_filename
 
 # Bump when a change to what parse_doc() *writes* makes an existing .md
@@ -237,44 +237,6 @@ def _relativise_image_refs(md_path: Path) -> list[str]:
     return names
 
 
-# Docling labels each text item. Running heads, page numbers and figure
-# captions are not prose a claim can be supported by, so they are left
-# out of the passage sidecar -- keeping them would let a claim "match"
-# a journal name repeated on all 17 pages.
-_PASSAGE_LABELS = frozenset({"text", "list_item", "section_header", "title"})
-
-
-def _passage_records(dl_doc) -> list[dict]:
-    """One record per prose text item: what it says and where it sits.
-
-    This is what makes a *quotable* passage possible. `pdftotext -layout`
-    preserves a page's visual arrangement rather than its reading order,
-    so on a two-column paper each output line splices together two
-    unrelated columns (82%-89% of long lines, measured over this
-    project's own sample). Any excerpt drawn from that text is a
-    two-argument collage. Docling resolves reading order, so an item here
-    is a real paragraph that can be shown to a reviewer verbatim.
-
-    The bounding box rides along because Docling already has it, and it
-    is what a future click-through highlight would need; nothing in this
-    repo consumes it yet.
-    """
-    records = []
-    for item in getattr(dl_doc, "texts", []):
-        label = str(getattr(item, "label", "")).split(".")[-1].lower()
-        text = (getattr(item, "text", "") or "").strip()
-        if label not in _PASSAGE_LABELS or not text:
-            continue
-        prov = item.prov[0] if getattr(item, "prov", None) else None
-        record = {"text": text, "label": label,
-                  "page": getattr(prov, "page_no", None) if prov else None}
-        bbox = getattr(prov, "bbox", None) if prov else None
-        if bbox is not None:
-            record["bbox"] = [getattr(bbox, side, None) for side in ("l", "t", "r", "b")]
-        records.append(record)
-    return records
-
-
 def _figure_records(doc: CorpusDoc, dl_doc, image_names: list[str] | None = None) -> list[dict]:
     """One record per extracted picture: where it sits in the source, and
     the exact string to cite it by.
@@ -332,6 +294,82 @@ def _outputs_present(stem: str) -> bool:
     if config.DOCLING_IMAGES:
         expected.append(config.DOCLING_DIR / f"{stem}.figures.json")
     return all(path.exists() for path in expected)
+
+
+def _corpus_parse_available(doc: CorpusDoc) -> bool:
+    """Whether the corpus layer has already Docling-parsed this document.
+
+    The signal is the corpus layer's own passage sidecar. Only a Docling
+    parse writes one -- `pdftotext` returns no records, and
+    `pdf_text.extract_text` clears any stale sidecar before every parse --
+    so its presence means `content/parsed/<citekey>.txt` is Docling
+    Markdown rather than column-spliced flat text.
+
+    Refused in three cases:
+
+    - a document with no citekey (`papers/pdfs/`), which the corpus layer
+      never sees at all;
+    - `config.DOCLING_IMAGES`, because the corpus layer writes no figure
+      bitmaps and no `<stem>.figures.json`, and adopting a parse that
+      lacks them would leave this stage's own output incomplete;
+    - artefacts older than the PDF, which means the PDF has been replaced
+      since the corpus layer read it.
+
+    One gap, stated rather than hidden: this cannot tell which
+    `[parser].ocr` setting produced the corpus text. But that staleness
+    already exists in `content/parsed/` the moment the setting changes --
+    adopting it here propagates it rather than creating it, and the fix is
+    the same either way (`python -m src.sync --reparse`).
+    """
+    if config.DOCLING_IMAGES or not doc.citekey or not doc.text_path:
+        return False
+    parsed = Path(doc.text_path)
+    sidecar = passages.sidecar_path(doc.citekey)
+    try:
+        pdf_mtime = os.stat(doc.pdf_path).st_mtime_ns
+        return (min(parsed.stat().st_mtime_ns, sidecar.stat().st_mtime_ns)
+                >= pdf_mtime)
+    except OSError:
+        # Either artefact missing, or an unreadable PDF -- parse it.
+        return False
+
+
+def _reuse_corpus_parse(doc: CorpusDoc, out_path: Path, stem: str) -> bool:
+    """Write this stage's outputs from the corpus layer's, without parsing.
+
+    The dependency runs the way this repository allows it to: the
+    enrichment layer reads the corpus layer's artefacts, never the
+    reverse. Nothing in `src/` outside this package changes shape to make
+    it possible, and a corpus layer that has never run docling simply
+    leaves this returning False.
+
+    What makes the two interchangeable is that both converters are built
+    from the same two settings (`config.PARSER_OCR`,
+    `config.PARSER_DOCUMENT_TIMEOUT`) and, with picture bitmaps off, ask
+    Docling for the same thing -- so for one PDF they produce the same
+    document. The passage sidecar is then literally the same records from
+    the same `passages.passage_records()`, and the Markdown differs only
+    by the form feeds the corpus layer asks for and this layer does not.
+    Removing them, and collapsing the blank run each one leaves behind,
+    gives back what `export_to_markdown()` would have returned -- the same
+    normalisation `strip_image_refs` already applies before embedding.
+
+    Worth what it saves: a full second parse of every document the corpus
+    layer has already parsed, measured at 6.65s per PDF serial
+    (docs/PERFORMANCE.md).
+    """
+    if not _corpus_parse_available(doc):
+        return False
+    markdown = Path(doc.text_path).read_text(encoding="utf-8", errors="replace")
+    # Each form feed becomes the paragraph break it sits inside, rather
+    # than being deleted: Docling writes them surrounded by blank lines,
+    # but a form feed flush against the text either side would otherwise
+    # fuse the last word of one page onto the first word of the next.
+    out_path.write_text(re.sub(r"\n{3,}", "\n\n", markdown.replace("\f", "\n\n")))
+    (config.DOCLING_DIR / f"{stem}.passages.json").write_text(
+        passages.sidecar_path(doc.citekey).read_text(encoding="utf-8")
+    )
+    return True
 
 
 def _fingerprint(doc: CorpusDoc) -> list:
@@ -419,6 +457,15 @@ def parse_doc(doc: CorpusDoc, cache: dict | None = None, converter=None) -> Path
     if cache.get(doc.doc_id) == fingerprint and _outputs_present(stem):
         return out_path
 
+    # Before the converter, for the same reason as the cache check above:
+    # a document the corpus layer has already parsed costs a file copy
+    # here instead of a second run of the slowest stage in the repository.
+    if _reuse_corpus_parse(doc, out_path, stem):
+        cache[doc.doc_id] = fingerprint
+        if owns_cache:
+            _save_cache(cache)
+        return out_path
+
     # Built here rather than above the cache check, so a fully-cached run
     # never loads Docling's models at all.
     if converter is None:
@@ -452,8 +499,12 @@ def parse_doc(doc: CorpusDoc, cache: dict | None = None, converter=None) -> Path
     # Written for every doc, images on or off: src/citation_provenance.py
     # reads it to quote a real passage rather than a window sliced out of
     # column-spliced flat text. Cheap next to the parse that produced it.
+    # Same records the corpus layer writes, from src/passages.py's one
+    # definition of what a passage is -- but keyed by doc_id and under
+    # this layer's own directory, because this parse also covers
+    # `papers/pdfs/` documents that have no citekey to key on.
     passages_path = config.DOCLING_DIR / f"{stem}.passages.json"
-    passages_path.write_text(json.dumps(_passage_records(dl_doc), indent=2))
+    passages_path.write_text(json.dumps(passages.passage_records(dl_doc), indent=2))
 
     cache[doc.doc_id] = fingerprint
     if owns_cache:
@@ -551,7 +602,19 @@ def parse_corpus(docs: list[CorpusDoc]) -> dict[str, str]:
     cache = _load_cache()
     status = {}
 
-    pending = [d for d in docs if d.pdf_path and not _is_cached(d, cache)]
+    # A document the corpus layer already parsed is kept out of `pending`
+    # for the same reason a cached one is: it must not be sent to a
+    # worker, or the run pays a process and a model load to discover
+    # there was nothing to parse. parse_doc does the actual adoption,
+    # in whichever process ends up calling it.
+    reusable = [d for d in docs if d.pdf_path and not _is_cached(d, cache)
+                and _corpus_parse_available(d)]
+    if reusable:
+        print(f"  reusing the corpus layer's docling parse for "
+              f"{len(reusable)} document(s) -- no second parse needed")
+
+    pending = [d for d in docs if d.pdf_path and not _is_cached(d, cache)
+               and d not in reusable]
     workers, complaint = pdf_text.resolve_workers(len(pending))
     if complaint:
         print(complaint)

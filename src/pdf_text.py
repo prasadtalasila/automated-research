@@ -27,7 +27,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from src import config
+from src import config, passages
 
 # Logical CPUs one docling worker is *charged*. Used both as the divisor
 # for `workers = "auto"` and as the ceiling an explicit request is
@@ -837,10 +837,16 @@ def is_available() -> bool:
     return importlib.util.find_spec(config.PARSER) is not None
 
 
-def _extract_pdftotext(pdf_path: str, out_path: Path, threads: int | None = None) -> None:
+def _extract_pdftotext(pdf_path: str, out_path: Path, threads: int | None = None) -> list[dict]:
     # threads is accepted and ignored: pdftotext is a single-threaded
     # external binary. The parameter exists so _EXTRACTORS stays a plain
     # uniform table rather than growing a per-backend call signature.
+    #
+    # Returns no passage records, for the reason src/passages.py exists:
+    # `-layout` output preserves a page's visual arrangement, so a span
+    # cut from it can splice two columns together and must not be quoted.
+    # An empty list is the honest answer, and extract_text turns it into
+    # "no sidecar" rather than a sidecar full of collages.
     try:
         subprocess.run(
             ["pdftotext", "-layout", pdf_path, str(out_path)],
@@ -859,6 +865,7 @@ def _extract_pdftotext(pdf_path: str, out_path: Path, threads: int | None = None
         ) from exc
     except subprocess.CalledProcessError as exc:
         raise ExtractionError(exc.stderr or str(exc)) from exc
+    return []
 
 
 # One converter, reused for the whole process. Docling's
@@ -1004,30 +1011,37 @@ def _demote_to_cpu() -> None:
           "Another process is most likely holding the card.", file=sys.stderr)
 
 
-def _extract_docling(pdf_path: str, out_path: Path, threads: int | None = None) -> None:
-    """Writes Markdown, and keeps nothing else Docling produced.
+def _extract_docling(pdf_path: str, out_path: Path, threads: int | None = None) -> list[dict]:
+    """Writes Markdown, and returns the passages that Markdown can't carry.
 
     `result.document` carries per-item page numbers, bounding boxes and
     semantic labels -- 336 of 336 text items on a real 17-page paper, per
     docs/CITATION-PROVENANCE.md. `export_to_markdown()` keeps the reading
-    order and drops the rest, and this function keeps only that string.
-    That is the right shape for what the corpus layer owes its callers: one
-    plain-text file per citekey for BM25 to rank.
+    order and drops the rest. One plain-text file per citekey is still the
+    right shape for what the corpus layer owes its callers -- BM25 ranks
+    text, not boxes -- so the structure leaves by a second door instead:
+    the returned records become `content/parsed/<citekey>.passages.json`,
+    rung 2 of `src/passages.py`'s ladder, and the caller (`extract_text`)
+    writes them.
 
-    It is worth knowing what it costs downstream, because it runs against
-    intuition. Markdown has no form feeds, so `src/passages.py`'s ladder
-    finds one "page" at rung 2, declines it, and falls to rung 3 -- which
-    re-extracts the PDF with `pdftotext`, the column-splicing backend the
-    ladder exists to avoid quoting from. Choosing this backend therefore
-    buys better retrieval text and *worse* quotable passages, unless the
-    enrichment layer's Docling stage has also run and written the
-    `<citekey>.passages.json` sidecar rung 1 wants.
+    Two things make that work, and both are one keyword each:
+
+    `page_break_placeholder="\\f"` puts form feeds where the pages were, so
+    this backend's output has the same shape as `pdftotext`'s and every
+    consumer that splits on them -- the passage ladder's page-level rung,
+    `scripts/verbatim_check.py` -- reports a real page instead of p.1.
+    Docling emits a break *between* consecutive pages that carry items and
+    none before the first, so splitting yields 1-based page numbers
+    directly. A page carrying no items at all contributes no break and so
+    shifts the pages after it; the sidecar is unaffected, because it
+    records each item's own `page_no` rather than counting separators.
+    `\\f` is whitespace, so BM25 tokenisation and `run_together_ratio` see
+    exactly what they saw before.
 
     src/enrich/docling_parse.py is the other consumer of this library, and
-    is not made redundant by this one: it writes that sidecar plus
-    structured Markdown per doc, from its own second parse. DEVELOPER.md's
-    "The corpus layer throws away Docling's document model" records what
-    closing the gap would take.
+    is still not made redundant by this one: it parses the PDF a second
+    time under its own OCR and figure settings, and covers `papers/pdfs/`
+    documents that have no ledger row at all.
     """
     converter = _docling_converter(threads)
     try:
@@ -1058,7 +1072,11 @@ def _extract_docling(pdf_path: str, out_path: Path, threads: int | None = None) 
             # document that cannot be parsed.
             error.transient = True
         raise error from exc
-    out_path.write_text(result.document.export_to_markdown(), encoding="utf-8")
+    out_path.write_text(
+        result.document.export_to_markdown(page_break_placeholder="\f"),
+        encoding="utf-8",
+    )
+    return passages.passage_records(result.document)
 
 
 _EXTRACTORS = {
@@ -1132,6 +1150,15 @@ def extract_text(pdf_path: str, citekey: str, threads: int | None = None) -> Pat
     render_output.MissingBinary -- rather than letting the backend's own
     not-found error surface as an uncaught traceback), or ExtractionError
     if the backend runs but fails on this particular PDF.
+
+    A backend that resolves reading order also returns passage records,
+    which are written beside the text as `<citekey>.passages.json` for
+    src/passages.py to quote from. The old sidecar is dropped *before*
+    the parse, not replaced after it, so the three ways one can outlive
+    its truth all end at "no sidecar" rather than at stale sentences
+    attributed to the current PDF: the backend changed to one that
+    resolves no reading order, this parse fails outright, or the same
+    backend re-runs over an edited PDF.
     """
     if not is_available():
         exc_cls = MissingBinary if config.PARSER == "pdftotext" else MissingDependency
@@ -1139,7 +1166,10 @@ def extract_text(pdf_path: str, citekey: str, threads: int | None = None) -> Pat
 
     config.PARSED_DIR.mkdir(parents=True, exist_ok=True)
     out_path = config.PARSED_DIR / f"{citekey}.txt"
-    _EXTRACTORS[config.PARSER](pdf_path, out_path, threads)
+    passages.clear_sidecar(citekey)
+    records = _EXTRACTORS[config.PARSER](pdf_path, out_path, threads)
+    if records:
+        passages.write_sidecar(citekey, records)
     return out_path
 
 

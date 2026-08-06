@@ -9,6 +9,7 @@ doesn't need the real package installed.
 
 import importlib.machinery
 import importlib.util
+import json
 import multiprocessing
 import shutil
 import signal
@@ -19,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from src import config, pdf_text
+from src import config, passages, pdf_text
 
 
 class TestExtractTextPdftotext:
@@ -77,17 +78,39 @@ class TestExtractTextPdftotext:
             pdf_text.extract_text(str(tmp_path / "in.pdf"), "key")
 
 
-class FakeDoclingDocument:
-    def __init__(self, markdown):
-        self._markdown = markdown
+class FakeTextItem:
+    """One entry of a DoclingDocument's `texts`, as passage_records reads
+    it: a label, the text, and a single provenance carrying the page."""
 
-    def export_to_markdown(self):
-        return self._markdown
+    def __init__(self, text, label="text", page=1):
+        self.text = text
+        self.label = label
+        self.prov = [types.SimpleNamespace(page_no=page, bbox=None)]
+
+
+class FakeDoclingDocument:
+    """Enough of a DoclingDocument for _extract_docling.
+
+    `markdown` may be a single string or a list of per-page strings. The
+    list form is what makes page breaks testable, and it mimics the real
+    serializer's placement: the placeholder goes *between* consecutive
+    pages, with none before the first or after the last. That was checked
+    against docling_core 2.89.0 on a real 51-page paper -- 51 pages in
+    the model produced 51 form-feed-separated segments, where `pdftotext`
+    on the same PDF produced 52 (it emits a trailing form feed).
+    """
+
+    def __init__(self, markdown, texts=None):
+        self._pages = markdown if isinstance(markdown, list) else [markdown]
+        self.texts = texts or []
+
+    def export_to_markdown(self, page_break_placeholder=None):
+        return (page_break_placeholder or "\n\n").join(self._pages)
 
 
 class FakeDoclingResult:
-    def __init__(self, markdown):
-        self.document = FakeDoclingDocument(markdown)
+    def __init__(self, markdown, texts=None):
+        self.document = FakeDoclingDocument(markdown, texts)
 
 
 class FakeDoclingConverter:
@@ -97,6 +120,11 @@ class FakeDoclingConverter:
     # construction re-initialises Docling's real layout/table/OCR models.
     build_count = 0
     last_format_options = None
+    # Set by a test that needs the converted document to have real pages
+    # or real text items. None leaves the default: one page of Markdown
+    # and no passages, which is what most of these cases care about.
+    next_pages = None
+    next_texts = None
 
     def __init__(self, format_options=None):
         FakeDoclingConverter.build_count += 1
@@ -119,7 +147,10 @@ class FakeDoclingConverter:
         # which fails everywhere, so the CPU fallback runs out of road.
         if "alwaysoom" in str(pdf_path):
             raise RuntimeError("CUDA out of memory. Tried to allocate 20.00 MiB")
-        return FakeDoclingResult(f"# Parsed content of {pdf_path}")
+        return FakeDoclingResult(
+            FakeDoclingConverter.next_pages or f"# Parsed content of {pdf_path}",
+            FakeDoclingConverter.next_texts,
+        )
 
     @staticmethod
     def pipeline_options():
@@ -132,6 +163,8 @@ def fake_docling(monkeypatch):
     FakeDoclingConverter.last_convert_path = None
     FakeDoclingConverter.build_count = 0
     FakeDoclingConverter.last_format_options = None
+    FakeDoclingConverter.next_pages = None
+    FakeDoclingConverter.next_texts = None
     # The cache is module state, so it survives between tests and would
     # otherwise serve one test's converter to the next.
     pdf_text._reset_docling_converter()
@@ -251,6 +284,111 @@ class TestExtractTextDocling:
 
         with pytest.raises(pdf_text.MissingDependency, match="docling"):
             pdf_text.extract_text(str(tmp_path / "in.pdf"), "key")
+
+
+class TestDoclingPageBreaks:
+    """The parsed .txt has to have the same *shape* as pdftotext's, or
+    everything downstream that splits on form feeds reports p.1."""
+
+    def test_pages_are_separated_by_form_feeds(self, isolated_config, fake_docling, tmp_path):
+        FakeDoclingConverter.next_pages = ["first page", "second page", "third page"]
+        out = pdf_text.extract_text(str(tmp_path / "paper.pdf"), "smith_2024")
+        assert out.read_text().split("\f") == ["first page", "second page", "third page"]
+
+    def test_the_split_gives_one_based_page_numbers(self, isolated_config, fake_docling, tmp_path):
+        """Docling puts a break *between* pages and none before the
+        first, so the nth segment is page n. Checked against real
+        docling_core 2.89.0 output: a 51-page paper produced exactly 51
+        segments. Deliberately not compared against pdftotext's count on
+        the same PDF -- that backend emits a trailing form feed after the
+        last page, so it yields one more segment for the same document.
+        """
+        FakeDoclingConverter.next_pages = ["alpha", "beta", "gamma"]
+        out = pdf_text.extract_text(str(tmp_path / "paper.pdf"), "smith_2024")
+        pages = out.read_text().split("\f")
+        assert pages[2 - 1] == "beta"
+
+    def test_the_form_feed_does_not_disturb_the_quality_warning(self, isolated_config):
+        """`\\f` is whitespace, so run_together_ratio's word count and
+        ratio are what they were before page breaks were restored."""
+        without = pdf_text.run_together_ratio("alpha beta gamma delta")
+        assert pdf_text.run_together_ratio("alpha beta\fgamma delta") == without
+
+
+class TestCorpusLayerPassageSidecar:
+    """The structure Markdown can't carry, written beside the text."""
+
+    @staticmethod
+    def _texts():
+        return [FakeTextItem("A reading-ordered paragraph.", page=3)]
+
+    def test_a_docling_parse_writes_one(self, isolated_config, fake_docling, tmp_path):
+        FakeDoclingConverter.next_texts = self._texts()
+        pdf_text.extract_text(str(tmp_path / "paper.pdf"), "smith_2024")
+
+        records = json.loads(passages.sidecar_path("smith_2024").read_text())
+        assert records == [
+            {"text": "A reading-ordered paragraph.", "label": "text", "page": 3}
+        ]
+
+    def test_it_sits_beside_the_parsed_text(self, isolated_config, fake_docling, tmp_path):
+        FakeDoclingConverter.next_texts = self._texts()
+        out = pdf_text.extract_text(str(tmp_path / "paper.pdf"), "smith_2024")
+        assert passages.sidecar_path("smith_2024").parent == out.parent
+
+    def test_pdftotext_writes_none(self, isolated_config, monkeypatch, tmp_path):
+        """Not an oversight: `-layout` output can splice two columns into
+        one line, so there is nothing in it that may be quoted."""
+        monkeypatch.setattr(config, "PARSER", "pdftotext")
+        monkeypatch.setattr(pdf_text, "is_available", lambda: True)
+        monkeypatch.setattr(subprocess, "run", lambda *a, **k: types.SimpleNamespace(stdout="", stderr=""))
+        pdf_text.extract_text(str(tmp_path / "paper.pdf"), "smith_2024")
+        assert not passages.sidecar_path("smith_2024").exists()
+
+    def test_switching_to_pdftotext_removes_a_stale_one(
+        self, isolated_config, monkeypatch, tmp_path
+    ):
+        """The sidecar quotes the PDF as parsed when it was written. A
+        backend that resolves no reading order must not leave the old
+        one behind for the ladder to keep quoting."""
+        passages.write_sidecar("smith_2024", [{"text": "From the docling run.", "page": 1}])
+        monkeypatch.setattr(config, "PARSER", "pdftotext")
+        monkeypatch.setattr(pdf_text, "is_available", lambda: True)
+        monkeypatch.setattr(subprocess, "run", lambda *a, **k: types.SimpleNamespace(stdout="", stderr=""))
+
+        pdf_text.extract_text(str(tmp_path / "paper.pdf"), "smith_2024")
+        assert not passages.sidecar_path("smith_2024").exists()
+
+    def test_a_failed_parse_removes_a_stale_one(self, isolated_config, fake_docling, tmp_path):
+        """The case a write-on-success ordering would miss: a citekey
+        that parsed cleanly last week and fails today would otherwise go
+        on quoting last week's text."""
+        passages.write_sidecar("smith_2024", [{"text": "From last week.", "page": 1}])
+
+        with pytest.raises(pdf_text.ExtractionError):
+            pdf_text.extract_text(str(tmp_path / "explode.pdf"), "smith_2024")
+
+        assert not passages.sidecar_path("smith_2024").exists()
+
+    def test_a_reparse_replaces_rather_than_merges(self, isolated_config, fake_docling, tmp_path):
+        FakeDoclingConverter.next_texts = [FakeTextItem("Original wording.", page=1)]
+        pdf_text.extract_text(str(tmp_path / "paper.pdf"), "smith_2024")
+
+        FakeDoclingConverter.next_texts = [FakeTextItem("Revised wording.", page=1)]
+        pdf_text.extract_text(str(tmp_path / "paper.pdf"), "smith_2024")
+
+        records = json.loads(passages.sidecar_path("smith_2024").read_text())
+        assert [r["text"] for r in records] == ["Revised wording."]
+
+    def test_a_document_with_no_prose_leaves_no_sidecar(
+        self, isolated_config, fake_docling, tmp_path
+    ):
+        """An empty record list is not written as an empty sidecar: the
+        ladder's rung 2 would then match and yield nothing, instead of
+        falling through to the page-level rung that still works."""
+        FakeDoclingConverter.next_texts = [FakeTextItem("Journal of Things", label="page_header")]
+        pdf_text.extract_text(str(tmp_path / "paper.pdf"), "smith_2024")
+        assert not passages.sidecar_path("smith_2024").exists()
 
 
 class TestUnknownParser:
