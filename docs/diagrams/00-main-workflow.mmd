@@ -10,12 +10,12 @@ flowchart TB
     BIB["<b>papers/bibliography.bib</b><br/><i>the source of truth for citekeys</i>"]
     ATT[/"<b>papers/bibliography/files/&lt;id&gt;/*.pdf</b><br/><small>the companion folder Zotero writes beside the .bib —<br/>never rename it, the <code>file</code> fields are relative paths</small>"/]
     RAW[/"papers/pdfs/*.pdf<br/><small>optional · raw PDFs you drop in by hand ·<br/><code>doc:&lt;stem&gt;</code>, never citable</small>"/]
-    ZOT -- "Export · BibTeX + ☑ Export Files" --> BIB
+    ZOT -- "Export · BibTeX + Export Files" --> BIB
     ZOT --> ATT
   end
 
   %% ─────────────── 1 · SYNC ───────────────
-  subgraph S1["<b>1 · SYNC</b> — job 1 · deterministic, no LLM, safe to run unattended · <code>python -m src.sync</code> · 🔒 holds the run lock"]
+  subgraph S1["<b>1 · SYNC</b> — the corpus layer · deterministic, no LLM, safe to run unattended · <code>python -m src.sync</code> · holds the run lock"]
     direction TB
     BR["<b>src/bib_reader.py</b><br/><small>the only module that reads the .bib</small>"]
     LED[("<b>content/ledger.sqlite</b><br/><small>one row per citekey: status, bib_fields,<br/>PDF fingerprint — re-parse only what moved</small>")]
@@ -39,7 +39,7 @@ flowchart TB
   end
 
   %% ─────────────── 3 · DRAFT ───────────────
-  subgraph S3["<b>3 · DRAFT</b> — job 2 · generative, on demand, reviewed by you"]
+  subgraph S3["<b>3 · DRAFT</b> — the drafting layer · generative, on demand, reviewed by you"]
     direction TB
     SKILLS["<b>.claude/skills/</b> — five genre skills<br/>survey-writer · thesis-chapter-writer · textbook-chapter-writer<br/>tutorial-writer · deep-research"]
     DRAFT[/"<b>content/drafts/&lt;slug&gt;.md | .tex</b>"/]
@@ -49,7 +49,7 @@ flowchart TB
   %% ─────────────── 4 · GATE ───────────────
   GATE{{"<b>THE CITATION GATE</b> · <code>python3 -m src.citation_gate</code><br/>Is every citekey in this draft present in the ledger?<br/><small>run twice: by the PostToolUse hook on every write under content/drafts/,<br/>and by the skill itself before it shows you anything</small>"}}
   BLOCK["<b>REFUSED</b> · exit 1<br/><small>the write is blocked and the chain stops</small>"]
-  ITER["<b>the skill fixes it and re-runs — itself</b><br/><small>“Fix and re-run until <code>OK</code>. Never present a draft that hasn't<br/>passed.” — all five SKILL.md files say this, in those words.<br/>It swaps the bad key for one retrieval actually returned, or drops<br/>the claim. You are shown nothing until the gate is green.</small>"]
+  ITER["<b>the skill fixes it and re-runs — itself</b><br/><small>“Fix and re-run until <code>OK</code>. Never present a draft that hasn't<br/>passed.” — every SKILL.md carries this instruction.<br/>It swaps the bad key for one retrieval actually returned, or drops<br/>the claim. You are shown nothing until the gate is green.</small>"]
 
   %% ─────────────── 5 · PUBLISH ───────────────
   subgraph S5["<b>5 · PUBLISH</b> — stdlib only, no venv needed"]
@@ -60,8 +60,8 @@ flowchart TB
     REFS --> REND --> OUT
   end
 
-  %% ─────────────── HEAVY (side branch) ───────────────
-  subgraph SH["<b>OPTIONAL · HEAVY PIPELINE</b><br/><code>scripts/full_pipeline.py --stages …</code> · 🔒 same run lock"]
+  %% ─────────────── ENRICHMENT (side branch) ───────────────
+  subgraph SH["<b>OPTIONAL · ENRICHMENT LAYER</b><br/><code>scripts/full_pipeline.py --stages …</code> · same run lock"]
     direction TB
     H1["<b>docling</b> — <i>reads the PDF itself, not content/parsed/</i><br/><small><b>content/docling/&lt;doc&gt;.md</b> — layout-aware text<br/><b>&lt;doc&gt;.passages.json</b> — the quotable-passage sidecar<br/><b>&lt;doc&gt;_artifacts/</b> — figure bitmaps, written by Docling<br/><b>&lt;doc&gt;.figures.json</b> — page, caption, cite string per figure<br/>the last two only when <code>[heavy].docling_images</code> is on</small>"]
     H2["<b>embed</b><br/><small>content/chroma/ — drop-in search(q,k)</small>"]

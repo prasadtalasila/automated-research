@@ -14,13 +14,13 @@ flowchart TB
   subgraph GEN["<b>GENERATED</b> — <code>content/</code>, all of it disposable: delete it and re-run"]
     direction TB
 
-    subgraph L1["written by <code>src.sync</code> — job 1"]
+    subgraph L1["written by <code>src.sync</code> — the corpus layer"]
       direction LR
       LED[("content/ledger.sqlite")]
       TXT[/"content/parsed/&lt;citekey&gt;.txt"/]
     end
 
-    subgraph L2["written by the heavy pipeline — opt-in"]
+    subgraph L2["written by the enrichment layer — opt-in"]
       direction LR
       DOC[/"<b>content/docling/&lt;doc&gt;.md</b><br/>+ &lt;doc&gt;.passages.json<br/><b>+ &lt;doc&gt;_artifacts/*.png</b> — figure bitmaps<br/><b>+ &lt;doc&gt;.figures.json</b> — page, caption, cite string<br/><small>the last two only when <code>[heavy].docling_images</code><br/>is on; Docling reads the <b>PDF</b>, never content/parsed/</small>"/]
       CHR[("content/chroma/")]
@@ -66,14 +66,14 @@ flowchart TB
   DRF -- "src.citation_provenance" --> PRV
 
   classDef mine fill:#fff7ed,stroke:#c2410c,color:#431407
-  classDef job1 fill:#eef2ff,stroke:#4f46e5,color:#1e1b4b
+  classDef corpus fill:#eef2ff,stroke:#4f46e5,color:#1e1b4b
   classDef heavy fill:#faf5ff,stroke:#9333ea,color:#3b0764
   classDef cache fill:#f8fafc,stroke:#94a3b8,stroke-dasharray:4 3,color:#0f172a
   classDef draft fill:#f0fdf4,stroke:#16a34a,color:#052e16
   classDef lock fill:#fefce8,stroke:#a16207,color:#422006
 
   class BIB,PDF,RAW,CFG mine
-  class LED,TXT job1
+  class LED,TXT corpus
   class DOC,CHR,TOP heavy
   class RIX,DCA,TCA cache
   class DRF,REN,PRV draft

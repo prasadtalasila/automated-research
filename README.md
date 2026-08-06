@@ -36,43 +36,15 @@ This pipeline is built to make that impossible rather than unlikely:
 
 ## How it works
 
-Five phases. You own the first, the machine owns the fourth, and nothing
-reaches the fifth without passing it.
+Five phases across three layers. You own phase 0, the **corpus layer**
+owns phase 1, the **drafting layer** owns 2 through 4, and nothing reaches
+phase 4 without passing phase 3.
 
-```mermaid
-flowchart LR
-
-  P0["<b>0 · CURATE</b><br/><i>you, in Zotero</i><br/><br/>Add papers, export<br/>BibTeX + Export Files<br/><br/><b>papers/bibliography.bib</b><br/><small>nothing else may invent a citekey</small>"]
-
-  P1["<b>1 · SYNC</b><br/><i>the corpus layer — deterministic, no LLM</i><br/><br/><code>python -m src.sync</code><br/>read bib → update ledger<br/>→ extract PDF text<br/><br/><b>content/ledger.sqlite</b><br/><b>content/parsed/*.txt</b><br/><small>idempotent · re-runs cost almost nothing</small>"]
-
-  P2["<b>2 · DRAFT</b><br/><i>the drafting layer — generative, you review</i><br/><br/>Ask a genre skill:<br/><i>“write a survey section on …”</i><br/>it retrieves only from<br/>the parsed corpus<br/><br/><b>content/drafts/&lt;slug&gt;.md</b>"]
-
-  P3{{"<b>3 · VERIFY</b><br/><i>machine-enforced</i><br/><br/><code>src.citation_gate</code><br/>Is every citekey<br/>in the ledger?"}}
-
-  P4["<b>4 · PUBLISH</b><br/><i>stdlib + Pandoc / TeX Live</i><br/><br/><code>src.references</code><br/>IEEE list from exactly<br/>the citekeys cited<br/><br/><code>render_output --format pdf</code><br/><b>content/rendered/&lt;slug&gt;.pdf</b>"]
-
-  FIX["<b>refused — exit 1</b><br/><br/>Use a citekey that exists,<br/>or add the paper in Zotero,<br/>re-export and re-sync.<br/><br/><small>A FAIL is treated like a<br/>failing test, not a lint warning.</small>"]
-
-  P0 ==> P1 ==> P2 ==> P3
-  P3 == "PASS · exit 0" ==> P4
-  P3 -- "FAIL" --> FIX
-  FIX -. "back to the bibliography" .-> P0
-
-  classDef you fill:#fff7ed,stroke:#c2410c,stroke-width:1.5px,color:#431407
-  classDef det fill:#eef2ff,stroke:#4f46e5,stroke-width:1.5px,color:#1e1b4b
-  classDef gen fill:#f0fdf4,stroke:#16a34a,stroke-width:1.5px,color:#052e16
-  classDef gate fill:#fef2f2,stroke:#dc2626,stroke-width:3px,color:#450a0a
-  classDef out fill:#faf5ff,stroke:#9333ea,stroke-width:1.5px,color:#3b0764
-  classDef bad fill:#fee2e2,stroke:#dc2626,stroke-width:1.5px,color:#450a0a
-
-  class P0 you
-  class P1 det
-  class P2 gen
-  class P3 gate
-  class P4 out
-  class FIX bad
-```
+<p align="center">
+  <img src="docs/diagrams/svg/v1-overview.svg"
+       alt="Five phases: curate in Zotero, sync the corpus, draft with a genre skill, verify with the citation gate, publish. A failing gate sends the draft back to be rewritten."
+       width="100%">
+</p>
 
 Two properties of that picture do all the work:
 
@@ -84,9 +56,22 @@ Two properties of that picture do all the work:
   it, and a `FAIL` is treated like a failing test rather than a lint
   warning.
 
+The loop back from a failed gate goes to *drafting*, not to you: the skill
+discards the unsupported claim and writes again, so a gate failure is
+normally something you never see. You only get involved in the rarer case
+where the paper genuinely isn't in the corpus yet -- the dotted arrow back
+to phase 0.
+
 Five genre skills sit behind phase 2 -- survey, thesis chapter,
 undergraduate textbook chapter, tutorial, and a heavier multi-perspective
-deep-research mode -- and all five obey the same grounding rules.
+deep-research mode -- and all five obey the same grounding rules. An
+optional third layer, **enrichment**, deepens the same corpus with
+layout-aware parsing, semantic search and topic clustering; nothing above
+needs it.
+
+The figure is `docs/diagrams/svg/v1-overview.svg`, rendered from
+[docs/DIAGRAMS.md](docs/DIAGRAMS.md), which draws this workflow eleven
+ways -- by depth, by genre, and in time order.
 
 ## Quickstart
 
@@ -108,11 +93,23 @@ mkdir -p papers && cp -r /path/to/your/export/. papers/
 
 cp config.toml.example config.toml
 
-# 2. Install dependencies. `all` = OS packages (pdftotext, TeX Live,
-#    Pandoc) plus the Python ones; with no stage it installs the Python
-#    ones only.
+# 2. Install dependencies. scripts/install_full_pipeline.sh is the only
+#    install path -- one script for a bare host and for the Docker image,
+#    taking stage names as positional arguments:
+#      python-deps  creates .venv-full/ and runs `poetry install --with
+#                   heavy` into it. The default when no stage is given.
+#      os-deps      apt-gets pdftotext, Pandoc, TeX Live, git/curl/unzip.
+#                   Needs root; auto-sudo's. Opt-in.
+#      dev-deps     pytest + pytest-cov, to run the test suite.
+#      all          os-deps + python-deps (NOT dev-deps).
+#    Poetry has to exist first -- either install it yourself, as here, or
+#    let the os-deps stage do it.
 pipx install poetry
 bash scripts/install_full_pipeline.sh all
+
+# ...and, only if you want to run the test suite:
+# bash scripts/install_full_pipeline.sh dev-deps
+# .venv-full/bin/python -m pytest
 
 # 3. Sync the corpus layer from papers/bibliography.bib. A citekey that
 #    later drops out of the bib file (a paper removed from your reference

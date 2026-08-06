@@ -5,7 +5,7 @@ sequenceDiagram
     autonumber
     actor You as You
     participant Z as Zotero
-    participant Sync as src.sync<br/>(job 1)
+    participant Sync as src.sync<br/>(corpus layer)
     participant Led as content/<br/>ledger.sqlite
     participant Ret as src.retrieval<br/>+ src.passages
     participant Skill as genre skill<br/>(.claude/skills/)

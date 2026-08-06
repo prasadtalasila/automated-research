@@ -74,11 +74,18 @@ cp config.toml.example config.toml
 # re-run sync before citing it.
 mkdir -p papers/pdfs && cp /path/to/some-paper.pdf papers/pdfs/
 
-# 2. Install Python dependencies -- creates .venv-full/ and runs
-#    `poetry install --with heavy` into it. OS-level packages (TeX Live,
-#    Pandoc, poppler-utils) are a separate, opt-in stage; see
-#    scripts/install_full_pipeline.sh below.
-bash scripts/install_full_pipeline.sh
+# 2. Install. scripts/install_full_pipeline.sh is the only install path;
+#    it takes stage names as positional arguments (see its own section
+#    below for the full table). Poetry must exist before python-deps
+#    runs -- install it yourself, or let the os-deps stage do it.
+pipx install poetry
+bash scripts/install_full_pipeline.sh os-deps      # root; pdftotext, Pandoc, TeX Live
+bash scripts/install_full_pipeline.sh python-deps  # .venv-full/ + the heavy group
+bash scripts/install_full_pipeline.sh dev-deps     # only to run the test suite
+
+# `all` is os-deps + python-deps in one call, and deliberately excludes
+# dev-deps:
+# bash scripts/install_full_pipeline.sh all
 
 # 3. Sync the corpus layer from papers/bibliography.bib.
 .venv-full/bin/python -m src.sync
@@ -362,7 +369,15 @@ bash scripts/install_full_pipeline.sh              # = python-deps
 `python-deps` and `dev-deps` also run `ensure_gpu_torch`, which detects
 the NVIDIA driver's supported CUDA ceiling and reinstalls torch from a
 matching wheel index if the default one would silently run CPU-only. It
-is idempotent and safe to re-run.
+is idempotent and safe to re-run, and prints what it decided -- `torch
+already sees the GPU (driver supports its bundled CUDA build)` when no
+reinstall was needed.
+
+**Poetry is a prerequisite, not something `python-deps` installs.** It is
+in the `os-deps` package list, so `all` covers it; if you run
+`python-deps` on its own, install Poetry first (`pipx install poetry`).
+Each stage ends by printing the exact interpreter path to use afterwards,
+which is `.venv-full/bin/python` on a normal host.
 
 ### `scripts/release.py`
 
