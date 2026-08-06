@@ -8,7 +8,7 @@ Two variables matter more than anything else, so both are switches here:
   --mode fresh    build a new DocumentConverter per PDF -- what
                   src/pdf_text.py:_extract_docling actually does today.
   --mode reused   build one converter and reuse it -- what
-                  src/heavy/docling_parse.py would do with one hoisted
+                  src/enrich/docling_parse.py would do with one hoisted
                   line. DocumentConverter.initialized_pipelines is an
                   *instance* attribute, so "fresh" re-initialises the
                   layout/table models on every single document.

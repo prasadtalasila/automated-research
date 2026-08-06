@@ -12,15 +12,15 @@ host that's missing TeX Live, some stages report
 skipped/missing-binary -- that is a correct, honest result, not a
 bug in this script.
 
-Needs the venv populated by `poetry install --with heavy` (see
+Needs the venv populated by `poetry install --with enrich` (see
 pyproject.toml, and .venv-full/ on the host this was developed on). The
 corpus and drafting layers (python -m src.sync, src/citation_gate.py) do
 not depend on any of this and are unaffected either way.
 
 Usage:
-    python scripts/full_pipeline.py --target host
-    python scripts/full_pipeline.py --stages embed,bertopic
-    python scripts/full_pipeline.py --stages render --input draft.md
+    python scripts/enrich.py --target host
+    python scripts/enrich.py --stages embed,bertopic
+    python scripts/enrich.py --stages render --input draft.md
 """
 
 import argparse
@@ -30,8 +30,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.heavy import corpus, docling_parse, embed_index, render_output, topic_model
-from src import citation_provenance, config, runlock
+from src.enrich import corpus, docling_parse, embed_index, topic_model
+from src import citation_provenance, config, render_output, runlock
 
 STAGE_ORDER = ["docling", "embed", "bertopic", "provenance", "render"]
 

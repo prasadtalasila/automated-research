@@ -70,7 +70,7 @@ what you were given:
 ```
 python3 -c "from src import retrieval; [print(r.citekey, r.snippet) for r in retrieval.search('<query>', k=10)]"
 ```
-(or `src.heavy.embed_index.search()` if `content/chroma/` exists). Filter
+(or `src.enrich.embed_index.search()` if `content/chroma/` exists). Filter
 what comes back the same way the interviewers do -- read the snippet, judge
 relevance, don't just take the top hit. Report any citekey you used this
 way in a trailing `### Sources added` block so the orchestrator can include

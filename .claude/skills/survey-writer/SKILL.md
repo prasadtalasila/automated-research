@@ -82,7 +82,7 @@ collapse them for the sake of a cleaner narrative.
 1. **Retrieve broadly, over-fetching on purpose.** Break the requested topic
    into 2-4 sub-themes if it's broad. Call `src.retrieval.search(sub_theme, k=15)`
    for each -- pull more candidates than you expect to use. This is a
-   keyword-overlap ranker, not embeddings (unless `src/heavy/embed_index.py`
+   keyword-overlap ranker, not embeddings (unless `src/enrich/embed_index.py`
    has been built for this corpus) -- a high score or short distance is a
    proxy for relevance, not a judgment of it. Don't let a top rank substitute
    for reading the snippet.
@@ -159,16 +159,16 @@ collapse them for the sake of a cleaner narrative.
 11. **Render tex and pdf.** Once the gate passes and the references section
     is built, also render the other three formats:
     ```
-    python3 -m src.heavy.render_output content/drafts/<slug>.md --format tex
-    python3 -m src.heavy.render_output content/drafts/<slug>.md --format pdf
-    python3 -m src.heavy.render_output content/drafts/<slug>.md --format md
+    python3 -m src.render_output content/drafts/<slug>.md --format tex
+    python3 -m src.render_output content/drafts/<slug>.md --format pdf
+    python3 -m src.render_output content/drafts/<slug>.md --format md
     ```
     The `md` output is a numbered copy in `content/rendered/` -- the same
     IEEE numbers as the PDF, for a reader who won't open one. The draft
     itself keeps its `[@citekey]` markers.
 
     This needs only bare `python3` plus `pandoc`/`pdflatex` on PATH — no
-    heavy venv required. If either command reports `[missing-binary]` or
+    enrich group required. If either command reports `[missing-binary]` or
     `[error]`, print a one-line warning in chat with that message and
     continue anyway — a rendering failure never blocks presenting the
     `.md` draft.

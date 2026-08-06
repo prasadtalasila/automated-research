@@ -34,7 +34,7 @@ synced corpus, simulating one editorial angle on the topic.
    or, if `content/chroma/` exists (the embedding stack has been built for
    this corpus):
    ```
-   python3 -c "from src.heavy import embed_index; [print(r) for r in embed_index.search('<query>', k=15)]"
+   python3 -c "from src.enrich import embed_index; [print(r) for r in embed_index.search('<query>', k=15)]"
    ```
 4. **Filter before using anything as evidence.** Read the actual snippet
    (500 characters by default) for each hit and judge relevance yourself --

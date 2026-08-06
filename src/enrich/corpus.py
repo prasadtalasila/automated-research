@@ -149,7 +149,7 @@ def _already_citable(pdf_path: Path, by_path: dict, by_size: dict) -> str | None
 
 def build_corpus() -> tuple[list[CorpusDoc], list[str]]:
     """(docs, complaints). Complaints are for the caller to print --
-    `scripts/full_pipeline.py` does, before it runs any stage."""
+    `scripts/enrich.py` does, before it runs any stage."""
     docs: list[CorpusDoc] = []
     complaints: list[str] = []
 

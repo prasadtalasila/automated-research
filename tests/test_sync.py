@@ -461,7 +461,7 @@ class TestRun:
         # propagate subprocess.run's bare FileNotFoundError as an
         # uncaught traceback (only CalledProcessError was ever caught
         # here) instead of being probed and reported honestly, the way
-        # every src/heavy/* stage already handles a missing binary.
+        # every src/enrich/* stage already handles a missing binary.
         monkeypatch.setattr(pdf_text, "is_available", lambda: False)
         rc = sync.run()
         out = capsys.readouterr().out
@@ -923,7 +923,7 @@ class TestGpuAssignment:
         assert "WARNING skipping cuda:0" in capsys.readouterr().err
 
     def test_the_start_method_is_pdf_texts_to_choose(self, monkeypatch):
-        """One decision, in one place: sync and src/heavy/docling_parse
+        """One decision, in one place: sync and src/enrich/docling_parse
         build the same kind of pool, and a start method hard-coded in
         each would be two that can drift apart.
 

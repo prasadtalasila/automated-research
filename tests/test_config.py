@@ -38,31 +38,31 @@ class TestGetHelpers:
         assert config._get("MY_VAR", "section", "key", default="fallback") == "fallback"
 
     def test_float_env_var_wins(self, monkeypatch):
-        monkeypatch.setattr(config, "_toml", {"heavy": {"timeout": 3.0}})
+        monkeypatch.setattr(config, "_toml", {"enrich": {"timeout": 3.0}})
         monkeypatch.setenv("MY_TIMEOUT", "9.5")
-        assert config._get_float("MY_TIMEOUT", "heavy", "timeout", default=1.0) == 9.5
+        assert config._get_float("MY_TIMEOUT", "enrich", "timeout", default=1.0) == 9.5
 
     def test_float_falls_back_to_toml_number(self, monkeypatch):
-        monkeypatch.setattr(config, "_toml", {"heavy": {"timeout": 3}})
+        monkeypatch.setattr(config, "_toml", {"enrich": {"timeout": 3}})
         monkeypatch.delenv("MY_TIMEOUT", raising=False)
-        assert config._get_float("MY_TIMEOUT", "heavy", "timeout", default=1.0) == 3.0
+        assert config._get_float("MY_TIMEOUT", "enrich", "timeout", default=1.0) == 3.0
 
     def test_float_default_when_missing(self, monkeypatch):
-        monkeypatch.setattr(config, "_toml", {"heavy": {}})
+        monkeypatch.setattr(config, "_toml", {"enrich": {}})
         monkeypatch.delenv("MY_TIMEOUT", raising=False)
-        assert config._get_float("MY_TIMEOUT", "heavy", "timeout", default=1.5) == 1.5
+        assert config._get_float("MY_TIMEOUT", "enrich", "timeout", default=1.5) == 1.5
 
     def test_float_default_when_not_a_dict(self, monkeypatch):
-        monkeypatch.setattr(config, "_toml", {"heavy": "nope"})
+        monkeypatch.setattr(config, "_toml", {"enrich": "nope"})
         monkeypatch.delenv("MY_TIMEOUT", raising=False)
-        assert config._get_float("MY_TIMEOUT", "heavy", "timeout", default=1.5) == 1.5
+        assert config._get_float("MY_TIMEOUT", "enrich", "timeout", default=1.5) == 1.5
 
     def test_float_default_when_bool_in_toml(self, monkeypatch):
         # bool is a subclass of int in Python -- must not be silently
         # accepted as a numeric timeout.
-        monkeypatch.setattr(config, "_toml", {"heavy": {"timeout": True}})
+        monkeypatch.setattr(config, "_toml", {"enrich": {"timeout": True}})
         monkeypatch.delenv("MY_TIMEOUT", raising=False)
-        assert config._get_float("MY_TIMEOUT", "heavy", "timeout", default=1.5) == 1.5
+        assert config._get_float("MY_TIMEOUT", "enrich", "timeout", default=1.5) == 1.5
 
     @pytest.mark.parametrize("raw,expected", [
         ("1", True), ("true", True), ("TRUE", True), ("yes", True), ("on", True),
@@ -74,24 +74,24 @@ class TestGetHelpers:
         ("off", False), ("", False),
     ])
     def test_bool_env_var_parses_words_not_truthiness(self, monkeypatch, raw, expected):
-        monkeypatch.setattr(config, "_toml", {"heavy": {"flag": not expected}})
+        monkeypatch.setattr(config, "_toml", {"enrich": {"flag": not expected}})
         monkeypatch.setenv("MY_FLAG", raw)
-        assert config._get_bool("MY_FLAG", "heavy", "flag", default=not expected) is expected
+        assert config._get_bool("MY_FLAG", "enrich", "flag", default=not expected) is expected
 
     def test_bool_falls_back_to_toml(self, monkeypatch):
-        monkeypatch.setattr(config, "_toml", {"heavy": {"flag": False}})
+        monkeypatch.setattr(config, "_toml", {"enrich": {"flag": False}})
         monkeypatch.delenv("MY_FLAG", raising=False)
-        assert config._get_bool("MY_FLAG", "heavy", "flag", default=True) is False
+        assert config._get_bool("MY_FLAG", "enrich", "flag", default=True) is False
 
     def test_bool_default_when_missing_or_wrong_type(self, monkeypatch):
         monkeypatch.delenv("MY_FLAG", raising=False)
-        monkeypatch.setattr(config, "_toml", {"heavy": {}})
-        assert config._get_bool("MY_FLAG", "heavy", "flag", default=True) is True
+        monkeypatch.setattr(config, "_toml", {"enrich": {}})
+        assert config._get_bool("MY_FLAG", "enrich", "flag", default=True) is True
         # A non-bool in the toml is ignored rather than coerced.
-        monkeypatch.setattr(config, "_toml", {"heavy": {"flag": "yes"}})
-        assert config._get_bool("MY_FLAG", "heavy", "flag", default=False) is False
-        monkeypatch.setattr(config, "_toml", {"heavy": "nope"})
-        assert config._get_bool("MY_FLAG", "heavy", "flag", default=True) is True
+        monkeypatch.setattr(config, "_toml", {"enrich": {"flag": "yes"}})
+        assert config._get_bool("MY_FLAG", "enrich", "flag", default=False) is False
+        monkeypatch.setattr(config, "_toml", {"enrich": "nope"})
+        assert config._get_bool("MY_FLAG", "enrich", "flag", default=True) is True
 
 
 class TestRealConfigToml:
@@ -269,7 +269,7 @@ class TestModuleReloadWithEnvOverrides:
     def test_custom_config_path(self, monkeypatch, tmp_path):
         custom_toml = tmp_path / "custom.toml"
         custom_toml.write_text(
-            '[bib]\npath = "elsewhere.bib"\n[heavy]\nembedding_model = "custom/model"\n'
+            '[bib]\npath = "elsewhere.bib"\n[enrich]\nembedding_model = "custom/model"\n'
         )
         monkeypatch.setenv("CONFIG_PATH", str(custom_toml))
         importlib.reload(config)

@@ -13,7 +13,7 @@ timings behind them are in `results/<date>-<tag>/*.jsonl`.
 
 ## Running it
 
-Needs the "heavy" Poetry group (`bash scripts/install_full_pipeline.sh
+Needs the "enrich" Poetry group (`bash scripts/install_full_pipeline.sh
 python-deps`), since it drives the real Docling stack.
 
 ```bash

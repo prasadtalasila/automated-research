@@ -25,13 +25,13 @@ bash scripts/install_full_pipeline.sh dev-deps
 .venv-full/bin/python -m pytest --cov=src --cov=scripts --cov-report=term-missing
 ```
 
-`tests/` covers both the corpus layer and `src/heavy/*` -- heavy
+`tests/` covers both the corpus layer and `src/enrich/*` -- the enrich group's
 dependencies (docling, chromadb, bertopic,
 sentence-transformers) are mocked via `sys.modules` for fast,
 deterministic unit tests, so the
-`dev-deps` group alone is *not* enough on its own: the `heavy` group
+`dev-deps` group alone is *not* enough on its own: the `enrich` group
 (`python-deps`, step 1 of Quickstart) must already be installed too, since
-`tests/test_bib_reader.py` needs `bibtexparser` and the `src/heavy/` test
+`tests/test_bib_reader.py` needs `bibtexparser` and the `src/enrich/` test
 modules need docling/chromadb/bertopic/sentence-transformers. A handful of tests
 (`tests/test_feature_workflows.py`, the `TestRenderReal`/`TestExtractTextReal`
 classes elsewhere) run the real `pdftotext`/`pandoc`/`pdflatex` binaries
@@ -95,7 +95,7 @@ checked too.
 
 ## Writing a script that drives the enrichment layer
 
-`src.heavy.docling_parse.parse_corpus` and `python -m src.sync` both use
+`src.enrich.docling_parse.parse_corpus` and `python -m src.sync` both use
 a worker pool when `[parser].workers` is above 1, and every start method
 they can pick (`forkserver` or `spawn` -- see `[parser].start_method`)
 re-imports the calling program's `__main__` in each worker. Any script of
@@ -107,7 +107,7 @@ if __name__ == "__main__":
 ```
 
 Without it, every worker re-runs the script on startup and the pool dies
-with `BrokenProcessPool`. `scripts/full_pipeline.py` and `src/sync.py`
+with `BrokenProcessPool`. `scripts/enrich.py` and `src/sync.py`
 are both guarded already; this only bites ad-hoc scripts, and it bites
 immediately rather than subtly.
 
@@ -193,21 +193,21 @@ src/                      the corpus and drafting layers (sync needs bibtexparse
   references.py             auto-generates a draft's "## References" section from its own cited citekeys,
                           as numbered IEEE entries ordered by first appearance -- the same order (and
                           so the same numbers) pandoc's citeproc assigns when the draft is rendered
-src/heavy/                optional heavier pipeline (pyproject.toml's "heavy" Poetry group)
+src/enrich/                optional heavier pipeline (pyproject.toml's "enrich" Poetry group)
   corpus.py                 unifies ledger items + [source_pdfs].dir's raw PDFs (doc: prefixed, non-citable)
   docling_parse.py, embed_index.py, topic_model.py
-  render_output.py          Pandoc/TeX Live rendering + standalone CLI -- stdlib-only, no heavy venv needed.
+  render_output.py          Pandoc/TeX Live rendering + standalone CLI -- stdlib-only, no enrich group needed.
                           `--format md` on a Markdown draft skips pandoc entirely and emits
                           references.numbered_markdown's plain numbered copy instead
 scripts/
   install_full_pipeline.sh  single staged install path (os-deps/python-deps/dev-deps/all) for host + Docker
-  full_pipeline.py           orchestrates src/heavy/* stages
+  enrich.py           orchestrates src/enrich/* stages
   verbatim_check.py          ad-hoc review aid: verbatim-overlap and page-locating checks against sources
   release.py                 bundles a distributable release/chitragupta-<version>.zip, dev files excluded
 tests/                    pytest suite -- unit tests per module + end-to-end feature tests (see "Running tests")
 content/                  generated, gitignored (regenerate with sync)
   ledger.sqlite, parsed/<citekey>.txt, provenance/,
-  docling/, chroma/, topics.json, topic_embed_cache.json, rendered/  (src/heavy/ outputs)
+  docling/, chroma/, topics.json, topic_embed_cache.json, rendered/  (src/enrich/ outputs)
 .claude/skills/           drafting layer: survey-writer, thesis-chapter-writer,
                           textbook-chapter-writer, tutorial-writer, deep-research
 .claude/agents/           deep-research's subagents: deep-research-interviewer, deep-research-writer, peer-reviewer
@@ -219,7 +219,7 @@ docker/                   Dockerfile (TeX Live/Pandoc/Poetry) -- unverified end-
 
 ## Figures and copyright
 
-With `[heavy].docling_images` on (off by default), the Docling stage writes
+With `[enrich].docling_images` on (off by default), the Docling stage writes
 each paper's figure bitmaps to `content/docling/<doc>_artifacts/` and an
 index of them to `content/docling/<doc>.figures.json`.
 
@@ -300,11 +300,11 @@ the following tasks need to be completed in priority order:
    snapshot -- a cron job watching only its mtime does nothing until a
    human re-exports it.
 2. ~~The enrichment stages have no incremental skip logic.~~ **Done.**
-   `src/heavy/embed_index.py`'s `build_index()` skips `model.encode()`
+   `src/enrich/embed_index.py`'s `build_index()` skips `model.encode()`
    for docs whose text hash is unchanged since the last call;
-   `src/heavy/topic_model.py` caches per-doc whole-text embeddings the
+   `src/enrich/topic_model.py` caches per-doc whole-text embeddings the
    same way, re-clustering the full corpus but only re-encoding changed
-   docs. `src/heavy/docling_parse.py`'s `parse_doc()`/`parse_corpus()`
+   docs. `src/enrich/docling_parse.py`'s `parse_doc()`/`parse_corpus()`
    now skip a PDF whose `(size, mtime_ns)` is unchanged since the last
    call (cached in `config.DOCLING_CACHE_PATH`) and whose output file
    still exists -- closing the one stage this item used to call out as
@@ -316,7 +316,7 @@ the following tasks need to be completed in priority order:
    without supervision) rather than a long-running watchdog daemon.
 4. ~~**No lock file.**~~ **Done.** `src/runlock.py` holds a
    one-writer-at-a-time lock over `content/` for the whole of `sync` and
-   `full_pipeline`; a second run exits 2 immediately. It is a dedicated
+   `enrich.py`; a second run exits 2 immediately. It is a dedicated
    sqlite file rather than a PID file, so a killed holder releases it
    with no staleness heuristic, and readers are never blocked.
 5. **No log file / failure surfacing.** `sync` prints to stdout/stderr;
@@ -353,9 +353,9 @@ Two mitigations, in increasing order of size:
 2. **Write the `<citekey>.passages.json` sidecar from the corpus layer**,
    from the
    document it already holds. The obstacle is the dependency direction --
-   `src/heavy/` imports the core, never the reverse (see
+   `src/enrich/` imports the core, never the reverse (see
    `docling_parse._executor_for`'s docstring) -- so `pdf_text.py` must not
-   import `_passage_records` from `src/heavy/`. Hoisting
+   import `_passage_records` from `src/enrich/`. Hoisting
    `_passage_records` and `_PASSAGE_LABELS` into `src/passages.py` fits:
    that module is stdlib-only, is already the sidecar's *reader*, and the
    function is pure `getattr` duck-typing with no docling import. Both
@@ -366,7 +366,7 @@ Two mitigations, in increasing order of size:
 Going further -- letting a corpus-layer Docling parse satisfy the
 enrichment stage's
 cache outright -- is a bigger change than it looks. With
-`[heavy].docling_images` off the two produce byte-identical Markdown
+`[enrich].docling_images` off the two produce byte-identical Markdown
 (both call `export_to_markdown()` with no arguments), but the corpus layer knows
 nothing of `_CACHE_VERSION` or `DOCLING_IMAGES`, works in the `citekey`
 namespace rather than `doc_id`, and never sees the `papers/pdfs/`
@@ -376,7 +376,7 @@ exists; the cache-key reconciliation is the work.
 
 ### `content/topics.json` has no consumer
 
-`src/heavy/topic_model.py` writes it and nothing reads it -- no module, no
+`src/enrich/topic_model.py` writes it and nothing reads it -- no module, no
 genre skill. `survey-writer` groups themes by judgement and says so
 explicitly ("With a small corpus there's no BERTopic step"). That is
 defensible today: clustering is whole-corpus, so assignments are not

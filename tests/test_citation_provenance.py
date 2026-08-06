@@ -200,7 +200,7 @@ class TestWriteReportAndCli:
         assert written["md"].exists()
 
     def test_missing_render_binary_warns_and_still_returns_md(self, isolated_config, monkeypatch, capsys):
-        from src.heavy import render_output
+        from src import render_output
 
         def raise_missing(*a, **k):
             raise render_output.MissingBinary("pandoc not found")
@@ -278,7 +278,7 @@ class TestEdgeShapes:
         assert set(cp.write_report(path, ["md"])) == {"md"}
 
     def test_renders_tex_when_the_renderer_succeeds(self, isolated_config, monkeypatch, tmp_path):
-        from src.heavy import render_output
+        from src import render_output
 
         out = tmp_path / "r.tex"
         out.write_text("tex")

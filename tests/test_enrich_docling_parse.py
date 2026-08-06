@@ -1,4 +1,4 @@
-"""src/heavy/docling_parse.py: layout-aware PDF parsing via Docling.
+"""src/enrich/docling_parse.py: layout-aware PDF parsing via Docling.
 
 Docling is mocked via sys.modules (imported lazily inside parse_doc, not
 at module top), so these stay fast and don't need real model weights.
@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 
 from src import config, pdf_text
-from src.heavy import docling_parse
-from src.heavy.corpus import CorpusDoc
+from src.enrich import docling_parse
+from src.enrich.corpus import CorpusDoc
 
 
 # Docling names artifacts image_<index>_<sha256>.png. The digest is
@@ -547,7 +547,7 @@ class TestIncrementalSkip:
         assert FakeDocumentConverter.build_count == 1
         assert isolated_config.DOCLING_CACHE_PATH.exists()
 
-        # A fresh parse_corpus call (simulating the next `full_pipeline.py`
+        # A fresh parse_corpus call (simulating the next `enrich.py`
         # run) must read that persisted cache and skip both docs.
         FakeDocumentConverter.build_count = 0
         docling_parse.parse_corpus(docs)

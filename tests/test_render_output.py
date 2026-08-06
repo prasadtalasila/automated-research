@@ -1,4 +1,4 @@
-"""src/heavy/render_output.py: Pandoc/LaTeX rendering. Stdlib + config/
+"""src/render_output.py: Pandoc/LaTeX rendering. Stdlib + config/
 citation_gate/references only (deliberately, so it runs with bare
 python3 -- see the module docstring), so these tests use the real
 pandoc/pdflatex binaries installed on this host rather than mocking
@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from src import ledger
-from src.heavy import render_output
+from src import render_output
 
 from tests.conftest import make_reference
 

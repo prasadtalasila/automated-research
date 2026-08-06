@@ -12,7 +12,7 @@ import subprocess
 import pytest
 
 from src import bib_reader, citation_gate, config, ledger, references, sync
-from src.heavy import render_output
+from src import render_output
 
 pandoc_available = shutil.which("pandoc") is not None
 pdflatex_available = shutil.which("pdflatex") is not None

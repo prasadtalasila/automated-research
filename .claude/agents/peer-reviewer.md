@@ -30,7 +30,7 @@ more than one self-critique pass.
   - **domain-accuracy** -- for every claim that carries a citation, re-read
     the actual cited source (`Read` on `content/parsed/<citekey>.txt` /
     `content/docling/<citekey>.md` if it exists, or a fresh
-    `src.retrieval.search()` / `src.heavy.embed_index.search()` call) and
+    `src.retrieval.search()` / `src.enrich.embed_index.search()` call) and
     check whether the source actually supports what's claimed. **This is
     the one check neither this project's `citation_gate.py` nor
     academic-research-skills' external-database citation triangulation

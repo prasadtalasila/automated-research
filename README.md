@@ -97,7 +97,7 @@ cp config.toml.example config.toml
 #    install path -- one script for a bare host and for the Docker image,
 #    taking stage names as positional arguments:
 #      python-deps  creates .venv-full/ and runs `poetry install --with
-#                   heavy` into it. The default when no stage is given.
+#                   enrich` into it. The default when no stage is given.
 #      os-deps      apt-gets pdftotext, Pandoc, TeX Live, git/curl/unzip.
 #                   Needs root; auto-sudo's. Opt-in.
 #      dev-deps     pytest + pytest-cov, to run the test suite.
@@ -137,8 +137,8 @@ python3 -m src.ledger
 # 6. Manually re-run any step of that chain yourself (no venv needed for any of these)
 python3 -m src.citation_gate path/to/draft.md
 python3 -m src.references path/to/draft.md --heading "References"    # --heading default: "References"
-python3 -m src.heavy.render_output path/to/draft.md --format pdf     # also: --csl, --no-collapse-citations, --documentclass, --fontsize, --margin (--help for all)
-python3 -m src.heavy.render_output path/to/draft.md --format md      # numbered Markdown copy in content/rendered/ (no pandoc needed)
+python3 -m src.render_output path/to/draft.md --format pdf     # also: --csl, --no-collapse-citations, --documentclass, --fontsize, --margin (--help for all)
+python3 -m src.render_output path/to/draft.md --format md      # numbered Markdown copy in content/rendered/ (no pandoc needed)
 
 # 7. Check the draft against its sources. Review aids, not gates: none of
 #    these runs automatically, and none of them can block a draft.
@@ -150,7 +150,7 @@ python3 -m src.citation_coverage path/to/draft.md --query "..."      # retrieval
 #    parsing, semantic search and topic clustering over the whole corpus.
 #    Nothing above needs it, and no skill builds it for you -- see
 #    docs/RETRIEVAL.md for which stage is worth your time.
-.venv-full/bin/python scripts/full_pipeline.py --stages docling,embed
+.venv-full/bin/python scripts/enrich.py --stages docling,embed
 ```
 
 Exporting from Zotero in detail, including the attachment-path trap that
@@ -188,12 +188,12 @@ arguing your point in different words, and topic clustering over the whole
 corpus.
 
 ```bash
-.venv-full/bin/python scripts/full_pipeline.py --stages docling,embed
-.venv-full/bin/python scripts/full_pipeline.py --stages render --input draft.md
+.venv-full/bin/python scripts/enrich.py --stages docling,embed
+.venv-full/bin/python scripts/enrich.py --stages render --input draft.md
 ```
 
 It costs real time and disk -- a first full-corpus parse is measured in
-tens of minutes, and the heavy dependency group is several gigabytes -- so
+tens of minutes, and the enrich dependency group is several gigabytes -- so
 you build it deliberately. **No genre skill builds it for you.** The
 skills read what is already there and fall back to the lightweight default
 when it isn't.
@@ -220,7 +220,7 @@ and expect yours to differ**:
   to the process), 251GB RAM, driver 555.42.02, verified 2026-07-30.
 
 
-| Resource | Minimum (corpus layer only) | Recommended (`src/heavy/` in regular use) |
+| Resource | Minimum (corpus layer only) | Recommended (`src/enrich/` in regular use) |
 |---|---|---|
 | Disk | ~1GB (bibtexparser + content/) | **10-20GB+** -- the full venv alone is **6.0GB** (torch pulled in twice over via sentence-transformers/docling, plus docling's own layout/OCR models); TeX Live adds several GB more on top |
 | RAM | ~1-2GB (sync, citation_gate, keyword retrieval are all lightweight) | **8GB minimum, 16GB+ better**. At ~3GB free, Docling parsing a 17-page PDF pushed the process to 3.6GB RSS and the host swapped 6.3GB -- it still finished, just slowly. Bigger PDFs or a bigger corpus will make this worse |

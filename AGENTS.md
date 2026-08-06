@@ -101,7 +101,7 @@ non-empty ledger, for the same reason at the extreme -- see
   write lock and can run for tens of minutes; starting one is the user's
   call. On an empty ledger a skill says so and stops rather than
   regenerating anything.
-- **The enrichment layer -- optional** (`scripts/full_pipeline.py`):
+- **The enrichment layer -- optional** (`scripts/enrich.py`):
   Docling, embeddings and topic modelling over the same corpus. It extends
   the *corpus* layer rather than the drafting one -- nothing in it is
   generative, everything it writes is a corpus artefact, and it takes the
@@ -113,8 +113,8 @@ non-empty ledger, for the same reason at the extreme -- see
 
 These three were called "job 1", "job 2" and "the heavy pipeline" until
 2026-08-06. The word *heavy* is now reserved for what it literally names:
-the `heavy` Poetry group, `src/heavy/`, and `config.toml`'s `[heavy]`
-table. That is a separate axis -- `src/heavy/render_output.py` is in the
+the `enrich` Poetry group, `src/enrich/`, and `config.toml`'s `[enrich]`
+table. That is a separate axis -- `src/render_output.py` is in the
 drafting layer and needs no package from the group at all.
 
 ## Config lives in `config.toml`
@@ -147,9 +147,9 @@ probe, not assume, in either direction:
   not only inside `docker/` -- there is nothing docker-exclusive about
   any of them.
 - **When they're absent:** don't hang, stack-trace, or silently skip
-  without saying so. Every `src/heavy/*` stage already self-probes its
+  without saying so. Every `src/enrich/*` stage already self-probes its
   own prerequisites and reports honestly (`ok`/`skipped`/`missing-binary`)
-  via `scripts/full_pipeline.py` rather than assuming the target implies
+  via `scripts/enrich.py` rather than assuming the target implies
   availability -- keep any new stage consistent with that pattern instead
   of inventing a new fallback policy.
 
@@ -177,18 +177,18 @@ withheld). **It has still not been built or run in this environment** (no
 Docker daemon here) -- treat it as a draft to validate, not a tested
 artifact.
 
-## The enrichment layer (`src/heavy/`, `scripts/full_pipeline.py`)
+## The enrichment layer (`src/enrich/`, `scripts/enrich.py`)
 
 Implements Docling -> sentence-transformers/Chroma ->
 BERTopic -> Pandoc/LaTeX, one script for both host and Docker
-(`scripts/full_pipeline.py --target host|docker`). Each stage self-probes
+(`scripts/enrich.py --target host|docker`). Each stage self-probes
 its own prerequisites (pandoc/pdflatex on PATH) and
 reports honestly (`skipped`/`missing-binary`) rather than assuming the
 target implies availability -- don't "fix" a skip by hardcoding
 target-specific behavior; fix the probe if it's wrong.
 
-`src/heavy/embed_index.py`, `src/heavy/topic_model.py`, and
-`src/heavy/docling_parse.py` are all incremental, mirroring
+`src/enrich/embed_index.py`, `src/enrich/topic_model.py`, and
+`src/enrich/docling_parse.py` are all incremental, mirroring
 `src/ledger.py`'s own skip-what-hasn't-changed logic for the corpus
 layer: a doc whose text hasn't changed since the last run isn't
 re-embedded, and a PDF whose `(size, mtime_ns)` hasn't changed since the
@@ -200,7 +200,7 @@ step are all local/deterministic. Any LLM-backed synthesis happens only
 via the `.claude/skills/` drafting layer, invoked through a Claude Code
 session rather than a standalone API call.
 
-`src/heavy/corpus.py` unifies two identifier namespaces: ledger items get
+`src/enrich/corpus.py` unifies two identifier namespaces: ledger items get
 `doc_id == citekey` (real, citable); raw PDFs gathered outside the bib file
 (e.g. an open metadata-API search, under `config.toml`'s `[source_pdfs].dir`
 default `papers/pdfs/*.pdf`) get `doc:<filename stem>`, which can never
@@ -222,8 +222,8 @@ use by default. Term-frequency stats per document are cached to disk
 (parsed-file stat, not content) so a call only re-tokenizes documents
 whose text actually changed since the last run -- the same incremental
 principle as `src/ledger.py`'s stat-before-hash skip logic and
-`src/heavy/embed_index.py`'s embedding cache, just scoped to
-`src/retrieval.py` itself (this doesn't touch `sync`). `src/heavy/embed_index.py`
+`src/enrich/embed_index.py`'s embedding cache, just scoped to
+`src/retrieval.py` itself (this doesn't touch `sync`). `src/enrich/embed_index.py`
 (sentence-transformers + Chroma) is a verified, working upgrade path with
 a matching `search(query, k)` shape, ready to swap in without changing
 callers once BM25 stops being enough -- that's a deliberate call to make
@@ -262,13 +262,13 @@ Before saying so, actually run, in this repo:
 - At least one real end-to-end smoke test that exercises the actual
   change against real dependencies, not only its mocked unit tests --
   e.g. if you touch a CLI script, run it for real; if you touch
-  `src/heavy/*` and the heavy Poetry group is installed, run it against
+  `src/enrich/*` and the heavy Poetry group is installed, run it against
   the real sentence-transformers/chromadb/bertopic stack, not just
   `sys.modules`-mocked fakes. Unit tests catch regressions in logic;
   smoke tests catch wrong assumptions about how the real library actually
   behaves (this project's test suite has caught real fake-vs-real
-  behavior drift this way before -- see `tests/test_heavy_embed_index.py`
-  and `tests/test_heavy_topic_model.py`'s own comments).
+  behavior drift this way before -- see `tests/test_enrich_embed_index.py`
+  and `tests/test_enrich_topic_model.py`'s own comments).
 
 Only once all of the above are green does a task count as complete.
 

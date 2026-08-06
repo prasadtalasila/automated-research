@@ -49,7 +49,7 @@ Per round (repeat for ROUNDS):
 1. **Ask one persona-guided question** -- never repeat a prior question in
    this interview; go deeper each round.
 2. **Question -> up to 3 search-query reformulations** against this
-   project's corpus (`src.retrieval.search()`, or `src.heavy.embed_index.search()`
+   project's corpus (`src.retrieval.search()`, or `src.enrich.embed_index.search()`
    if that stack has been built for this corpus).
 3. **Retrieve and filter**: run the queries, read the actual snippets
    (500 chars by default from both `search()` functions), keep only what

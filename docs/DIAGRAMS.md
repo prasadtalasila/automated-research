@@ -126,7 +126,7 @@ flowchart TB
 
   F["<b>6 · Ask for a draft</b><br/><i>“write a survey section on digital twin composability”</i><br/><small>in Claude Code. The matching skill in <code>.claude/skills/</code><br/>picks it up and runs its own gate → references → render chain,<br/><b>looping on the gate until it exits 0</b> before showing you anything.</small>"]
 
-  G["<b>7 · Or drive that chain by hand</b><br/><code>python3 -m src.citation_gate &lt;draft&gt;</code> &nbsp;<i>← fix and repeat until OK</i><br/><code>python3 -m src.references &lt;draft&gt;</code><br/><code>python3 -m src.heavy.render_output &lt;draft&gt; --format pdf</code><br/><small>bare <code>python3</code> — none of these need the venv</small>"]
+  G["<b>7 · Or drive that chain by hand</b><br/><code>python3 -m src.citation_gate &lt;draft&gt;</code> &nbsp;<i>← fix and repeat until OK</i><br/><code>python3 -m src.references &lt;draft&gt;</code><br/><code>python3 -m src.render_output &lt;draft&gt; --format pdf</code><br/><small>bare <code>python3</code> — none of these need the venv</small>"]
 
   DONE(["<b>content/rendered/&lt;slug&gt;.pdf</b>"])
 
@@ -212,7 +212,7 @@ flowchart TB
     direction LR
     XOR{{"which ranker?<br/><small>the genre skill picks</small>"}}
     BM25["<b>src/retrieval.py</b> · BM25<br/><small>stdlib keyword overlap, cached term-frequency index.<br/><b>the default every skill starts from</b></small>"]
-    EMB["<b>src/heavy/embed_index.py</b> · semantic<br/><small>same <code>search(q, k)</code> signature, so it is a drop-in.<br/>Named as the alternative by <code>survey-writer</code><br/>and <code>deep-research</code> — and only by those two.</small>"]
+    EMB["<b>src/enrich/embed_index.py</b> · semantic<br/><small>same <code>search(q, k)</code> signature, so it is a drop-in.<br/>Named as the alternative by <code>survey-writer</code><br/>and <code>deep-research</code> — and only by those two.</small>"]
     PASS["<b>src/passages.py</b> · evidence ladder<br/><small>docling sidecar → page → pdftotext</small>"]
     XOR -- "default" --> BM25
     XOR -. "only if content/chroma/ was built" .-> EMB
@@ -237,15 +237,15 @@ flowchart TB
   subgraph S5["<b>5 · PUBLISH</b> — stdlib only, no venv needed"]
     direction TB
     REFS["<b>python3 -m src.references</b><br/><small>IEEE ## References, numbered by first appearance,<br/>built only from citekeys the draft actually cites.<br/>Skipped for thesis .tex fragments, where the<br/>surrounding LaTeX owns the bibliography.</small>"]
-    REND["<b>python3 -m src.heavy.render_output</b><br/><small>pandoc --citeproc + assets/csl/ieee.csl</small>"]
+    REND["<b>python3 -m src.render_output</b><br/><small>pandoc --citeproc + assets/csl/ieee.csl</small>"]
     OUT[/"<b>content/rendered/&lt;slug&gt;.pdf | .tex | .docx | .md</b>"/]
     REFS --> REND --> OUT
   end
 
   %% ─────────────── ENRICHMENT (side branch) ───────────────
-  subgraph SH["<b>OPTIONAL · ENRICHMENT LAYER</b><br/><code>scripts/full_pipeline.py --stages …</code> · same run lock"]
+  subgraph SH["<b>OPTIONAL · ENRICHMENT LAYER</b><br/><code>scripts/enrich.py --stages …</code> · same run lock"]
     direction TB
-    H1["<b>docling</b> — <i>reads the PDF itself, not content/parsed/</i><br/><small><b>content/docling/&lt;doc&gt;.md</b> — layout-aware text<br/><b>&lt;doc&gt;.passages.json</b> — the quotable-passage sidecar<br/><b>&lt;doc&gt;_artifacts/</b> — figure bitmaps, written by Docling<br/><b>&lt;doc&gt;.figures.json</b> — page, caption, cite string per figure<br/>the last two only when <code>[heavy].docling_images</code> is on</small>"]
+    H1["<b>docling</b> — <i>reads the PDF itself, not content/parsed/</i><br/><small><b>content/docling/&lt;doc&gt;.md</b> — layout-aware text<br/><b>&lt;doc&gt;.passages.json</b> — the quotable-passage sidecar<br/><b>&lt;doc&gt;_artifacts/</b> — figure bitmaps, written by Docling<br/><b>&lt;doc&gt;.figures.json</b> — page, caption, cite string per figure<br/>the last two only when <code>[enrich].docling_images</code> is on</small>"]
     H2["<b>embed</b><br/><small>content/chroma/ — drop-in search(q,k)</small>"]
     H3["<b>bertopic</b><br/><small>content/topics.json</small>"]
     H1 --> H2 --> H3
@@ -272,7 +272,7 @@ flowchart TB
   LED == "the ledger is the<br/>only authority the<br/>gate consults" ==> GATE
   LED --> REFS
   ATT -. "the PDF, direct" .-> H1
-  RAW -. "src/heavy/corpus.py" .-> H1
+  RAW -. "src/enrich/corpus.py" .-> H1
   H1 -.-> PASS
   H2 -.-> EMB
   DRAFT --> SA
@@ -312,7 +312,7 @@ Nothing under `papers/` is disposable, and neither is `config.toml`; both
 are gitignored and per-host, so they are also the only things a backup
 needs to contain.
 
-With `[heavy].docling_images` on, `docling` also writes each document's
+With `[enrich].docling_images` on, `docling` also writes each document's
 figure bitmaps into `<doc>_artifacts/` and an index of them in
 `<doc>.figures.json` -- page, caption, and the string to cite each figure
 by. Those are a reading aid for checking a draft against its sources.
@@ -341,7 +341,7 @@ flowchart TB
 
     subgraph L2["written by the enrichment layer — opt-in"]
       direction LR
-      DOC[/"<b>content/docling/&lt;doc&gt;.md</b><br/>+ &lt;doc&gt;.passages.json<br/><b>+ &lt;doc&gt;_artifacts/*.png</b> — figure bitmaps<br/><b>+ &lt;doc&gt;.figures.json</b> — page, caption, cite string<br/><small>the last two only when <code>[heavy].docling_images</code><br/>is on; Docling reads the <b>PDF</b>, never content/parsed/</small>"/]
+      DOC[/"<b>content/docling/&lt;doc&gt;.md</b><br/>+ &lt;doc&gt;.passages.json<br/><b>+ &lt;doc&gt;_artifacts/*.png</b> — figure bitmaps<br/><b>+ &lt;doc&gt;.figures.json</b> — page, caption, cite string<br/><small>the last two only when <code>[enrich].docling_images</code><br/>is on; Docling reads the <b>PDF</b>, never content/parsed/</small>"/]
       CHR[("content/chroma/")]
       TOP[/"content/topics.json"/]
     end
@@ -368,20 +368,20 @@ flowchart TB
   BIB -- "src/bib_reader.py" --> LED
   PDF -- "src/pdf_text.py" --> TXT
   LED -- "which PDFs need a parse" --> TXT
-  RAW -- "src/heavy/corpus.py<br/><small>doc:&lt;stem&gt;, never a citekey</small>" --> DOC
-  TXT -- "src/heavy/embed_index.py" --> CHR
-  PDF -- "src/heavy/docling_parse.py" --> DOC
+  RAW -- "src/enrich/corpus.py<br/><small>doc:&lt;stem&gt;, never a citekey</small>" --> DOC
+  TXT -- "src/enrich/embed_index.py" --> CHR
+  PDF -- "src/enrich/docling_parse.py" --> DOC
   DOC --> CHR
-  TXT -- "src/heavy/topic_model.py<br/><small>whole-doc embeddings — its own cache,<br/>not the Chroma collection</small>" --> TOP
+  TXT -- "src/enrich/topic_model.py<br/><small>whole-doc embeddings — its own cache,<br/>not the Chroma collection</small>" --> TOP
 
   TXT -- "src/retrieval.py" --> RIX
 
   RIX -- "<b>src/retrieval.py</b> · BM25 hits<br/><small>the default path</small>" --> DRF
-  CHR -. "<b>src/heavy/embed_index.py</b> · semantic hits<br/><small><b>either this or BM25 — never both.</b> Only<br/>survey-writer and deep-research name it.</small>" .-> DRF
+  CHR -. "<b>src/enrich/embed_index.py</b> · semantic hits<br/><small><b>either this or BM25 — never both.</b> Only<br/>survey-writer and deep-research name it.</small>" .-> DRF
   DOC -- "src/passages.py<br/>quotable passages" --> DRF
   LED -- "src/references.py<br/>bib_fields → IEEE entries" --> DRF
   DRF == "<b>src.citation_gate</b> — FAIL rewrites the draft in place,<br/>and the skill re-runs it until it exits 0" ==> DRF
-  DRF -- "src.heavy.render_output<br/><small>only after the gate passes</small>" --> REN
+  DRF -- "src.render_output<br/><small>only after the gate passes</small>" --> REN
   DRF -- "src.citation_provenance" --> PRV
 
   classDef mine fill:#fff7ed,stroke:#c2410c,color:#431407
@@ -611,7 +611,7 @@ these are the two skills that pay off the enrichment layer: `docling` for
 passages good enough to survive review, and `embed` for semantic recall --
 finding the paper that makes your point in words you didn't search for.
 They are also the only two skills whose SKILL.md names
-`src.heavy.embed_index.search()` as an alternative to BM25.
+`src.enrich.embed_index.search()` as an alternative to BM25.
 
 `deep-research` is the only skill that reads `papers/pdfs/` -- the
 non-citable source-PDF tray -- and it may only discuss those documents by
@@ -631,7 +631,7 @@ flowchart LR
 
   P1["<b>1 · SYNC</b><br/><i>deterministic</i><br/><br/><code>python -m src.sync</code><br/><br/><b>content/ledger.sqlite</b><br/><b>content/parsed/*.txt</b>"]
 
-  HEAVY["<b>ENRICHMENT — worth it for this genre</b><br/><code>full_pipeline.py --stages docling,embed</code><br/><br/><b>docling</b> → layout-aware .md + .passages.json<br/><small>better quotable passages, so claims survive review</small><br/><br/><b>embed</b> → content/chroma/<br/><small>semantic recall: finds the paper that argues the<br/>point in different words. <b>Both skills name<br/><code>embed_index.search()</code> by hand.</b></small>"]
+  HEAVY["<b>ENRICHMENT — worth it for this genre</b><br/><code>enrich.py --stages docling,embed</code><br/><br/><b>docling</b> → layout-aware .md + .passages.json<br/><small>better quotable passages, so claims survive review</small><br/><br/><b>embed</b> → content/chroma/<br/><small>semantic recall: finds the paper that argues the<br/>point in different words. <b>Both skills name<br/><code>embed_index.search()</code> by hand.</b></small>"]
 
   P2["<b>2 · DRAFT</b><br/><i>every sentence is a cited claim</i><br/><br/><b>survey-writer</b> — over-fetch <code>k=15</code>,<br/>hand-cluster into 2-4 sub-themes,<br/>comparison table + gap analysis<br/><br/><b>deep-research</b> — perspectives,<br/>parallel interviews, contradiction map,<br/>then cited sections<br/><br/><b>content/drafts/&lt;slug&gt;.md</b>"]
 
@@ -688,7 +688,7 @@ So the enrichment layer is mostly wasted here. Neither SKILL.md mentions
 Building a semantic index to place four citations is effort in the wrong
 place. The rendering they do want at the end is not an enrichment stage
 at all -- `render_output` is the drafting layer's own publish step, and
-needs no package from the `heavy` group.
+needs no package from the `enrich` group.
 
 This is also the one genre where **the gate can legitimately pass with
 zero citations**, and both SKILL.md files say so. An empty reference list
@@ -706,7 +706,7 @@ flowchart LR
 
   P1["<b>1 · SYNC</b><br/><i>deterministic</i><br/><br/><code>python -m src.sync</code><br/><br/><b>content/ledger.sqlite</b><br/><b>content/parsed/*.txt</b>"]
 
-  HEAVY["<b>ENRICHMENT — not worth it here</b><br/><br/><s>docling</s> · <s>embed</s> · <s>bertopic</s><br/><small>Neither SKILL.md mentions <code>embed_index</code>.<br/>Both use <code>src.retrieval.search()</code> — <b>BM25, stdlib</b> —<br/>and building a semantic index to place four<br/>citations is effort spent in the wrong place.</small><br/><br/><b>render</b> is <i>not</i> an enrichment stage<br/><small>it is the drafting layer's own publish step —<br/><code>full_pipeline.py --stages render</code> only wraps it</small>"]
+  HEAVY["<b>ENRICHMENT — not worth it here</b><br/><br/><s>docling</s> · <s>embed</s> · <s>bertopic</s><br/><small>Neither SKILL.md mentions <code>embed_index</code>.<br/>Both use <code>src.retrieval.search()</code> — <b>BM25, stdlib</b> —<br/>and building a semantic index to place four<br/>citations is effort spent in the wrong place.</small><br/><br/><b>render</b> is <i>not</i> an enrichment stage<br/><small>it is the drafting layer's own publish step —<br/><code>enrich.py --stages render</code> only wraps it</small>"]
 
   P2["<b>2 · DRAFT</b><br/><i>mostly original content</i><br/><br/><b>tutorial-writer</b> — one path, keyboard-first,<br/>verified to actually run. Citations are<br/><b>banned mid-lesson</b>; they live only in<br/>a closing “Where to go next”.<br/><br/><b>textbook-chapter-writer</b> — objectives,<br/>worked examples, exercises. Cites for<br/><b>motivation and background only</b>.<br/><br/><b>content/drafts/&lt;slug&gt;.md</b>"]
 

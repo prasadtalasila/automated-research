@@ -444,7 +444,7 @@ def cuda_is_initialised() -> bool:
     the question can never be what makes the answer true.
 
     Deliberately about the observed state rather than about who caused
-    it: gpu_count is no longer the only candidate (src/heavy/embed_index
+    it: gpu_count is no longer the only candidate (src/enrich/embed_index
     runs sentence-transformers, and a library caller may have done
     anything at all before calling in), and a start method chosen from
     "did anyone touch CUDA" is right in all of those cases while one
@@ -538,7 +538,7 @@ def start_method() -> tuple[str, str | None]:
     trade off.
 
     The CUDA check survives anyway, because a caller can initialise CUDA
-    in this process by other means (src/heavy/embed_index does), and
+    in this process by other means (src/enrich/embed_index does), and
     forkserver's own server process is started by the first pool -- which
     is well after that could have happened.
     """
@@ -654,7 +654,7 @@ def worker_device() -> str | None:
     """The CUDA device this worker claimed, or None if it claimed none.
 
     The public read of the process-global set by init_worker, so other
-    modules (src/heavy/docling_parse.py) don't reach into this one's
+    modules (src/enrich/docling_parse.py) don't reach into this one's
     internals to build their own converters.
     """
     return _WORKER_DEVICE
@@ -730,7 +730,7 @@ class MissingBinary(BackendUnavailable):
 
 class MissingDependency(BackendUnavailable):
     """docling specifically isn't installed (not on PATH --
-    a Python package, via pyproject.toml's "heavy" Poetry group)."""
+    a Python package, via pyproject.toml's "enrich" Poetry group)."""
 
 
 class ExtractionError(RuntimeError):
@@ -744,7 +744,7 @@ _INSTALL_HINT = {
     ),
     "docling": (
         "the 'docling' package isn't usable (not installed, or a "
-        "transitive dependency is broken). Run 'poetry install --with heavy' "
+        "transitive dependency is broken). Run 'poetry install --with enrich' "
         "(scripts/install_full_pipeline.sh python-deps) to extract PDF text with it."
     ),
 }
@@ -968,7 +968,7 @@ def _extract_docling(pdf_path: str, out_path: Path, threads: int | None = None) 
     heavy Docling stage has also run and written the
     `<citekey>.passages.json` sidecar rung 1 wants.
 
-    src/heavy/docling_parse.py is the other consumer of this library, and
+    src/enrich/docling_parse.py is the other consumer of this library, and
     is not made redundant by this one: it writes that sidecar plus
     structured Markdown per doc, from its own second parse. DEVELOPER.md's
     "The corpus layer throws away Docling's document model" records what
@@ -982,7 +982,7 @@ def _extract_docling(pdf_path: str, out_path: Path, threads: int | None = None) 
         raise
     except Exception as exc:  # noqa: BLE001 -- docling has no narrower
         # common exception type to catch (same reporting shape as
-        # src/heavy/docling_parse.py's own parse_corpus loop).
+        # src/enrich/docling_parse.py's own parse_corpus loop).
         #
         # The converter is deliberately NOT discarded here: the failure
         # is in this one PDF, not in the models, and throwing it away
@@ -1073,7 +1073,7 @@ def extract_text(pdf_path: str, citekey: str, threads: int | None = None) -> Pat
     config.PARSER's backend.
 
     Raises MissingBinary/MissingDependency if that backend isn't usable
-    on this host (probe-and-report, like every src/heavy/* stage -- see
+    on this host (probe-and-report, like every src/enrich/* stage -- see
     render_output.MissingBinary -- rather than letting the backend's own
     not-found error surface as an uncaught traceback), or ExtractionError
     if the backend runs but fails on this particular PDF.

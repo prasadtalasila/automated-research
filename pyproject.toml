@@ -9,7 +9,7 @@
 [tool.poetry]
 package-mode = false
 name = "chitragupta"
-version = "2.5.0"
+version = "3.0.0"
 description = "Bib-sync, citation-gate, and genre-writing pipeline for a research corpus."
 authors = ["Prasad Talasila"]
 license = "MIT"
@@ -28,8 +28,8 @@ bibtexparser = ">=1.4,<2.0"
 # src/bib_reader.py -- the sole source of citekeys -- doesn't use. Don't
 # relax this ceiling without rewriting that module against v2's API first.
 
-# Optional group (`poetry install --with heavy`): everything src/heavy/*
-# (the Docling/embeddings/Pandoc pipeline, scripts/full_pipeline.py)
+# Optional group (`poetry install --with enrich`): everything src/enrich/*
+# (the Docling/embeddings/Pandoc pipeline, scripts/enrich.py)
 # needs. All of the below were installed and import-verified in a host
 # venv on 2026-07-28 (docker/requirements-full.txt, since replaced by this
 # group); sentence-transformers/chromadb/bertopic/docling were also
@@ -51,10 +51,10 @@ bibtexparser = ">=1.4,<2.0"
 # see that function's own comment for why a driver-aware post-install
 # step is unavoidable here; poetry has no concept of "pick a different
 # index based on the host's GPU driver").
-[tool.poetry.group.heavy]
+[tool.poetry.group.enrich]
 optional = true
 
-[tool.poetry.group.heavy.dependencies]
+[tool.poetry.group.enrich.dependencies]
 sentence-transformers = ">=5.6,<6.0"
 chromadb = ">=1.5,<2.0"
 bertopic = ">=0.17,<0.18"
@@ -63,9 +63,9 @@ docling = ">=2.115,<3.0"
 # Optional group (`poetry install --with dev`): pytest/pytest-cov are
 # dev-time tooling, not needed to run the pipeline itself -- but the test
 # suite they run is NOT correspondingly light: tests/ exercises
-# bibtexparser (bib_reader) and the whole heavy group
+# bibtexparser (bib_reader) and the whole enrich group
 # (docling/chromadb/bertopic/sentence-transformers via
-# their own test modules), so `poetry install --with heavy` must already
+# their own test modules), so `poetry install --with enrich` must already
 # have run before `--with dev` for the full suite to pass.
 [tool.poetry.group.dev]
 optional = true
@@ -82,7 +82,7 @@ pythonpath = ["."]
 source = ["src", "scripts"]
 branch = true
 omit = [
-    "*/heavy/__init__.py",
+    "*/enrich/__init__.py",
 ]
 
 [tool.coverage.report]

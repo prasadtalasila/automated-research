@@ -2,7 +2,7 @@
 
 Layout-aware parsing (headings, tables, reading order) -- a step up from
 the corpus layer's plain pdftotext. Needs `docling` from
-pyproject.toml's "heavy" Poetry group, in a venv; heavy (its own
+pyproject.toml's "enrich" Poetry group, in a venv; heavy (its own
 layout/OCR models), so this is the stage most likely to be slow or fail
 on a small/CPU-only host. Output is Markdown, written per-doc so a
 failure on one document doesn't lose progress on the others.
@@ -38,7 +38,7 @@ stale until something else invalidates the cache entry (deleting it, or
 deleting the .md itself -- see below). That's a real gap, not a free
 trade-off the way it is in ledger.py (there, hashing is the fallback
 that stat merely defers); accepted here because Docling is opt-in
-(`full_pipeline.py --stages docling`, not part of `sync`) and a source
+(`enrich.py --stages docling`, not part of `sync`) and a source
 this stale-cache-prone is rare enough not to warrant sha256-hashing every
 PDF up front just to guard against it. The cache also re-checks that the
 expected output file still exists before trusting a fingerprint match,
@@ -60,7 +60,7 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from src import config, pdf_text
-from src.heavy.corpus import CorpusDoc, safe_filename
+from src.enrich.corpus import CorpusDoc, safe_filename
 
 # Bump when a change to what parse_doc() *writes* makes an existing .md
 # stale even though its PDF hasn't changed -- the (size, mtime_ns)
@@ -108,7 +108,7 @@ def _save_cache(cache: dict) -> None:
     """Atomic write-then-replace so a process killed mid-save leaves the
     previous, still-valid cache in place instead of a torn file --
     doesn't need src/retrieval.py's per-writer-unique temp name (its
-    concurrent-subagent scenario doesn't apply: full_pipeline.py runs
+    concurrent-subagent scenario doesn't apply: enrich.py runs
     this stage from a single process).
 
     A failure to persist (permission, disk full) is reported, not
@@ -369,7 +369,7 @@ def _executor_for(workers: int):
     method pdf_text.process_pool_context picks.
 
     Kept as its own function here rather than imported from sync so that
-    src/heavy/ doesn't depend on the core entrypoint -- the dependency
+    src/enrich/ doesn't depend on the core entrypoint -- the dependency
     runs the other way everywhere else in this repo.
 
     That duplication is the reason this takes `usable_devices()` rather
@@ -468,7 +468,7 @@ class _LazyConverter:
     building it once means Docling's layout/table/OCR models load once
     rather than per document (16.5s of measured cold start each time),
     and deferring the build means a fully-cached run -- the common case
-    for a re-run of `full_pipeline.py --stages docling` -- never loads
+    for a re-run of `enrich.py --stages docling` -- never loads
     them at all.
     """
 
@@ -545,7 +545,7 @@ def parse_corpus(docs: list[CorpusDoc]) -> dict[str, str]:
     step. A script that calls this must therefore guard its top level
     with `if __name__ == "__main__":`, or every worker re-runs it on
     startup and the pool dies with BrokenProcessPool.
-    scripts/full_pipeline.py and src/sync.py both do; an ad-hoc script
+    scripts/enrich.py and src/sync.py both do; an ad-hoc script
     that doesn't will fail immediately rather than subtly.
     """
     cache = _load_cache()

@@ -14,7 +14,7 @@ this document can stay a reference rather than an argument.
   - [`[render]` -- citation style](#render----citation-style)
   - [`[parser]` -- PDF text extraction](#parser----pdf-text-extraction)
   - [`[provenance]` -- citation-support bands](#provenance----citation-support-bands)
-  - [`[heavy]` -- the optional enrichment layer](#heavy----the-optional-enrichment-layer)
+  - [`[enrich]` -- the optional enrichment layer](#heavy----the-optional-enrichment-layer)
 - [How values are parsed](#how-values-are-parsed)
 - [Notes on individual settings](#notes-on-individual-settings)
 - [Choosing an embedding model](#choosing-an-embedding-model)
@@ -108,7 +108,7 @@ used as given.
 
 ### `[render]` -- citation style
 
-Used only by `src/heavy/render_output.py`, never by `sync` or the
+Used only by `src/render_output.py`, never by `sync` or the
 citation gate.
 
 | Key | Env var | Accepts | Default |
@@ -202,9 +202,9 @@ not a pass/fail line, so tuning them precisely would be false precision.
 Neither is range-checked, and nothing enforces
 `weak_score < good_score`.
 
-### `[heavy]` -- the optional enrichment layer
+### `[enrich]` -- the optional enrichment layer
 
-Used only by `src/heavy/*` (the `heavy` dependency group), never by
+Used only by `src/enrich/*` (the `heavy` dependency group), never by
 `sync` or the citation gate.
 
 | Key | Env var | Accepts | Default in code | In `config.toml.example` |
@@ -254,7 +254,7 @@ removed through that same seam.
 | Backend | Dependency | Page boundaries? | Speed |
 |---|---|---|---|
 | `pdftotext` (default) | `poppler-utils` on `PATH` | **Yes** -- form feeds between pages | Fastest |
-| `docling` | `docling`, `heavy` group | No -- one continuous document | ~42x slower; see [PERFORMANCE.md](PERFORMANCE.md#parserbackend----pdftotext-or-docling) |
+| `docling` | `docling`, `enrich` group | No -- one continuous document | ~42x slower; see [PERFORMANCE.md](PERFORMANCE.md#parserbackend----pdftotext-or-docling) |
 
 **Losing page boundaries is not cosmetic.**
 `scripts/verbatim_check.py` reports which PDF page a verbatim run came
@@ -270,13 +270,13 @@ it are in
 [PDF-PARSER.md](PDF-PARSER.md) has the full fidelity comparison.
 
 **Setting `backend = "docling"` does not fold docling into the
-enrichment layer, and does not make `src/heavy/docling_parse.py` redundant.**
+enrichment layer, and does not make `src/enrich/docling_parse.py` redundant.**
 They are two independent consumers of the same library:
 
 - **`src/pdf_text.py`** (the corpus layer, on `sync`) extracts plain text per
   citekey into `content/parsed/<citekey>.txt` for BM25 retrieval. docling
   here is a higher-fidelity substitute for `pdftotext`'s job.
-- **`src/heavy/docling_parse.py`** (the enrichment layer, opt-in) produces
+- **`src/enrich/docling_parse.py`** (the enrichment layer, opt-in) produces
   structured
   Markdown for the whole corpus into `content/docling/`, feeding the
   embedding and topic stages that need real reading order and section
@@ -424,11 +424,11 @@ not the paper's citekey to grant. See
 
 Changing this invalidates the whole docling cache, so the next run
 re-parses the corpus from scratch. Costs in
-[PERFORMANCE.md](PERFORMANCE.md#heavydocling_images----disk-and-a-full-re-parse).
+[PERFORMANCE.md](PERFORMANCE.md#enrichdocling_images----disk-and-a-full-re-parse).
 
 ## Choosing an embedding model
 
-`src/heavy/embed_index.py` calls
+`src/enrich/embed_index.py` calls
 `SentenceTransformer(config.EMBEDDING_MODEL).encode(...)`
 **symmetrically** -- the same call embeds a 200-word document chunk
 (40-word overlap) and a search query, with no prefix or instruction text
@@ -484,11 +484,11 @@ What each one is:
 
 ### Switching
 
-Edit `[heavy].embedding_model`, or set `EMBEDDING_MODEL=...` for a single
+Edit `[enrich].embedding_model`, or set `EMBEDDING_MODEL=...` for a single
 run, then rebuild the index:
 
 ```bash
-python scripts/full_pipeline.py --stages embed
+python scripts/enrich.py --stages embed
 ```
 
 The model downloads on first use (needs network), and Chroma's existing

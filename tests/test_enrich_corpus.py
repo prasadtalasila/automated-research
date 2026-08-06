@@ -1,4 +1,4 @@
-"""src/heavy/corpus.py: unifies bib-sourced docs (real citekeys) and
+"""src/enrich/corpus.py: unifies bib-sourced docs (real citekeys) and
 source-pdfs docs (never citekey-shaped -- AGENTS.md's "doc:" namespace
 invariant)."""
 
@@ -7,7 +7,7 @@ import json
 import pytest
 
 from src import ledger
-from src.heavy import corpus
+from src.enrich import corpus
 
 from tests.conftest import make_reference
 
@@ -238,7 +238,7 @@ class TestAssertNoCitekeyCollision:
         ledger.upsert_reference(con, make_reference(citekey="doc:collide"))
         con.close()
 
-        from src.heavy.corpus import CorpusDoc
+        from src.enrich.corpus import CorpusDoc
 
         docs = [
             CorpusDoc(doc_id="doc:collide", citekey=None, source="source-pdfs", title="x", pdf_path=None),
@@ -247,7 +247,7 @@ class TestAssertNoCitekeyCollision:
             corpus.assert_no_citekey_collision(docs)
 
     def test_raises_if_source_pdfs_doc_has_a_citekey(self, isolated_config):
-        from src.heavy.corpus import CorpusDoc
+        from src.enrich.corpus import CorpusDoc
 
         ledger.connect().close()
         docs = [

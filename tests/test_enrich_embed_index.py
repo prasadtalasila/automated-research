@@ -1,4 +1,4 @@
-"""src/heavy/embed_index.py: sentence-transformers + Chroma, the
+"""src/enrich/embed_index.py: sentence-transformers + Chroma, the
 embeddings-based retrieval upgrade path for src/retrieval.py.
 
 chromadb/sentence_transformers are mocked via sys.modules for fast,
@@ -16,8 +16,8 @@ import types
 import pytest
 
 from src import config
-from src.heavy import embed_index
-from src.heavy.corpus import CorpusDoc
+from src.enrich import embed_index
+from src.enrich.corpus import CorpusDoc
 
 
 class FakeArray(list):
@@ -95,7 +95,7 @@ class FakeChromaClient:
 
 
 @pytest.fixture
-def fake_heavy_deps(monkeypatch):
+def fake_enrich_deps(monkeypatch):
     FakeSentenceTransformer.instances.clear()
     FakeChromaClient.instances.clear()
     FakeChromaClient._stores_by_path.clear()
@@ -200,7 +200,7 @@ class TestGetText:
 
 
 class TestGetClientAndModel:
-    def test_creates_persistent_client_and_model(self, isolated_config, fake_heavy_deps):
+    def test_creates_persistent_client_and_model(self, isolated_config, fake_enrich_deps):
         client, model = embed_index.get_client_and_model()
         assert isinstance(client, FakeChromaClient)
         assert client.path == str(isolated_config.CHROMA_DIR)
@@ -209,7 +209,7 @@ class TestGetClientAndModel:
 
 
 class TestBuildIndex:
-    def test_indexes_docs_with_text_and_counts_chunks(self, isolated_config, fake_heavy_deps, tmp_path):
+    def test_indexes_docs_with_text_and_counts_chunks(self, isolated_config, fake_enrich_deps, tmp_path):
         parsed = tmp_path / "a.txt"
         parsed.write_text(" ".join(["word"] * 10))
         doc_with_text = CorpusDoc(
@@ -234,7 +234,7 @@ class TestBuildIndex:
             "text_hash": embed_index.hash_text(" ".join(["word"] * 10)),
         }
 
-    def test_empty_chunks_from_whitespace_only_text(self, isolated_config, fake_heavy_deps, tmp_path):
+    def test_empty_chunks_from_whitespace_only_text(self, isolated_config, fake_enrich_deps, tmp_path):
         parsed = tmp_path / "empty.txt"
         parsed.write_text("   ")
         doc = CorpusDoc(doc_id="a2024", citekey="a2024", source="bib", title="A", pdf_path=None, text_path=str(parsed))
@@ -248,7 +248,7 @@ class TestBuildIndexIncremental:
         parsed.write_text(text)
         return CorpusDoc(doc_id=doc_id, citekey=doc_id, source="bib", title="A", pdf_path=None, text_path=str(parsed))
 
-    def test_second_call_with_unchanged_text_skips_encode(self, isolated_config, fake_heavy_deps, tmp_path):
+    def test_second_call_with_unchanged_text_skips_encode(self, isolated_config, fake_enrich_deps, tmp_path):
         doc = self.make_doc(tmp_path, "word " * 10)
         embed_index.build_index([doc])
 
@@ -261,7 +261,7 @@ class TestBuildIndexIncremental:
         assert counts["a2024"] == 1
         assert len(collection.upserted) == upserts_before  # no new upsert -- encode was skipped
 
-    def test_changed_text_re_embeds_and_replaces_chunks(self, isolated_config, fake_heavy_deps, tmp_path):
+    def test_changed_text_re_embeds_and_replaces_chunks(self, isolated_config, fake_enrich_deps, tmp_path):
         doc = self.make_doc(tmp_path, "word " * 10)
         embed_index.build_index([doc])
 
@@ -277,7 +277,7 @@ class TestBuildIndexIncremental:
         # No stale chunks left over from the first, shorter version.
         assert all(m["text_hash"] == embed_index.hash_text("different word " * 300) for m in remaining["metadatas"])
 
-    def test_shrinking_chunk_count_leaves_no_orphaned_chunks(self, isolated_config, fake_heavy_deps, tmp_path):
+    def test_shrinking_chunk_count_leaves_no_orphaned_chunks(self, isolated_config, fake_enrich_deps, tmp_path):
         doc_long = self.make_doc(tmp_path, "word " * 300)
         embed_index.build_index([doc_long])
         client = FakeChromaClient.instances[-1]
@@ -314,7 +314,7 @@ class TestBuildIndexModelChange:
         return CorpusDoc(doc_id=doc_id, citekey=doc_id, source="bib", title="A", pdf_path=None, text_path=str(parsed))
 
     def test_model_swap_re_embeds_into_a_separate_collection_despite_unchanged_text(
-        self, isolated_config, fake_heavy_deps, tmp_path, monkeypatch
+        self, isolated_config, fake_enrich_deps, tmp_path, monkeypatch
     ):
         # Regression test: build_index()'s incremental skip previously keyed
         # only off the doc's text hash, so swapping config.toml's
@@ -343,7 +343,7 @@ class TestBuildIndexModelChange:
 
 
 class TestSearch:
-    def test_combines_metadata_snippet_and_distance(self, isolated_config, fake_heavy_deps):
+    def test_combines_metadata_snippet_and_distance(self, isolated_config, fake_enrich_deps):
         client, _ = embed_index.get_client_and_model()
         collection = client.get_or_create_collection(embed_index._collection_name())
         collection.query_response = {
