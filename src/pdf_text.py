@@ -665,8 +665,12 @@ def drop_stdlib_shadowing_path_entries() -> list[str]:
     for entry in list(sys.path):
         if not entry:
             continue
-        base = os.path.basename(entry.rstrip(os.sep))
-        if base in {"site-packages", "dist-packages"}:
+        parent = os.path.basename(os.path.dirname(entry.rstrip(os.sep)))
+        # The entry must be a package directory *inside* an installation
+        # directory. Checking only that the entry itself isn't named
+        # site-packages would still drop, say, a project directory that
+        # happens to contain a `typing/` package of its own.
+        if parent not in {"site-packages", "dist-packages"}:
             continue
         for name in _SHADOWED_STDLIB_NAMES:
             if os.path.isfile(os.path.join(entry, name, "__init__.py")):

@@ -318,6 +318,33 @@ class TestDropStdlibShadowingPathEntries:
         assert str(shadowing) not in sys.path
         assert str(tmp_path) in sys.path  # unrelated entries are left alone
 
+    def test_a_package_directory_outside_site_packages_is_left_alone(
+        self, tmp_path, monkeypatch
+    ):
+        """A project of your own that contains a `typing/` package must
+        not lose its sys.path entry -- only an installed package
+        directory is a candidate."""
+        project = tmp_path / "my-project" / "vendor"
+        (project / "typing").mkdir(parents=True)
+        (project / "typing" / "__init__.py").write_text("")
+        monkeypatch.setattr(sys, "path", [str(project)])
+
+        assert pdf_text.drop_stdlib_shadowing_path_entries() == []
+        assert str(project) in sys.path
+
+    def test_a_site_packages_entry_without_a_shadowing_name_is_kept(
+        self, tmp_path, monkeypatch
+    ):
+        """Being installed is not enough; the directory has to actually
+        shadow something."""
+        harmless = tmp_path / "site-packages" / "requests"
+        harmless.mkdir(parents=True)
+        (harmless / "__init__.py").write_text("")
+        monkeypatch.setattr(sys, "path", [str(harmless)])
+
+        assert pdf_text.drop_stdlib_shadowing_path_entries() == []
+        assert str(harmless) in sys.path
+
     def test_never_removes_site_packages_itself(self, tmp_path, monkeypatch):
         """A `typing` backport installed into site-packages must not cost
         the interpreter its entire import path."""
@@ -330,8 +357,9 @@ class TestDropStdlibShadowingPathEntries:
         assert str(site) in sys.path
 
     def test_an_empty_entry_is_skipped(self, monkeypatch):
-        """"" means the current directory. It is not a package directory
-        and os.path.join would turn it into a relative path."""
+        """An empty sys.path entry means the current directory. It is not
+        a package directory, and joining a name onto it would produce a
+        relative path that happens to exist."""
         monkeypatch.setattr(sys, "path", ["", "/nonexistent"])
 
         assert pdf_text.drop_stdlib_shadowing_path_entries() == []

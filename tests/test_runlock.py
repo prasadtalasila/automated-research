@@ -123,9 +123,14 @@ def _holder_process(path):
         if holder.is_alive():
             holder.kill()
         holder.join(_CHILD_TIMEOUT)
-        # close() reaps the process object; without it a killed child is
-        # left as a zombie for the rest of the session.
-        holder.close()
+        # close() reaps the process object -- without it a killed child is
+        # left as a zombie for the rest of the session -- but it raises on
+        # a process that is somehow still alive. Raising *here* would
+        # replace whatever the test was actually failing on with a
+        # ValueError about cleanup, so the unreaped case is left alone and
+        # the test's own assertion stands.
+        if not holder.is_alive():
+            holder.close()
 
 
 class TestAcrossProcesses:
@@ -155,7 +160,6 @@ class TestAcrossProcesses:
                     if time.monotonic() > deadline:
                         raise
                     time.sleep(0.2)
-                time.sleep(0.2)
 
 
 class TestFailuresThatAreNotContention:
