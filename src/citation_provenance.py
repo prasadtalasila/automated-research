@@ -73,9 +73,10 @@ def _paragraph_spans(lines: list[str]) -> list[tuple[int, int, str]]:
     return spans
 
 
-# Markdown block openers. A table row is a block by itself (a row cannot
-# span lines); a list item or a heading opens one that runs until the next
-# opener or the end of the paragraph, so a hard-wrapped bullet stays whole.
+# Markdown block openers. A table row and a heading are each complete in
+# one line, so they are blocks by themselves; a list item opens one that
+# runs until the next opener or the end of the paragraph, so a
+# hard-wrapped bullet stays whole.
 _TABLE_ROW = re.compile(r"^\s*\|")
 _LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 _HEADING = re.compile(r"^\s*#{1,6}\s+")
@@ -195,8 +196,9 @@ def claims(draft_text: str) -> list[tuple[int, str, str]]:
 
     That text is whatever unit actually makes a claim where the citation
     sits: the citing **sentence** in prose, the citing **row** in a table,
-    the citing **item** in a list. It is never the raw line the citekey
-    sits on, and never a whole paragraph.
+    the citing **item** in a list, the **heading** itself when the
+    citation is in one. It is never the raw line the citekey sits on, and
+    never a whole paragraph.
 
     Both of those were tried. Reading the *line* fails because every draft
     this project produces is hard-wrapped, so a sentence spans three or
