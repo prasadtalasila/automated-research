@@ -62,6 +62,17 @@ other genre -- in a survey they'd delete the deliverable.
 - `content/parsed/<citekey>.txt` -- extracted PDF text
 - `src/retrieval.py` -- `search(query, k, snippet_chars)`
 
+**Read-only means read-only: never run `python -m src.sync`.** That command
+belongs to the corpus layer, it takes the pipeline's write lock, and a
+first full-corpus parse can run for tens of minutes. It is the user's to
+run, not yours.
+
+If `python3 -m src.ledger` reports an empty ledger, say so before you
+start. Citations are optional in this genre, so the draft is still
+possible -- but it will carry none, and that is the user's call to make,
+not something to discover at the end. Ask whether to proceed uncited or to
+sync first, and wait for the answer.
+
 **Citations are rare in this genre and belong only in the closing "Where to go
 next" section.** A `[@citekey]` inside a step is a distraction from the task at
 hand -- the learner is typing, not evaluating literature. If corpus material

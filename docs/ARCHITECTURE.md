@@ -152,13 +152,14 @@ hook runs it on every write under `content/drafts/`, so a draft cannot be
 saved with an unverifiable citation even if a skill forgets to check, and
 the skill runs it again before presenting anything.
 
-**What the skills do and do not run for you.** They read the corpus
-layer; they never write `content/ledger.sqlite` themselves. Three of the
-five (`survey-writer`, `thesis-chapter-writer`, `deep-research`) will run
-`python -m src.sync` on your behalf when the ledger is empty or stale, and
-say what it found. The two teaching genres don't, because a chapter or a
-tutorial cites little enough that an empty ledger isn't a blocker for
-them.
+**The skills never run the corpus layer for you.** They read it; they do
+not write `content/ledger.sqlite`, and they do not run `python -m
+src.sync` -- that command takes the write lock, and a first full-corpus
+parse can run for tens of minutes, so starting one is your decision, not a
+side effect of asking for a draft. On an empty ledger the three
+citation-grounded genres (`survey-writer`, `thesis-chapter-writer`,
+`deep-research`) say so and stop. The two teaching genres, where citations
+are optional, say so and ask whether to continue uncited.
 
 **No skill runs the enrichment layer.** They consume its output when a human
 has already built it -- `deep-research` checks for `content/chroma/`

@@ -26,6 +26,17 @@ user asked for the other one. See "When to invoke".
   ground the motivation section in the corpus (citing the result is still
   optional -- see step 3)
 
+**Read-only means read-only: never run `python -m src.sync`.** That command
+belongs to the corpus layer, it takes the pipeline's write lock, and a
+first full-corpus parse can run for tens of minutes. It is the user's to
+run, not yours.
+
+If `python3 -m src.ledger` reports an empty ledger, say so before you
+start. Citations are optional in this genre, so the draft is still
+possible -- but it will carry none, and that is the user's call to make,
+not something to discover at the end. Ask whether to proceed uncited or to
+sync first, and wait for the answer.
+
 Citations here are optional, not the point. Don't force them in.
 
 ## When to invoke

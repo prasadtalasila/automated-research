@@ -95,10 +95,12 @@ non-empty ledger, for the same reason at the extreme -- see
   file is the source of truth" above). No LLM calls, no judgment calls,
   idempotent. Safe to run unattended or on a schedule.
 - **The drafting layer -- generative** (the `.claude/skills/`): invoked on
-  demand, reviewed by the user. These read the corpus layer; they never
-  write to `content/ledger.sqlite` directly (only `sync` does), and they
-  never build the enrichment layer -- they read it if it is there and fall
-  back to the lightweight default if it is not.
+  demand, reviewed by the user. **Read-only over the corpus layer**: they
+  never write to `content/ledger.sqlite`, and they never run `python -m
+  src.sync` or the enrichment layer on the user's behalf. Both take the
+  write lock and can run for tens of minutes; starting one is the user's
+  call. On an empty ledger a skill says so and stops rather than
+  regenerating anything.
 - **The enrichment layer -- optional** (`scripts/full_pipeline.py`):
   Docling, embeddings and topic modelling over the same corpus. It extends
   the *corpus* layer rather than the drafting one -- nothing in it is
