@@ -92,6 +92,79 @@ keyed by a cheap per-document fingerprint (the parsed file's size and
 mtime, not its content), so a call only re-tokenizes documents whose text
 changed.
 
+### Two stages: reject cheaply, then read properly
+
+`search` answers "which documents, and roughly why" in one call, with a
+snippet long enough to accept a candidate on. That is the right shape when
+a caller keeps most of what it retrieves, and the wrong one when it keeps
+a fifth -- which is what the genre skills do. They over-fetch on purpose
+(`k=15`) and keep about three, so four out of five snippets are paid for
+in full, read once, rejected, and then carried in the caller's context for
+the rest of the run.
+
+So the drafting path splits that into the two questions a caller actually
+asks in sequence:
+
+| Stage | Command | Window | What it is for |
+|---|---|---|---|
+| 1 | `python3 -m src.retrieval triage "<q>" --k 15` | 160 chars | **Ruling candidates out.** Never accept from this |
+| 2 | `python3 -m src.retrieval evidence "<q>" --citekey <key>` | 2 x 600 chars | What actually supports the claim, for survivors only |
+
+This argues against a rationale the genre skills used to state
+explicitly -- that 500 characters is deliberate, "enough to judge, not
+just a title". That rationale is right about *accepting* and wrong about
+*rejecting*. A title plus a short window is usually enough to see that a
+paper merely shares vocabulary with the query; it is never enough to cite
+from. Hence the asymmetry: stage one is documented as reject-only, and
+nothing may be promoted to evidence from a triage snippet.
+
+Stage two also fixes a real limitation of the ranked snippet: `_snippet`
+anchors on the *first* occurrence of any query term, so a document that
+mentions a word early and discusses it forty thousand characters later
+reports the early mention. `evidence` scores candidate windows by how many
+*distinct* query terms fall inside and returns the best few in document
+order, so a passage late in a long paper is reachable.
+
+### What this saves, and what it doesn't
+
+The arithmetic is easy to get backwards, so here it is. Per sub-theme at
+`k=15`, counting characters of payload reaching the caller:
+
+| | Payload | vs one-stage |
+|---|---|---|
+| One-stage `search` | 15 x 500 = **7,500** | -- |
+| Two-stage, 3 survive triage | 2,400 + 3 x 1,200 = **6,000** | -20% |
+| Two-stage, 5 survive | 2,400 + 5 x 1,200 = **8,400** | +12% |
+| Two-stage, 8 survive | 2,400 + 8 x 1,200 = **12,000** | +60% |
+
+**The saving is conditional on triage doing most of the rejecting.** If
+almost everything survives stage one, two-stage costs more than one-stage,
+because you have paid the triage window *and* the evidence read for the
+same document. That is why the genre skills are told to reject hard at
+triage rather than deferring the decision. (An earlier draft of this
+defaulted to three windows of 700 characters, which lost to one-stage in
+every scenario above; the defaults are 2 x 600 for that reason.)
+
+What is unconditional is the reallocation. A candidate you turn down costs
+160 characters instead of 500. A candidate you keep is read with passages
+selected for the query instead of one window anchored wherever the first
+term hit. Spend moves off the material you discard and onto the material
+the draft is actually built from.
+
+The reliable *token* reduction is a level up from this module: putting
+both stages behind a subagent boundary, so none of it is resident in the
+orchestrator's context for the rest of the run. See
+[DRAFT-ITERATION.md](DRAFT-ITERATION.md#where-the-tokens-go) on the two
+pools, and `survey-writer` step 2a.
+
+Both stages take `--log <draft>`, which appends the call and the size of
+its payload to that draft's dossier (`retrieval.md` -- see
+[DRAFT-ITERATION.md](DRAFT-ITERATION.md)). That is what makes the cost of
+retrieval for a given draft a measurement rather than an estimate.
+
+`search` itself is unchanged and still exported: use it for a narrow
+lookup where you expect to keep most of what comes back.
+
 ## Embeddings -- a replacement for BM25, not an addition
 
 `src/enrich/embed_index.py` chunks each document into 200 words with

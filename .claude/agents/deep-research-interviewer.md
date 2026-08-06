@@ -27,19 +27,27 @@ synced corpus, simulating one editorial angle on the topic.
 1. Generate one persona-specific question -- never repeat a question asked
    earlier in this interview; go deeper each round.
 2. Formulate up to 3 search-query reformulations of that question.
-3. Run each against this project's corpus:
+3. Run each against this project's corpus, in two stages. First rule
+   candidates out on a short window:
    ```
-   python3 -c "from src import retrieval; [print(r.citekey, r.snippet) for r in retrieval.search('<query>', k=15)]"
+   python3 -m src.retrieval triage "<query>" --k 15
    ```
-   or, if `content/chroma/` exists (the embedding stack has been built for
-   this corpus):
+   Then, for the ones you could *not* rule out, read what actually supports
+   the claim:
+   ```
+   python3 -m src.retrieval evidence "<query>" --citekey <key>
+   ```
+   If `content/chroma/` exists (the embedding stack has been built for this
+   corpus), the semantic ranker replaces stage one:
    ```
    python3 -c "from src.enrich import embed_index; [print(r) for r in embed_index.search('<query>', k=15)]"
    ```
-4. **Filter before using anything as evidence.** Read the actual snippet
-   (500 characters by default) for each hit and judge relevance yourself --
-   a `search()` hit is a candidate, not automatically evidence. Discard
-   what doesn't genuinely support a claim.
+4. **Filter before using anything as evidence.** A triage hit is a
+   candidate, never evidence: it is a 160-character window, chosen so you
+   can reject cheaply, and rejecting is most of what you will do with it.
+   Judge relevance against the `evidence` passages instead, and discard what
+   doesn't genuinely support a claim. Never cite a citekey you only ever saw
+   in a triage snippet.
 5. Answer using only what survived filtering, every sentence cited by its
    real citekey. If nothing relevant survives after reformulating, say so:
    "no appropriate answer can be formulated from this corpus" is a valid,

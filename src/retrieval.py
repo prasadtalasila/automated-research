@@ -42,6 +42,7 @@ import math
 import os
 import re
 import sqlite3
+import sys
 import uuid
 from collections import Counter
 from dataclasses import dataclass
@@ -241,3 +242,269 @@ def search(query: str, k: int = 5, snippet_chars: int = 500) -> list[SearchResul
             )
         )
     return results
+
+
+# The two-stage read
+# ------------------
+#
+# `search` above answers "which documents, and roughly why" in one call,
+# with a snippet long enough to accept a candidate on. That is the right
+# shape when a caller keeps most of what it retrieves, and the wrong one
+# when it keeps a fifth: the genre skills over-fetch on purpose (k=15)
+# and keep about three, so four out of five snippets are paid for in
+# full, read once, rejected, and then carried in the caller's context for
+# the rest of the run.
+#
+# `triage` and `evidence` split that into the two questions a caller
+# actually asks in sequence. Triage answers "can I rule this out?" on a
+# short window; `evidence` answers "what exactly supports the claim?" on
+# the survivors only, and reads more of the document than `search` ever
+# did rather than less.
+#
+# This does argue against a rationale the genre skills state explicitly
+# -- that 500 characters is deliberate, "enough to judge, not just a
+# title". That rationale is right about accepting and wrong about
+# rejecting. A title plus a short window is usually enough to see that a
+# paper merely shares vocabulary with the query; it is never enough to
+# accept one. So triage is documented as reject-only, and nothing may be
+# promoted to evidence from a triage snippet.
+
+#
+# What this does and does not save, since the arithmetic is easy to get
+# backwards. Per sub-theme at k=15, payload characters reaching the
+# caller: one-stage is a flat 15 x 500 = 7,500. Two-stage is
+# 15 x 160 = 2,400 plus the evidence read for however many candidates
+# survive triage. At the defaults below that is break-even at about five
+# survivors, roughly -20% at three, and *worse* than one-stage above
+# eight. An earlier version of this defaulted to 3 windows of 700, which
+# lost to one-stage in every case.
+#
+# So the saving is conditional on triage doing most of the rejecting,
+# which is why the genre skills are told to reject hard there. What is
+# unconditional is the reallocation: a candidate you turn down costs 160
+# characters instead of 500, and a candidate you keep is read with
+# passages chosen for the query rather than one window anchored on the
+# first term hit. The reliable *token* reduction comes from putting both
+# stages behind a subagent boundary, which is a skill-level change --
+# see docs/DRAFT-ITERATION.md's two pools.
+
+TRIAGE_CHARS = 160
+EVIDENCE_CHARS = 600
+EVIDENCE_WINDOWS = 2
+
+
+def triage(query: str, k: int = 15, snippet_chars: int = TRIAGE_CHARS) -> list[SearchResult]:
+    """Stage one: rank as `search` does, with a window sized to *reject* on.
+
+    **You may rule a candidate out from this. You may not cite from it.**
+    Anything that survives goes to `evidence()`, which reads the real
+    supporting text out of the document.
+
+    A triage snippet costs a little under a third of a `search` snippet,
+    so the more of your candidates you can reject here, the better the
+    two-stage read does against the one-stage one -- see the note above
+    for where the break-even sits.
+    """
+    return search(query, k=k, snippet_chars=snippet_chars)
+
+
+def _windows(text: str, terms: set[str], width: int, count: int) -> list[str]:
+    """The `count` best-matching windows of `text`, in document order.
+
+    Scored by how many *distinct* query terms fall inside, not by raw hit
+    count, so a passage repeating one word doesn't outrank one that
+    actually covers the query. Candidate windows are anchored on each
+    term occurrence and then de-overlapped, which is what lets this
+    return a passage from late in a long document -- `_snippet` above
+    anchors on the first occurrence of any term and so cannot.
+    """
+    lower = text.lower()
+    anchors: list[int] = []
+    for term in terms:
+        start = lower.find(term)
+        while start != -1:
+            anchors.append(start)
+            start = lower.find(term, start + 1)
+            if len(anchors) > 2000:  # pathological input; the best windows are already in
+                break
+    if not anchors:
+        return []
+
+    scored: list[tuple[int, int, int]] = []
+    half = width // 2
+    for anchor in sorted(set(anchors)):
+        begin = max(0, anchor - half)
+        end = min(len(text), begin + width)
+        window = lower[begin:end]
+        hits = sum(1 for term in terms if term in window)
+        scored.append((hits, begin, end))
+
+    chosen: list[tuple[int, int]] = []
+    for _, begin, end in sorted(scored, key=lambda item: (-item[0], item[1])):
+        if any(begin < other_end and end > other_begin for other_begin, other_end in chosen):
+            continue
+        chosen.append((begin, end))
+        if len(chosen) == count:
+            break
+    return [" ".join(text[begin:end].split()) for begin, end in sorted(chosen)]
+
+
+def evidence(
+    citekey: str, query: str, chars: int = EVIDENCE_CHARS, windows: int = EVIDENCE_WINDOWS
+) -> list[str]:
+    """Stage two: the passages of one document that bear on `query`.
+
+    Called only for candidates that survived `triage`. Returns rather
+    more text per document than a `search` snippet, and -- more to the
+    point -- text chosen for the query rather than one window anchored on
+    wherever the first term happened to appear. Returns `[]` for a
+    citekey with no parsed text: a source the corpus layer could not read
+    is a real answer, not an error.
+
+    Deliberately reads `parsed_path` rather than going through
+    `src/passages.py`: this ranks the same text BM25 ranked, so what
+    comes back is what the score was about. `passages.py` owns the
+    quotable-paragraph/page ladder that `citation_provenance` needs to
+    *attribute* a claim -- a different question, asked after drafting.
+    """
+    # The citekey is checked before the query, so that naming a key the
+    # ledger doesn't have is reported as the caller error it is even when
+    # the query happens to tokenize to nothing.
+    con = ledger.connect()
+    try:
+        # row_factory set and cleared around the read, matching
+        # ledger.all_items: connect() leaves rows as tuples, and
+        # _full_text addresses its columns by name.
+        con.row_factory = sqlite3.Row
+        row = con.execute(
+            "SELECT title, parsed_path FROM items WHERE citekey = ?", (citekey,)
+        ).fetchone()
+        con.row_factory = None
+    finally:
+        con.close()
+    if row is None:
+        raise KeyError(f"{citekey} is not in the ledger")
+    terms = set(_tokenize(query))
+    if not terms:
+        return []
+    return _windows(_full_text(row), terms, width=chars, count=windows)
+
+
+# ---------------------------------------------------------------------
+# CLI: `python3 -m src.retrieval`
+#
+# Its own entrypoint rather than the `python3 -c "from src import
+# retrieval; [print(r.citekey, r.snippet) for r in ...]"` one-liner the
+# skills used to carry. Three reasons, all about the caller's context
+# rather than convenience: the one-liner's output shape was whatever the
+# author of each skill happened to write, `--log` needs somewhere to
+# hang, and a `--chars` flag with a documented default is a much more
+# obvious knob than an argument buried in a shell-quoted Python
+# expression.
+# ---------------------------------------------------------------------
+
+
+def _print_triage(results: list[SearchResult]) -> int:
+    """One line per candidate. Returns the payload size in characters."""
+    chars = 0
+    for result in results:
+        chars += len(result.snippet)
+        print(f"\n{result.citekey}  (score {result.score:.1f})")
+        print(f"  {result.title}")
+        print(f"  {result.snippet}")
+    return chars
+
+
+def main(argv: "list[str] | None" = None) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="python3 -m src.retrieval",
+        description="BM25 retrieval over the synced corpus. Read-only, takes no "
+                    "lock, and runs with the bare system python3.",
+        epilog="Two-stage by default: `triage` to rule candidates out on a short "
+               "window, then `evidence` on the survivors only. Never cite from a "
+               "triage snippet.",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p_triage = sub.add_parser(
+        "triage", help="Stage one: rank candidates on a window sized to reject on")
+    p_triage.add_argument("query")
+    p_triage.add_argument("--k", type=int, default=15, help="Candidates to return (default 15)")
+    p_triage.add_argument("--chars", type=int, default=TRIAGE_CHARS,
+                          help=f"Snippet size (default {TRIAGE_CHARS})")
+
+    p_evidence = sub.add_parser(
+        "evidence", help="Stage two: the passages of one document that bear on the query")
+    p_evidence.add_argument("query")
+    p_evidence.add_argument("--citekey", required=True)
+    p_evidence.add_argument("--chars", type=int, default=EVIDENCE_CHARS,
+                            help=f"Window size (default {EVIDENCE_CHARS})")
+    p_evidence.add_argument("--windows", type=int, default=EVIDENCE_WINDOWS,
+                            help=f"Passages to return (default {EVIDENCE_WINDOWS})")
+
+    p_search = sub.add_parser(
+        "search", help="One-stage: rank and return an accept-sized snippet")
+    p_search.add_argument("query")
+    p_search.add_argument("--k", type=int, default=5, help="Results to return (default 5)")
+    p_search.add_argument("--chars", type=int, default=500, help="Snippet size (default 500)")
+
+    for each in (p_triage, p_evidence, p_search):
+        each.add_argument(
+            "--log", metavar="DRAFT",
+            help="Record this call in DRAFT's dossier (content/dossiers/...), so the "
+                 "cost of retrieval for this draft is measured rather than estimated")
+
+    args = parser.parse_args(argv)
+
+    if not config.LEDGER_PATH.exists():
+        print(f"No ledger at {config.LEDGER_PATH}.", file=sys.stderr)
+        print("Run `python -m src.sync` to build it from your bib file.", file=sys.stderr)
+        return 1
+
+    if args.command == "evidence":
+        try:
+            passages = evidence(args.citekey, args.query, args.chars, args.windows)
+        except KeyError as exc:
+            print(f"[error] {exc}", file=sys.stderr)
+            return 1
+        if not passages:
+            print(f"{args.citekey}: no passage matches that query "
+                  "(or the corpus layer has no parsed text for it).")
+        for passage in passages:
+            print(f"\n  {passage}")
+        results, chars = len(passages), sum(len(p) for p in passages)
+    else:
+        found = (triage if args.command == "triage" else search)(
+            args.query, k=args.k, snippet_chars=args.chars
+        )
+        if not found:
+            print("No results.")
+        chars = _print_triage(found)
+        results = len(found)
+        if args.command == "triage" and found:
+            print("\n  Reject-only: rule candidates out from these, then run "
+                  "`evidence --citekey <key>` on the survivors. Do not cite from a "
+                  "triage snippet.")
+
+    print(f"\n  {results} result(s), {chars:,} characters returned.")
+    if args.log:
+        from src import dossier
+
+        try:
+            path = dossier.log_retrieval(
+                Path(args.log), args.command, args.query,
+                getattr(args, "k", 1), results, chars,
+            )
+        except dossier.DossierError as exc:
+            # A measurement is worth less than the retrieval it measures:
+            # report and carry on rather than failing the search.
+            print(f"  [not logged] {exc}", file=sys.stderr)
+        else:
+            print(f"  Logged to {path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

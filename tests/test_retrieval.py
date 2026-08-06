@@ -240,3 +240,192 @@ class TestIndexCaching:
         retrieval.search("digital")
         with open(config.RETRIEVAL_INDEX_PATH) as f:
             assert "a2024" not in json.load(f)["items"]
+
+
+class TestWindows:
+    def test_returns_nothing_when_no_term_appears(self):
+        assert retrieval._windows("nothing relevant here", {"blockchain"}, 50, 3) == []
+
+    def test_prefers_a_window_covering_more_distinct_terms(self):
+        text = (
+            "moisture " * 20
+            + " ||| soil moisture sensor calibration ||| "
+            + "moisture " * 20
+        )
+        (best,) = retrieval._windows(text, {"soil", "moisture", "sensor"}, 60, 1)
+        assert "soil" in best and "sensor" in best
+
+    def test_finds_a_passage_late_in_a_long_document(self):
+        """The limitation `_snippet` has and this fixes: it anchors on the
+        first occurrence of any term, so a document that says the word
+        early and discusses it 40,000 characters later reports the early
+        mention."""
+        text = "twin " + "filler " * 6000 + "the pump is actuated by the twin controller"
+        windows = retrieval._windows(text, {"pump", "actuated", "twin"}, 60, 1)
+        assert "pump" in windows[0]
+
+    def test_windows_do_not_overlap(self):
+        text = "alpha " * 5 + "beta " * 200 + "alpha " * 5
+        windows = retrieval._windows(text, {"alpha"}, 40, 2)
+        assert len(windows) == 2
+        assert windows[0] != windows[1]
+
+    def test_returns_windows_in_document_order(self):
+        text = "start marker one " + "x " * 300 + " end marker two"
+        windows = retrieval._windows(text, {"marker", "start", "end"}, 40, 2)
+        assert "start" in windows[0] and "end" in windows[1]
+
+    def test_respects_the_requested_count(self):
+        text = ("term " + "pad " * 40) * 10
+        assert len(retrieval._windows(text, {"term"}, 30, 3)) == 3
+
+
+class TestTriage:
+    def test_returns_a_shorter_snippet_than_search(self, ledger_con, tmp_path):
+        parsed = tmp_path / "a2024.txt"
+        parsed.write_text("digital twin " + "context " * 500)
+        ledger.upsert_reference(ledger_con, make_reference(citekey="a2024", title="A Twin"))
+        ledger.mark_parsed(ledger_con, "a2024", parsed)
+
+        (triaged,) = retrieval.triage("digital twin", k=5)
+        (searched,) = retrieval.search("digital twin", k=5)
+        assert len(triaged.snippet) < len(searched.snippet)
+        assert len(triaged.snippet) <= retrieval.TRIAGE_CHARS
+
+    def test_ranks_identically_to_search(self, ledger_con):
+        for key, title in [("a2024", "Digital Twin Digital"), ("b2024", "Digital Overview")]:
+            ledger.upsert_reference(ledger_con, make_reference(citekey=key, title=title))
+        assert [r.citekey for r in retrieval.triage("digital twin", k=5)] == [
+            r.citekey for r in retrieval.search("digital twin", k=5)
+        ]
+
+
+class TestEvidence:
+    def _seed(self, con, tmp_path, text, citekey="a2024"):
+        parsed = tmp_path / f"{citekey}.txt"
+        parsed.write_text(text)
+        ledger.upsert_reference(con, make_reference(citekey=citekey, title="A Paper"))
+        ledger.mark_parsed(con, citekey, parsed)
+
+    def test_returns_the_supporting_passages(self, ledger_con, tmp_path):
+        self._seed(ledger_con, tmp_path,
+                   "padding " * 100 + "simulation time must follow wall clock time" + " tail" * 50)
+        passages = retrieval.evidence("a2024", "simulation wall clock", chars=80)
+        assert any("wall clock" in p for p in passages)
+
+    def test_reads_more_of_the_document_than_a_search_snippet(self, ledger_con, tmp_path):
+        body = " ".join(f"clock segment {i} simulation" for i in range(200))
+        self._seed(ledger_con, tmp_path, body)
+        total = sum(len(p) for p in retrieval.evidence("a2024", "clock simulation", chars=300))
+        assert total > 500
+
+    def test_an_empty_query_returns_nothing(self, ledger_con, tmp_path):
+        self._seed(ledger_con, tmp_path, "some text")
+        assert retrieval.evidence("a2024", "the of and") == []
+
+    def test_a_citekey_with_no_parsed_text_is_not_an_error(self, ledger_con):
+        ledger.upsert_reference(ledger_con, make_reference(citekey="a2024", title="Robotics"))
+        assert retrieval.evidence("a2024", "quantum entanglement") == []
+
+    def test_the_title_alone_can_carry_a_match(self, ledger_con):
+        ledger.upsert_reference(
+            ledger_con, make_reference(citekey="a2024", title="Robotics And Control"))
+        assert retrieval.evidence("a2024", "robotics", chars=40) != []
+
+    def test_an_unknown_citekey_raises(self, ledger_con):
+        import pytest
+
+        with pytest.raises(KeyError, match="not in the ledger"):
+            retrieval.evidence("nope_2024", "anything")
+
+
+class TestCli:
+    def _seed(self, con, tmp_path):
+        parsed = tmp_path / "a2024.txt"
+        parsed.write_text("padding " * 50 + "digital twin architecture patterns catalog")
+        ledger.upsert_reference(con, make_reference(citekey="a2024", title="Twin Patterns"))
+        ledger.mark_parsed(con, "a2024", parsed)
+
+    def test_triage_prints_candidates_and_the_reject_only_warning(
+        self, ledger_con, tmp_path, capsys
+    ):
+        self._seed(ledger_con, tmp_path)
+        assert retrieval.main(["triage", "digital twin architecture"]) == 0
+        out = capsys.readouterr().out
+        assert "a2024" in out
+        assert "Do not cite from a triage snippet" in out
+        assert "characters returned" in out
+
+    def test_evidence_prints_passages(self, ledger_con, tmp_path, capsys):
+        self._seed(ledger_con, tmp_path)
+        assert retrieval.main(
+            ["evidence", "architecture patterns", "--citekey", "a2024"]) == 0
+        assert "patterns" in capsys.readouterr().out
+
+    def test_evidence_on_an_unknown_citekey_exits_nonzero(self, ledger_con, tmp_path, capsys):
+        self._seed(ledger_con, tmp_path)
+        assert retrieval.main(["evidence", "x", "--citekey", "nope_2024"]) == 1
+        assert "not in the ledger" in capsys.readouterr().err
+
+    def test_no_ledger_exits_nonzero_with_the_fix(self, isolated_config, capsys):
+        assert retrieval.main(["triage", "anything"]) == 1
+        assert "src.sync" in capsys.readouterr().err
+
+    def test_no_results_is_not_an_error(self, ledger_con, tmp_path, capsys):
+        self._seed(ledger_con, tmp_path)
+        assert retrieval.main(["triage", "quantum chromodynamics"]) == 0
+        assert "No results." in capsys.readouterr().out
+
+    def test_log_records_the_call_in_the_dossier(self, ledger_con, tmp_path, capsys):
+        from src import dossier
+
+        self._seed(ledger_con, tmp_path)
+        draft = config.DRAFTS_DIR / "survey.md"
+        draft.parent.mkdir(parents=True, exist_ok=True)
+        draft.write_text("# s\n")
+
+        assert retrieval.main(
+            ["triage", "digital twin architecture", "--log", str(draft)]) == 0
+        calls, chars = dossier.retrieval_cost(dossier.dossier_dir(draft))
+        assert calls == 1 and chars > 0
+        assert "Logged to" in capsys.readouterr().out
+
+    def test_a_draft_outside_drafts_reports_but_does_not_fail_the_search(
+        self, ledger_con, tmp_path, capsys
+    ):
+        """A measurement is worth less than the retrieval it measures."""
+        self._seed(ledger_con, tmp_path)
+        stray = tmp_path / "stray.md"
+        stray.write_text("# s\n")
+        assert retrieval.main(["triage", "digital twin", "--log", str(stray)]) == 0
+        captured = capsys.readouterr()
+        assert "a2024" in captured.out
+        assert "[not logged]" in captured.err
+
+
+class TestTwoStageCost:
+    """The claim `docs/RETRIEVAL.md` makes about when two-stage wins.
+
+    An earlier version defaulted to 3 windows of 700 characters, which
+    cost more than one-stage retrieval in every realistic scenario. These
+    pin the defaults to the arithmetic the documentation states, so the
+    claim and the code cannot drift apart silently.
+    """
+
+    def _one_stage(self, k=15):
+        return k * 500
+
+    def _two_stage(self, survivors, k=15):
+        return (k * retrieval.TRIAGE_CHARS
+                + survivors * retrieval.EVIDENCE_CHARS * retrieval.EVIDENCE_WINDOWS)
+
+    def test_wins_when_triage_rejects_most_candidates(self):
+        assert self._two_stage(survivors=3) < self._one_stage()
+
+    def test_loses_when_almost_everything_survives_triage(self):
+        """Documented, not a bug -- and the reason the skills say to
+        reject hard at stage one."""
+        assert self._two_stage(survivors=8) > self._one_stage()
+
+    def test_a_triage_window_is_well_under_a_search_snippet(self):
+        assert retrieval.TRIAGE_CHARS < 500 / 2

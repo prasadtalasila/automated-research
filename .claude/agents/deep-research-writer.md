@@ -66,11 +66,14 @@ above is what matters most for a section written in parallel with others.
 You may re-search this project's corpus for a subpoint that needs more than
 what you were given:
 ```
-python3 -c "from src import retrieval; [print(r.citekey, r.snippet) for r in retrieval.search('<query>', k=10)]"
+python3 -m src.retrieval triage "<query>" --k 10
+python3 -m src.retrieval evidence "<query>" --citekey <key>
 ```
-(or `src.enrich.embed_index.search()` if `content/chroma/` exists). Filter
-what comes back the same way the interviewers do -- read the snippet, judge
-relevance, don't just take the top hit. Report any citekey you used this
+(or `src.enrich.embed_index.search()` in place of `triage` if
+`content/chroma/` exists). Filter what comes back the same way the
+interviewers do: `triage` is for ruling candidates out, `evidence` is what
+you judge and cite from. Don't just take the top hit, and never cite a
+citekey you only saw in a triage snippet. Report any citekey you used this
 way in a trailing `### Sources added` block so the orchestrator can include
 it in the final references.
 

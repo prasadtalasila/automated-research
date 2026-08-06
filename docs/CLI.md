@@ -16,6 +16,7 @@ short path; this is the full set.
   - [`src.citation_gate`](#python3--m-srccitation_gate)
   - [`src.references`](#python3--m-srcreferences)
   - [`src.dossier`](#python3--m-srcdossier)
+  - [`src.retrieval`](#python3--m-srcretrieval)
   - [`src.citation_coverage`](#python3--m-srccitation_coverage)
   - [`src.citation_provenance`](#python3--m-srccitation_provenance)
   - [`src.render_output`](#python3--m-srcrender_output)
@@ -313,6 +314,47 @@ AGENTS.md keeps as the source of truth rather than something this
 pipeline copies). Restore refuses the whole archive -- rather than
 skipping a member -- if any entry is a link or device node, escapes the
 extraction directory, or sits outside those three directories.
+
+### `python3 -m src.retrieval`
+
+BM25 retrieval over the synced corpus. Read-only, takes no lock, needs no
+venv. [RETRIEVAL.md](RETRIEVAL.md) has the ranking details and the reason
+for the split below.
+
+**Two-stage by default.** `triage` exists to rule candidates *out* on a
+short window; `evidence` reads the real supporting passages for the ones
+that survive. Never cite from a triage snippet -- it is sized to reject
+on, not to accept on.
+
+| Subcommand | What it does |
+|---|---|
+| `triage "<query>"` | Stage one: rank `--k` candidates with a 160-character window |
+| `evidence "<query>" --citekey KEY` | Stage two: the 3 passages of that document that bear on the query |
+| `search "<query>"` | One-stage: rank with a 500-character, accept-sized snippet |
+
+| Flag | Applies to | Default | What it does |
+|---|---|---|---|
+| `--k N` | `triage`, `search` | 15 / 5 | How many candidates to rank |
+| `--chars N` | all | 160 / 700 / 500 | Window size |
+| `--citekey KEY` | `evidence` | required | Which document to read |
+| `--windows N` | `evidence` | 3 | How many passages to return |
+| `--log DRAFT` | all | -- | Record the call and its payload size in DRAFT's dossier |
+
+```bash
+python3 -m src.retrieval triage "digital twin architecture" --k 15 \
+    --log content/drafts/survey.md
+python3 -m src.retrieval evidence "digital twin architecture" \
+    --citekey ferko_architecting_2022 --log content/drafts/survey.md
+```
+
+`--log` appends to `retrieval.md` in that draft's dossier, which is what
+turns "retrieval is where the tokens go" into a number for a particular
+draft (`python3 -m src.dossier status` totals it). A `--log` path that
+isn't under `content/drafts/` is reported on stderr and skipped -- the
+measurement never fails the search it was measuring.
+
+Exits 1 with the fix if there is no ledger; an empty result set is not an
+error.
 
 ### `python3 -m src.citation_coverage`
 

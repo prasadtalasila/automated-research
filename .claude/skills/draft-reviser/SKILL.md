@@ -94,9 +94,21 @@ Most revisions don't. Before any retrieval call:
   the most expensive repeated work in the pipeline.
 
 Search only when the change opens genuinely new ground. If it does, use
-`src.retrieval.search()` (or `src.enrich.embed_index.search()` where
-built), score candidates as `survey-writer` step 2 describes, and record
-both outcomes -- kept into `evidence.md`, turned down into `rejected.md`.
+the same two stages the genre skills use -- rule candidates out cheaply,
+then read the real passages for the survivors only:
+
+```bash
+python3 -m src.retrieval triage "<query>" --k 15 --log content/drafts/<path>
+python3 -m src.retrieval evidence "<query>" --citekey <key> --log content/drafts/<path>
+```
+
+(or `src.enrich.embed_index.search()` in place of `triage` where the
+embedding stack has been built). Never cite from a triage snippet. Score
+what survives as `survey-writer` step 2 describes, and record both
+outcomes -- kept into `evidence.md`, turned down into `rejected.md`.
+`--log` keeps `retrieval.md` honest about what this revision actually
+cost, which is the number that tells you whether revising from the
+dossier is paying off.
 
 If `status` reported corpus drift, read the named citekeys only if they
 bear on the sub-theme you are changing. **Drift is not itself a reason to
@@ -121,6 +133,7 @@ Update only what actually changed:
 
 - `evidence.md` -- new kept citekeys, with relevance and support
 - `rejected.md` -- anything newly retrieved and turned down
+- `retrieval.md` -- nothing by hand; `--log` appends to it for you
 - `sections.md` -- if headings or their citations moved
 - `scope.md` -- only if the user agreed to a scope change in step 2
 - `steering.md` -- append the instruction that prompted this revision,

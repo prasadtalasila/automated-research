@@ -17,7 +17,10 @@ layer: deterministic, safe to run unattended).
 - `papers/bibliography.bib` (gitignored, per-host) -- the source of truth for citekeys/metadata;
   `sync` reads it, it is never regenerated
 - `content/parsed/<citekey>.txt` -- extracted PDF text
-- `src/retrieval.py` -- `search(query, k)` returns `SearchResult(citekey, title, score, snippet)`
+- `src/retrieval.py` -- two-stage: `python3 -m src.retrieval triage "<q>" --k 15`
+  to rule candidates out, then `... evidence "<q>" --citekey <key>` on the
+  survivors. `search` (one-stage, 500-char snippets) still exists for a
+  narrow lookup where you expect to keep most of what you get
 
 ## The dossier: write down what produced the draft
 
@@ -103,26 +106,51 @@ collapse them for the sake of a cleaner narrative.
    **Glossary** now, while you are deciding them. `init` also stamps the
    corpus fingerprint, which is what lets a later revision tell whether
    the ledger has moved since.
-1. **Retrieve broadly, over-fetching on purpose.** Break the requested topic
-   into 2-4 sub-themes if it's broad. Call `src.retrieval.search(sub_theme, k=15)`
-   for each -- pull more candidates than you expect to use. This is a
-   keyword-overlap ranker, not embeddings (unless `src/enrich/embed_index.py`
-   has been built for this corpus) -- a high score or short distance is a
-   proxy for relevance, not a judgment of it. Don't let a top rank substitute
-   for reading the snippet.
-2. **Score every candidate yourself before it counts as evidence.** For each
-   result, read the full snippet (both `search()` functions default to 500
-   characters specifically so you have enough to judge, not just a title) and
-   decide: does this chunk actually support a claim about the sub-theme, or
-   did it just share vocabulary with the query? Keep only the ones that pass.
-   This is the same discipline PaperQA2 calls "gather evidence" (retrieve,
-   then LLM-judge relevance, *then* write) -- the difference here is you're
-   doing the judging inline as part of drafting, not via a second API call.
-   Treat a citekey that didn't pass this filter as unused, even if it was a
-   high-scoring `search()` hit.
+1. **Triage broadly, on a window sized to reject.** Break the requested topic
+   into 2-4 sub-themes if it's broad. For each:
+   ```
+   python3 -m src.retrieval triage "<sub-theme>" --k 15 --log content/drafts/<slug>.md
+   ```
+   Over-fetch on purpose -- pull more candidates than you expect to use. The
+   snippet is short (160 characters) because **this stage exists to rule
+   candidates out, not to accept them.** A title plus a short window is
+   usually enough to see that a paper merely shares vocabulary with the
+   query; it is never enough to cite from. This is a keyword-overlap ranker,
+   not embeddings (unless `src/enrich/embed_index.py` has been built for this
+   corpus) -- a high score is a proxy for relevance, not a judgment of it.
+
+   `--log` records the call's size in the dossier's `retrieval.md`, which is
+   what makes the cost of a run measurable instead of estimated. Pass it on
+   every call.
+2. **Fetch evidence for the survivors only, then score them.** For each
+   candidate you could not rule out:
+   ```
+   python3 -m src.retrieval evidence "<sub-theme>" --citekey <key> --log content/drafts/<slug>.md
+   ```
+   This returns the passages of that document that actually bear on the
+   query, chosen for the query rather than anchored wherever the first term
+   happened to appear -- so it can reach a passage late in a long paper,
+   which a ranked snippet cannot.
+
+   **Reject hard at stage 1.** The two-stage read only comes out cheaper
+   than the one-stage one if triage does most of the rejecting; if you pass
+   most candidates through to `evidence`, you have paid for both windows on
+   the same document and it costs *more*. `docs/RETRIEVAL.md` has the
+   break-even arithmetic. Passing a candidate to stage 2 is a decision, not
+   a default.
+
+   Now decide, against the real passages: does this source actually support a
+   claim about the sub-theme? Keep only the ones that pass. This is the same
+   discipline PaperQA2 calls "gather evidence" (retrieve, then LLM-judge
+   relevance, *then* write) -- the difference here is you're doing the judging
+   inline as part of drafting, not via a second API call.
+
+   **Never promote a candidate to evidence from a triage snippet.** If you
+   did not run `evidence` on it, it is not evidence. Treat a citekey that
+   didn't pass this filter as unused, however high it ranked.
 
    **Record both outcomes in the dossier before you start drafting prose**,
-   while the snippets are still in front of you:
+   while the passages are still in front of you:
    - what survives, into `evidence.md` -- one `## \`citekey\`` block with
      a `relevance:` line (why it supports the claim) and a `support:` line
      (the quote or paraphrase);
@@ -135,10 +163,24 @@ collapse them for the sake of a cleaner narrative.
    skip. It is what stops the next revision retrieving and re-judging the
    same twelve papers you just turned down -- the single most expensive
    piece of repeated work in this pipeline.
+2a. **On a broad topic, put steps 1-2 behind a subagent.** Dispatch one
+   `general-purpose` subagent per sub-theme, all in one message, each told to
+   run the triage/evidence loop above and return **only** the kept-evidence
+   packet plus the rejected list -- never the raw candidates.
+
+   The reason is not parallelism, and this -- not the two-stage split -- is
+   where the reliable token saving is. Anything you read yourself stays in
+   your context and is re-sent on every later turn of the run; anything a
+   subagent reads is paid for once. Four sub-themes retrieved inline is tens
+   of thousands of characters you will then carry through clustering,
+   drafting, gating and rendering, most of it material you already rejected.
+
+   Skip this for a narrow topic with one sub-theme -- a subagent that returns
+   almost everything it read saves nothing and costs a dispatch.
 3. **Reformulate and re-search if a sub-theme comes up thin.** A single
    query wording is not the ceiling -- if scoring leaves you with little or
    nothing for a sub-theme, try synonyms, broader/narrower terms, or an
-   adjacent concept, and search again. Do this a few times before concluding
+   adjacent concept, and triage again. Do this a few times before concluding
    "thin coverage" is real rather than a wording problem. Only after genuine
    reformulation attempts should you report a sub-theme as thin -- and then
    say so explicitly rather than padding it with uncited claims.
@@ -159,7 +201,7 @@ collapse them for the sake of a cleaner narrative.
    - A gap-analysis paragraph: what the retrieved corpus does *not* cover
      (including sub-themes that stayed thin after reformulation, and any
      cross-source disagreement from step 5)
-7. **Never write a citekey you didn't get from a `search()` result.** If you
+7. **Never write a citekey you didn't get from a retrieval result.** If you
    want to cite something you know about from general knowledge but that isn't
    in the ledger, say so in prose to the user instead ("X is commonly discussed
    in this area but isn't in your synced library yet") -- do not invent a key

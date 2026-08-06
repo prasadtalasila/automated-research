@@ -27,10 +27,11 @@ a human, both of which read Markdown natively; nothing here is a data
 structure some other module consumes. Markdown also means a restored
 tarball is legible on its own a year later, without this code.
 
-**Six files, not one**, because a revision should load only what it
+**Several files, not one**, because a revision should load only what it
 needs: the scope and the section map are small and always relevant, the
 rejected-candidate list is the largest and is only needed when a change
-opens a sub-theme up for re-searching.
+opens a sub-theme up for re-searching, and `retrieval.md` is written by
+the tooling and read by nobody until someone asks what a run cost.
 
 Deliberately *not* a gate and not a lock-taker. Nothing here blocks a
 draft, and nothing here writes to the corpus layer -- the ledger is only
@@ -82,6 +83,7 @@ FILES: dict[str, str] = {
     "sections.md": "rows",
     "steering.md": "prose",
     "revisions.md": "prose",
+    "retrieval.md": "rows",
 }
 
 # Top-level directories a bundle may contain, and the only ones `restore`
@@ -391,6 +393,7 @@ pipeline. Genre: {genre}.
 | `sections.md` | section heading -> the citekeys cited under it |
 | `steering.md` | what the user asked for in chat that the draft doesn't show |
 | `revisions.md` | append-only log of what changed and why |
+| `retrieval.md` | every retrieval call and the size of what it returned |
 
 This directory is gitignored, like the draft it describes. Back it up and
 restore it with:
@@ -481,13 +484,78 @@ _REVISIONS_TEMPLATE = """# Revisions
 
 """
 
+_RETRIEVAL_TEMPLATE = """# Retrieval calls
+
+<!-- Appended by `python3 -m src.retrieval ... --log <draft>`, never by
+     hand. `chars` is the size of the payload that call handed back --
+     the thing that then sits in the caller's context for the rest of the
+     run. Together with evidence.md's and rejected.md's counts, this is
+     what turns "retrieval is where the tokens go" from an estimate into
+     a measurement for a particular draft. -->
+
+| date | mode | query | k | results | chars |
+|---|---|---|---|---|---|
+"""
+
 _TEMPLATES = {
     "evidence.md": _EVIDENCE_TEMPLATE,
     "rejected.md": _REJECTED_TEMPLATE,
     "sections.md": _SECTIONS_TEMPLATE,
     "steering.md": _STEERING_TEMPLATE,
     "revisions.md": _REVISIONS_TEMPLATE,
+    "retrieval.md": _RETRIEVAL_TEMPLATE,
 }
+
+
+def log_retrieval(
+    draft: Path, mode: str, query: str, k: int, results: int, chars: int
+) -> Path:
+    """Append one retrieval call to the dossier's `retrieval.md`.
+
+    Creates the file if the dossier exists but predates it, and creates
+    the dossier directory if a skill logged before running `init` --
+    losing a measurement because the skeleton wasn't there yet would be a
+    silly way to fail, and this writes nothing a later `init` would
+    clobber.
+
+    A pipe in the query would break the row it is written into, so it is
+    escaped rather than the row being quietly malformed.
+    """
+    target = dossier_dir(draft)
+    target.mkdir(parents=True, exist_ok=True)
+    path = target / "retrieval.md"
+    if not path.exists():
+        path.write_text(_RETRIEVAL_TEMPLATE, encoding="utf-8")
+    safe_query = query.replace("|", "\\|").strip()
+    row = f"| {date.today().isoformat()} | {mode} | {safe_query} | {k} | {results} | {chars} |\n"
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(row)
+    return path
+
+
+def retrieval_cost(dossier: Path) -> tuple[int, int]:
+    """(calls, characters returned) recorded in `retrieval.md`.
+
+    Advisory like every other count here: a hand-edited row that doesn't
+    parse is skipped rather than raising.
+    """
+    path = dossier / "retrieval.md"
+    if not path.is_file():
+        return 0, 0
+    calls = chars = 0
+    for line in path.read_text(encoding="utf-8").splitlines():
+        # Split on unescaped pipes only: `log_retrieval` writes a query
+        # containing a pipe as `\|`, which is markdown's literal, and
+        # splitting there would cut the row into seven cells.
+        cells = [cell.strip() for cell in _ROW_SPLIT.split(line.strip().strip("|"))]
+        if len(cells) != 6:
+            continue
+        try:
+            chars += int(cells[5])
+        except ValueError:
+            continue
+        calls += 1
+    return calls, chars
 
 
 def draft_relpath(draft: Path) -> str:
@@ -549,6 +617,8 @@ class Status:
     recorded: tuple[int, str] | None = None
     current: tuple[int, str] | None = None
     unconsidered: set[str] = field(default_factory=set)
+    retrieval_calls: int = 0
+    retrieval_chars: int = 0
 
     @property
     def drifted(self) -> bool:
@@ -556,6 +626,7 @@ class Status:
 
 
 _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+_ROW_SPLIT = re.compile(r"(?<!\\)\|")
 
 
 def _count(text: str, shape: str) -> int:
@@ -607,6 +678,7 @@ def status(draft_or_dossier: Path) -> Status:
 
     if draft is not None:
         report.outline = sections(draft.read_text(encoding="utf-8"))
+    report.retrieval_calls, report.retrieval_chars = retrieval_cost(dossier)
 
     report.recorded = recorded_corpus(dossier)
     corpus_keys = known_citekeys()
@@ -785,6 +857,14 @@ def _cmd_status(args: argparse.Namespace) -> int:
             print(f"  {entry.name:<14}filled in")
         else:
             print(f"  {entry.name:<14}{entry.entries} entr{'y' if entry.entries == 1 else 'ies'}")
+
+    if report.retrieval_calls:
+        kept = next((f.entries for f in report.files if f.name == "evidence.md"), 0)
+        rejected = next((f.entries for f in report.files if f.name == "rejected.md"), 0)
+        print(f"\nRetrieval: {report.retrieval_calls} call(s) returned "
+              f"{report.retrieval_chars:,} characters")
+        if kept or rejected:
+            print(f"  {kept} kept, {rejected} rejected")
 
     print()
     if report.current is None:
