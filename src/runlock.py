@@ -3,7 +3,7 @@
 `sync` and `scripts/enrich.py` both write there, and the planned
 cron job makes overlap a matter of time rather than bad luck. Two runs
 overlapping is not merely wasteful: sync's parsed-text writes are not
-atomic, so a concurrent heavy run can read a half-written
+atomic, so a concurrent enrichment run can read a half-written
 content/parsed/<citekey>.txt, and both can contend for the same GPUs.
 
 The mutex is a dedicated sqlite file, held under `BEGIN IMMEDIATE` by its

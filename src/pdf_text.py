@@ -965,7 +965,7 @@ def _extract_docling(pdf_path: str, out_path: Path, threads: int | None = None) 
     re-extracts the PDF with `pdftotext`, the column-splicing backend the
     ladder exists to avoid quoting from. Choosing this backend therefore
     buys better retrieval text and *worse* quotable passages, unless the
-    heavy Docling stage has also run and written the
+    enrichment layer's Docling stage has also run and written the
     `<citekey>.passages.json` sidecar rung 1 wants.
 
     src/enrich/docling_parse.py is the other consumer of this library, and

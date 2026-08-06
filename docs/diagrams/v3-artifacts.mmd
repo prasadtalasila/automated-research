@@ -22,7 +22,7 @@ flowchart TB
 
     subgraph L2["written by the enrichment layer — opt-in"]
       direction LR
-      DOC[/"<b>content/docling/&lt;doc&gt;.md</b><br/>+ &lt;doc&gt;.passages.json<br/><b>+ &lt;doc&gt;_artifacts/*.png</b> — figure bitmaps<br/><b>+ &lt;doc&gt;.figures.json</b> — page, caption, cite string<br/><small>the last two only when <code>[heavy].docling_images</code><br/>is on; Docling reads the <b>PDF</b>, never content/parsed/</small>"/]
+      DOC[/"<b>content/docling/&lt;doc&gt;.md</b><br/>+ &lt;doc&gt;.passages.json<br/><b>+ &lt;doc&gt;_artifacts/*.png</b> — figure bitmaps<br/><b>+ &lt;doc&gt;.figures.json</b> — page, caption, cite string<br/><small>the last two only when <code>[enrich].docling_images</code><br/>is on; Docling reads the <b>PDF</b>, never content/parsed/</small>"/]
       CHR[("content/chroma/")]
       TOP[/"content/topics.json"/]
     end
@@ -49,20 +49,20 @@ flowchart TB
   BIB -- "src/bib_reader.py" --> LED
   PDF -- "src/pdf_text.py" --> TXT
   LED -- "which PDFs need a parse" --> TXT
-  RAW -- "src/heavy/corpus.py<br/><small>doc:&lt;stem&gt;, never a citekey</small>" --> DOC
-  TXT -- "src/heavy/embed_index.py" --> CHR
-  PDF -- "src/heavy/docling_parse.py" --> DOC
+  RAW -- "src/enrich/corpus.py<br/><small>doc:&lt;stem&gt;, never a citekey</small>" --> DOC
+  TXT -- "src/enrich/embed_index.py" --> CHR
+  PDF -- "src/enrich/docling_parse.py" --> DOC
   DOC --> CHR
-  TXT -- "src/heavy/topic_model.py<br/><small>whole-doc embeddings — its own cache,<br/>not the Chroma collection</small>" --> TOP
+  TXT -- "src/enrich/topic_model.py<br/><small>whole-doc embeddings — its own cache,<br/>not the Chroma collection</small>" --> TOP
 
   TXT -- "src/retrieval.py" --> RIX
 
   RIX -- "<b>src/retrieval.py</b> · BM25 hits<br/><small>the default path</small>" --> DRF
-  CHR -. "<b>src/heavy/embed_index.py</b> · semantic hits<br/><small><b>either this or BM25 — never both.</b> Only<br/>survey-writer and deep-research name it.</small>" .-> DRF
+  CHR -. "<b>src/enrich/embed_index.py</b> · semantic hits<br/><small><b>either this or BM25 — never both.</b> Only<br/>survey-writer and deep-research name it.</small>" .-> DRF
   DOC -- "src/passages.py<br/>quotable passages" --> DRF
   LED -- "src/references.py<br/>bib_fields → IEEE entries" --> DRF
   DRF == "<b>src.citation_gate</b> — FAIL rewrites the draft in place,<br/>and the skill re-runs it until it exits 0" ==> DRF
-  DRF -- "src.heavy.render_output<br/><small>only after the gate passes</small>" --> REN
+  DRF -- "src.render_output<br/><small>only after the gate passes</small>" --> REN
   DRF -- "src.citation_provenance" --> PRV
 
   classDef mine fill:#fff7ed,stroke:#c2410c,color:#431407

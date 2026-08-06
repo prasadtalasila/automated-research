@@ -14,7 +14,7 @@ this document can stay a reference rather than an argument.
   - [`[render]` -- citation style](#render----citation-style)
   - [`[parser]` -- PDF text extraction](#parser----pdf-text-extraction)
   - [`[provenance]` -- citation-support bands](#provenance----citation-support-bands)
-  - [`[enrich]` -- the optional enrichment layer](#heavy----the-optional-enrichment-layer)
+  - [`[enrich]` -- the optional enrichment layer](#enrich----the-optional-enrichment-layer)
 - [How values are parsed](#how-values-are-parsed)
 - [Notes on individual settings](#notes-on-individual-settings)
 - [Choosing an embedding model](#choosing-an-embedding-model)
@@ -153,7 +153,7 @@ citation gate.
 The values in full:
 
 - **`backend`** -- `"pdftotext"` needs the `pdftotext` binary on `PATH`
-  and no Python package; `"docling"` needs the `heavy` dependency group.
+  and no Python package; `"docling"` needs the `enrich` dependency group.
   Any other value is rejected, naming the valid ones. See
   [notes](#backend-pdftotext-or-docling).
 - **`ocr`** -- only `docling` has an OCR stage; `pdftotext` ignores this.
@@ -204,7 +204,7 @@ Neither is range-checked, and nothing enforces
 
 ### `[enrich]` -- the optional enrichment layer
 
-Used only by `src/enrich/*` (the `heavy` dependency group), never by
+Used only by `src/enrich/*` (the `enrich` dependency group), never by
 `sync` or the citation gate.
 
 | Key | Env var | Accepts | Default in code | In `config.toml.example` |

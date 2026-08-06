@@ -23,14 +23,14 @@
 path = "papers/bibliography.bib"
 
 [content]
-# Where sync and the heavy pipeline write: ledger.sqlite, parsed/,
-# provenance/, rendered/, and the heavy stages' docling/, chroma/,
+# Where sync and the enrichment layer write: ledger.sqlite, parsed/,
+# provenance/, rendered/, and the enrichment stages' docling/, chroma/,
 # topics.json.
 # Relative to the repo root, or absolute.  Default: content
 dir = "content"
 
 [source_pdfs]
-# Raw PDFs with no bibliography entry, for the heavy pipeline's topic
+# Raw PDFs with no bibliography entry, for the enrichment layer's topic
 # modelling and embeddings. NEVER citable -- a PDF here has no citekey,
 # so add it to your reference manager, re-export, and re-run sync before
 # citing it.

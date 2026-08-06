@@ -172,7 +172,7 @@ def search(query: str, k: int = 5, snippet_chars: int = 500) -> list[dict]:
 
     Deliberately the same shape as `src.retrieval.search()` so this is a
     drop-in for it -- but with one difference a caller must handle. This
-    index covers the *heavy* corpus, which is wider than the ledger: a hit
+    index covers the *enrichment* corpus, which is wider than the ledger: a hit
     can come from `papers/pdfs/`, in which case `citekey` is `""` and
     `doc_id` is `doc:<stem>`. Those results are readable evidence and are
     never citable -- `citation_gate` resolves citekeys against the ledger,

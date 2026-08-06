@@ -193,15 +193,17 @@ src/                      the corpus and drafting layers (sync needs bibtexparse
   references.py             auto-generates a draft's "## References" section from its own cited citekeys,
                           as numbered IEEE entries ordered by first appearance -- the same order (and
                           so the same numbers) pandoc's citeproc assigns when the draft is rendered
-src/enrich/                optional heavier pipeline (pyproject.toml's "enrich" Poetry group)
-  corpus.py                 unifies ledger items + [source_pdfs].dir's raw PDFs (doc: prefixed, non-citable)
+  render_output.py          Pandoc/TeX Live rendering + standalone CLI -- stdlib-only, no enrich group
+                          needed, which is why it sits here and not in src/enrich/. `--format md` on a
+                          Markdown draft skips pandoc entirely and emits references.numbered_markdown's
+                          plain numbered copy instead
+src/enrich/                the enrichment layer (pyproject.toml's "enrich" Poetry group), optional
+  corpus.py                 unifies ledger items + [source_pdfs].dir's raw PDFs (doc: prefixed, non-citable),
+                          skipping any that the ledger already covers
   docling_parse.py, embed_index.py, topic_model.py
-  render_output.py          Pandoc/TeX Live rendering + standalone CLI -- stdlib-only, no enrich group needed.
-                          `--format md` on a Markdown draft skips pandoc entirely and emits
-                          references.numbered_markdown's plain numbered copy instead
 scripts/
   install_full_pipeline.sh  single staged install path (os-deps/python-deps/dev-deps/all) for host + Docker
-  enrich.py           orchestrates src/enrich/* stages
+  enrich.py                 orchestrates src/enrich/* stages -- the enrichment layer's entry point
   verbatim_check.py          ad-hoc review aid: verbatim-overlap and page-locating checks against sources
   release.py                 bundles a distributable release/chitragupta-<version>.zip, dev files excluded
 tests/                    pytest suite -- unit tests per module + end-to-end feature tests (see "Running tests")

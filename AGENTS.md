@@ -262,7 +262,7 @@ Before saying so, actually run, in this repo:
 - At least one real end-to-end smoke test that exercises the actual
   change against real dependencies, not only its mocked unit tests --
   e.g. if you touch a CLI script, run it for real; if you touch
-  `src/enrich/*` and the heavy Poetry group is installed, run it against
+  `src/enrich/*` and the `enrich` Poetry group is installed, run it against
   the real sentence-transformers/chromadb/bertopic stack, not just
   `sys.modules`-mocked fakes. Unit tests catch regressions in logic;
   smoke tests catch wrong assumptions about how the real library actually

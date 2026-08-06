@@ -1087,7 +1087,7 @@ class TestParseCorpusInterrupt:
         assert "[1/6]" in out and "[6/6]" in out
 
 
-class TestHeavyPartialSuccess:
+class TestEnrichPartialSuccess:
     """The enrichment stage had the same silent-truncation hole src/pdf_text.py
     closed in v1.2.0: convert(raises_on_error=True) raises only on
     FAILURE, so a PARTIAL_SUCCESS returned a document that stops early

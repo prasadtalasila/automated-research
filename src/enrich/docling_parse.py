@@ -2,7 +2,7 @@
 
 Layout-aware parsing (headings, tables, reading order) -- a step up from
 the corpus layer's plain pdftotext. Needs `docling` from
-pyproject.toml's "enrich" Poetry group, in a venv; heavy (its own
+pyproject.toml's "enrich" Poetry group, in a venv; bulky (its own
 layout/OCR models), so this is the stage most likely to be slow or fail
 on a small/CPU-only host. Output is Markdown, written per-doc so a
 failure on one document doesn't lose progress on the others.

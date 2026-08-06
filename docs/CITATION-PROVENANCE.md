@@ -339,7 +339,7 @@ layer already did
 the work.
 
 **What to do about it today.** If you want quotable passages, run the
-heavy stage: `enrich.py --stages docling` writes the
+enrichment stage: `enrich.py --stages docling` writes the
 `<citekey>.passages.json` sidecar that rung 1 wants, whichever backend
 the corpus layer used. If you are not going to run it, `[parser].backend =
 "pdftotext"` (the default) keeps page-level locating working, which is the

@@ -295,7 +295,7 @@ class TestUnavailableReason:
         monkeypatch.setattr(config, "PARSER", "pdftotext")
         assert "poppler-utils" in pdf_text.unavailable_reason()
 
-    def test_docling_mentions_heavy_group(self, monkeypatch):
+    def test_docling_mentions_enrich_group(self, monkeypatch):
         monkeypatch.setattr(config, "PARSER", "docling")
         assert "poetry install --with enrich" in pdf_text.unavailable_reason()
 
@@ -679,7 +679,7 @@ class TestGpuCount:
         assert pdf_text.gpu_count() == 0
 
     def test_zero_when_neither_nvidia_smi_nor_torch_can_answer(self, monkeypatch):
-        """The heavy group may be installed without a working torch, and
+        """The enrich group may be installed without a working torch, and
         a missing GPU is not an error -- it just means one device."""
         monkeypatch.setattr(config, "PARSER", "docling")
         _fake_nvidia_smi(monkeypatch, found=False)
