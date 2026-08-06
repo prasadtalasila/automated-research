@@ -23,14 +23,14 @@
 path = "papers/bibliography.bib"
 
 [content]
-# Where sync and the heavy pipeline write: ledger.sqlite, parsed/,
-# provenance/, rendered/, and the heavy stages' docling/, chroma/,
+# Where sync and the enrichment layer write: ledger.sqlite, parsed/,
+# provenance/, rendered/, and the enrichment stages' docling/, chroma/,
 # topics.json.
 # Relative to the repo root, or absolute.  Default: content
 dir = "content"
 
 [source_pdfs]
-# Raw PDFs with no bibliography entry, for the heavy pipeline's topic
+# Raw PDFs with no bibliography entry, for the enrichment layer's topic
 # modelling and embeddings. NEVER citable -- a PDF here has no citekey,
 # so add it to your reference manager, re-export, and re-run sync before
 # citing it.
@@ -38,7 +38,7 @@ dir = "content"
 dir = "papers/pdfs"
 
 [render]
-# How `python3 -m src.heavy.render_output` formats citations. Used by
+# How `python3 -m src.render_output` formats citations. Used by
 # nothing else -- not by sync, not by the citation gate.
 
 # The CSL style pandoc's --citeproc formats citations and the
@@ -246,8 +246,8 @@ min_tokens = 200
 weak_score = 0.20
 good_score = 0.50
 
-[heavy]
-# Used only by src/heavy/* (the "heavy" dependency group), never by sync
+[enrich]
+# Used only by src/enrich/* (the "heavy" dependency group), never by sync
 # or the citation gate.
 
 # Which sentence-transformers model backs semantic search.
@@ -263,7 +263,7 @@ good_score = 0.50
 # embedding model" lists what works and what needs a code change first.
 #
 # Changing this does not re-embed the existing index -- rebuild it with
-# `python scripts/full_pipeline.py --stages embed`.
+# `python scripts/enrich.py --stages embed`.
 #                       Default if absent: sentence-transformers/all-MiniLM-L6-v2
 embedding_model = "sentence-transformers/all-mpnet-base-v2"
 

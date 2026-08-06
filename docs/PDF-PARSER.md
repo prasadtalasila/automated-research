@@ -72,7 +72,7 @@ A practical tiered strategy:
 That tiering matches the repository's design philosophy:
 - probe first
 - degrade gracefully
-- keep the corpus layer usable even when heavy dependencies are absent
+- keep the corpus layer usable even when the enrich group is absent
 
 ## Quality tradeoff for this repo
 

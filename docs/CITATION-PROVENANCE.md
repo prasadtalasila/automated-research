@@ -36,8 +36,8 @@ Two other terms used here:
 
 - **Parser backend** -- how a PDF becomes text. `pdftotext` (fast, the
   default) or `docling` (slow, layout-aware). Set in `config.toml`.
-- **The enrichment layer** -- optional, opt-in stages under `src/heavy/`
-  run by `scripts/full_pipeline.py`: layout-aware Docling parsing,
+- **The enrichment layer** -- optional, opt-in stages under `src/enrich/`
+  run by `scripts/enrich.py`: layout-aware Docling parsing,
   embeddings, topic modelling, and rendering to PDF/LaTeX.
 
 ## The problem
@@ -107,7 +107,7 @@ renders of the same report when `pandoc`/`pdflatex` are available. It is
 also a stage of the enrichment layer:
 
 ```
-python scripts/full_pipeline.py --stages provenance --input content/drafts/<slug>.md
+python scripts/enrich.py --stages provenance --input content/drafts/<slug>.md
 ```
 
 For each citing passage in the draft, emit:
@@ -271,7 +271,7 @@ because false precision invites trust.
   re-parse when options change.
 - `content/parsed/` stays authoritative for retrieval, so the sidecar is
   a second text representation to keep in sync with it.
-- `content/docling/` is currently read only by `src/heavy/embed_index.py`;
+- `content/docling/` is currently read only by `src/enrich/embed_index.py`;
   this adds a second consumer to an opt-in stage.
 - The default backend is `pdftotext` and the Docling stage is opt-in, so
   the tool needs the Phase 1 path regardless -- Phase 2 can only ever be
@@ -339,7 +339,7 @@ layer already did
 the work.
 
 **What to do about it today.** If you want quotable passages, run the
-heavy stage: `full_pipeline.py --stages docling` writes the
+enrichment stage: `enrich.py --stages docling` writes the
 `<citekey>.passages.json` sidecar that rung 1 wants, whichever backend
 the corpus layer used. If you are not going to run it, `[parser].backend =
 "pdftotext"` (the default) keeps page-level locating working, which is the
@@ -419,7 +419,7 @@ don't create the same problem one level down). The same draft went from
 |---|---|
 | `src/citation_provenance.py` | ~250 lines |
 | `src/passages.py` | ~150 lines |
-| `_passage_records` in `src/heavy/docling_parse.py` | ~35 lines |
+| `_passage_records` in `src/enrich/docling_parse.py` | ~35 lines |
 | Tests | ~55 cases |
 
 No new dependencies. No changes to `sync`, `citation_gate`, or the

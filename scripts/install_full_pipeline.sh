@@ -8,7 +8,7 @@
 # Usage: bash scripts/install_full_pipeline.sh [STAGE ...]
 #
 #   python-deps  (default if no STAGE given) -- venv + `poetry install
-#                --with heavy` (see pyproject.toml/poetry.lock). What
+#                --with enrich` (see pyproject.toml/poetry.lock). What
 #                every host needs regardless of which OS packages are
 #                present. Poetry is a dependency/lockfile manager here
 #                only -- package-mode = false in pyproject.toml, nothing
@@ -27,7 +27,7 @@
 #   bash scripts/install_full_pipeline.sh all
 #   bash scripts/install_full_pipeline.sh dev-deps   # optional, to run tests
 #   then: .venv-full/bin/python -m src.sync
-#         .venv-full/bin/python scripts/full_pipeline.py
+#         .venv-full/bin/python scripts/enrich.py
 #         .venv-full/bin/python -m pytest
 #
 # Docker usage: docker/Dockerfile calls this once per stage as separate
@@ -139,7 +139,7 @@ install_python_deps() {
     check_poetry
     resolve_venv_dir
 
-    (cd "$REPO_ROOT" && poetry install --with heavy)
+    (cd "$REPO_ROOT" && poetry install --with enrich)
     local bin_dir
     bin_dir="$(venv_bin_dir "$VENV_DIR")"
     ensure_gpu_torch "$bin_dir/pip" "$bin_dir/python"
@@ -147,7 +147,7 @@ install_python_deps() {
     echo
     echo "Installed. Run pipeline scripts via:"
     echo "  $bin_dir/python -m src.sync"
-    echo "  $bin_dir/python scripts/full_pipeline.py"
+    echo "  $bin_dir/python scripts/enrich.py"
 }
 
 # pip's default torch wheel is built against whatever CUDA major version
@@ -237,10 +237,10 @@ ensure_gpu_torch() {
     fi
 
     echo "Warning: reinstalling torch from ${best_tag} didn't make the GPU" >&2
-    echo "visible. Restoring the default wheel via 'poetry install --with heavy'" >&2
+    echo "visible. Restoring the default wheel via 'poetry install --with enrich'" >&2
     echo "(CPU-only on this driver, but at least back to a known, lockfile-" >&2
     echo "tracked state) ..." >&2
-    (cd "$REPO_ROOT" && poetry install --with heavy)
+    (cd "$REPO_ROOT" && poetry install --with enrich)
 }
 
 install_dev_deps() {
@@ -258,8 +258,8 @@ install_dev_deps() {
     # `poetry install --with dev` re-resolves the whole lock file, not
     # just the newly-added group -- it's additive against what's already
     # installed (verified by hand: running this after `python-deps` did
-    # not remove the heavy group), but it can still touch transitive
-    # packages shared with the heavy group, torch included. Re-run the
+    # not remove the enrich group), but it can still touch transitive
+    # packages shared with the enrich group, torch included. Re-run the
     # same GPU check as python-deps rather than assume it's still fine.
     ensure_gpu_torch "$bin_dir/pip" "$bin_dir/python"
 

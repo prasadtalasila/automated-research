@@ -1,4 +1,4 @@
-"""scripts/full_pipeline.py: the orchestrator -- Docling -> embed ->
+"""scripts/enrich.py: the orchestrator -- Docling -> embed ->
 BERTopic -> Pandoc/LaTeX. Each stage_* wrapper's ok/partial/
 skipped/missing-binary shaping is tested directly against mocked
 underlying module calls; main()'s stage-selection and per-stage
@@ -9,14 +9,15 @@ import types
 
 import pytest
 
-import scripts.full_pipeline as full_pipeline
-from src.heavy import docling_parse, embed_index, render_output, topic_model
-from src.heavy.corpus import CorpusDoc
+import scripts.enrich as enrich_script
+from src import render_output
+from src.enrich import docling_parse, embed_index, topic_model
+from src.enrich.corpus import CorpusDoc
 
 
 def make_args(**overrides):
     ns = types.SimpleNamespace(
-        target="host", stages=",".join(full_pipeline.STAGE_ORDER),
+        target="host", stages=",".join(enrich_script.STAGE_ORDER),
         input=None, output_format="pdf", documentclass="article",
     )
     for k, v in overrides.items():
@@ -27,19 +28,19 @@ def make_args(**overrides):
 class TestStageDocling:
     def test_ok_when_no_errors(self, monkeypatch):
         monkeypatch.setattr(docling_parse, "parse_corpus", lambda docs: {"a": "ok: /x"})
-        result = full_pipeline.stage_docling([], make_args())
+        result = enrich_script.stage_docling([], make_args())
         assert result["status"] == "ok"
 
     def test_partial_when_any_error(self, monkeypatch):
         monkeypatch.setattr(docling_parse, "parse_corpus", lambda docs: {"a": "ok: /x", "b": "error: boom"})
-        result = full_pipeline.stage_docling([], make_args())
+        result = enrich_script.stage_docling([], make_args())
         assert result["status"] == "partial"
 
 
 class TestStageEmbed:
     def test_ok(self, monkeypatch):
         monkeypatch.setattr(embed_index, "build_index", lambda docs: {"a": 3})
-        result = full_pipeline.stage_embed([], make_args())
+        result = enrich_script.stage_embed([], make_args())
         assert result == {"status": "ok", "detail": {"a": 3}}
 
 
@@ -49,7 +50,7 @@ class TestStageBertopic:
             topic_model, "run_topic_model",
             lambda docs: {"n_docs": 2, "assignments": {"a": -1, "b": -1}, "topic_info": [1, 2, 3]},
         )
-        result = full_pipeline.stage_bertopic([], make_args())
+        result = enrich_script.stage_bertopic([], make_args())
         assert result["status"] == "ok"
         assert result["detail"] == {"n_docs": 2, "assignments": {"a": -1, "b": -1}}
         assert "topic_info" not in result["detail"]
@@ -57,15 +58,15 @@ class TestStageBertopic:
 
 class TestStageProvenance:
     def test_skipped_without_input(self):
-        result = full_pipeline.stage_provenance([], make_args(input=None))
+        result = enrich_script.stage_provenance([], make_args(input=None))
         assert result == {"status": "skipped", "detail": "no --input given"}
 
     def test_ok_when_all_formats_written(self, monkeypatch, tmp_path):
         monkeypatch.setattr(
-            full_pipeline.citation_provenance, "write_report",
+            enrich_script.citation_provenance, "write_report",
             lambda path, formats: {"md": tmp_path / "r.md", "tex": tmp_path / "r.tex",
                                    "pdf": tmp_path / "r.pdf"})
-        result = full_pipeline.stage_provenance([], make_args(input="draft.md"))
+        result = enrich_script.stage_provenance([], make_args(input="draft.md"))
         assert result["status"] == "ok"
         assert set(result["detail"]) == {"md", "tex", "pdf"}
 
@@ -73,44 +74,44 @@ class TestStageProvenance:
         """pandoc/pdflatex absent is a normal host condition here, so the
         stage reports partial rather than failing the run."""
         monkeypatch.setattr(
-            full_pipeline.citation_provenance, "write_report",
+            enrich_script.citation_provenance, "write_report",
             lambda path, formats: {"md": tmp_path / "r.md"})
-        result = full_pipeline.stage_provenance([], make_args(input="draft.md"))
+        result = enrich_script.stage_provenance([], make_args(input="draft.md"))
         assert result["status"] == "partial"
         assert set(result["detail"]) == {"md"}
 
 
 class TestStageRender:
     def test_skipped_without_input(self):
-        result = full_pipeline.stage_render([], make_args(input=None))
+        result = enrich_script.stage_render([], make_args(input=None))
         assert result == {"status": "skipped", "detail": "no --input given"}
 
     def test_missing_binary(self, monkeypatch):
         def raise_missing(*a, **k):
             raise render_output.MissingBinary("pandoc missing")
         monkeypatch.setattr(render_output, "render", raise_missing)
-        result = full_pipeline.stage_render([], make_args(input="draft.md"))
+        result = enrich_script.stage_render([], make_args(input="draft.md"))
         assert result["status"] == "missing-binary"
         assert "pandoc missing" in result["detail"]
 
     def test_ok(self, monkeypatch, tmp_path):
         out = tmp_path / "draft.pdf"
         monkeypatch.setattr(render_output, "render", lambda *a, **k: out)
-        result = full_pipeline.stage_render([], make_args(input="draft.md"))
+        result = enrich_script.stage_render([], make_args(input="draft.md"))
         assert result == {"status": "ok", "detail": str(out)}
 
 
 class TestParseArgs:
     def test_defaults(self, monkeypatch):
-        monkeypatch.setattr(sys, "argv", ["full_pipeline.py"])
-        args = full_pipeline.parse_args()
+        monkeypatch.setattr(sys, "argv", ["enrich.py"])
+        args = enrich_script.parse_args()
         assert args.target == "host"
-        assert args.stages == ",".join(full_pipeline.STAGE_ORDER)
+        assert args.stages == ",".join(enrich_script.STAGE_ORDER)
         assert args.input is None
 
     def test_custom_stages(self, monkeypatch):
-        monkeypatch.setattr(sys, "argv", ["full_pipeline.py", "--stages", "embed,bertopic", "--target", "docker"])
-        args = full_pipeline.parse_args()
+        monkeypatch.setattr(sys, "argv", ["enrich.py", "--stages", "embed,bertopic", "--target", "docker"])
+        args = enrich_script.parse_args()
         assert args.stages == "embed,bertopic"
         assert args.target == "docker"
 
@@ -118,15 +119,15 @@ class TestParseArgs:
 class TestMain:
     def test_runs_only_selected_stages_and_prints_summary(self, monkeypatch, capsys):
         docs = [CorpusDoc(doc_id="a", citekey="a", source="bib", title="t", pdf_path=None)]
-        monkeypatch.setattr(full_pipeline.corpus, "build_corpus", lambda: (docs, []))
-        monkeypatch.setattr(sys, "argv", ["full_pipeline.py", "--stages", "docling,embed"])
+        monkeypatch.setattr(enrich_script.corpus, "build_corpus", lambda: (docs, []))
+        monkeypatch.setattr(sys, "argv", ["enrich.py", "--stages", "docling,embed"])
 
         called = []
-        monkeypatch.setitem(full_pipeline.STAGE_FUNCS, "docling", lambda d, a: called.append("docling") or {"status": "ok", "detail": "d"})
-        monkeypatch.setitem(full_pipeline.STAGE_FUNCS, "embed", lambda d, a: called.append("embed") or {"status": "ok", "detail": "e"})
-        monkeypatch.setitem(full_pipeline.STAGE_FUNCS, "bertopic", lambda d, a: called.append("bertopic") or {"status": "ok", "detail": "b"})
+        monkeypatch.setitem(enrich_script.STAGE_FUNCS, "docling", lambda d, a: called.append("docling") or {"status": "ok", "detail": "d"})
+        monkeypatch.setitem(enrich_script.STAGE_FUNCS, "embed", lambda d, a: called.append("embed") or {"status": "ok", "detail": "e"})
+        monkeypatch.setitem(enrich_script.STAGE_FUNCS, "bertopic", lambda d, a: called.append("bertopic") or {"status": "ok", "detail": "b"})
 
-        rc = full_pipeline.main()
+        rc = enrich_script.main()
         out = capsys.readouterr().out
 
         assert rc == 0
@@ -141,14 +142,14 @@ class TestMain:
         while the run is still cheap to stop (issue #42)."""
         docs = [CorpusDoc(doc_id="a", citekey="a", source="bib", title="t", pdf_path=None)]
         complaints = ["  skipped dup.pdf: same PDF as a", "  NOTE 1 document(s) ... never be cited"]
-        monkeypatch.setattr(full_pipeline.corpus, "build_corpus", lambda: (docs, complaints))
-        monkeypatch.setattr(sys, "argv", ["full_pipeline.py", "--stages", "embed"])
+        monkeypatch.setattr(enrich_script.corpus, "build_corpus", lambda: (docs, complaints))
+        monkeypatch.setattr(sys, "argv", ["enrich.py", "--stages", "embed"])
         monkeypatch.setitem(
-            full_pipeline.STAGE_FUNCS, "embed",
+            enrich_script.STAGE_FUNCS, "embed",
             lambda d, a: {"status": "ok", "detail": "e"},
         )
 
-        rc = full_pipeline.main()
+        rc = enrich_script.main()
         out = capsys.readouterr().out
 
         assert rc == 0
@@ -161,11 +162,11 @@ class TestMain:
         a silent no-op -- main() iterates STAGE_ORDER and skips anything
         unselected, so an unused name never surfaces."""
         docs = [CorpusDoc(doc_id="a", citekey="a", source="bib", title="t", pdf_path=None)]
-        monkeypatch.setattr(full_pipeline.corpus, "build_corpus", lambda: (docs, []))
-        monkeypatch.setattr(sys, "argv", ["full_pipeline.py", "--stages", "retired-stage,embed"])
-        monkeypatch.setitem(full_pipeline.STAGE_FUNCS, "embed", lambda d, a: {"status": "ok", "detail": "e"})
+        monkeypatch.setattr(enrich_script.corpus, "build_corpus", lambda: (docs, []))
+        monkeypatch.setattr(sys, "argv", ["enrich.py", "--stages", "retired-stage,embed"])
+        monkeypatch.setitem(enrich_script.STAGE_FUNCS, "embed", lambda d, a: {"status": "ok", "detail": "e"})
 
-        rc = full_pipeline.main()
+        rc = enrich_script.main()
         out = capsys.readouterr().out
 
         assert rc == 0  # a bad stage name warns, it doesn't fail the run
@@ -177,14 +178,14 @@ class TestMain:
         normalisation the space makes a real stage look unknown and the
         trailing comma puts a blank name in the warning."""
         docs = [CorpusDoc(doc_id="a", citekey="a", source="bib", title="t", pdf_path=None)]
-        monkeypatch.setattr(full_pipeline.corpus, "build_corpus", lambda: (docs, []))
-        monkeypatch.setattr(sys, "argv", ["full_pipeline.py", "--stages", "docling, embed,"])
+        monkeypatch.setattr(enrich_script.corpus, "build_corpus", lambda: (docs, []))
+        monkeypatch.setattr(sys, "argv", ["enrich.py", "--stages", "docling, embed,"])
 
         called = []
-        monkeypatch.setitem(full_pipeline.STAGE_FUNCS, "docling", lambda d, a: called.append("docling") or {"status": "ok", "detail": "d"})
-        monkeypatch.setitem(full_pipeline.STAGE_FUNCS, "embed", lambda d, a: called.append("embed") or {"status": "ok", "detail": "e"})
+        monkeypatch.setitem(enrich_script.STAGE_FUNCS, "docling", lambda d, a: called.append("docling") or {"status": "ok", "detail": "d"})
+        monkeypatch.setitem(enrich_script.STAGE_FUNCS, "embed", lambda d, a: called.append("embed") or {"status": "ok", "detail": "e"})
 
-        rc = full_pipeline.main()
+        rc = enrich_script.main()
         out = capsys.readouterr().out
 
         assert rc == 0
@@ -193,16 +194,16 @@ class TestMain:
 
     def test_stage_exception_does_not_abort_other_stages(self, monkeypatch, capsys):
         docs = [CorpusDoc(doc_id="a", citekey="a", source="bib", title="t", pdf_path=None)]
-        monkeypatch.setattr(full_pipeline.corpus, "build_corpus", lambda: (docs, []))
-        monkeypatch.setattr(sys, "argv", ["full_pipeline.py", "--stages", "docling,embed"])
+        monkeypatch.setattr(enrich_script.corpus, "build_corpus", lambda: (docs, []))
+        monkeypatch.setattr(sys, "argv", ["enrich.py", "--stages", "docling,embed"])
 
         def raise_boom(d, a):
             raise RuntimeError("stage exploded")
 
-        monkeypatch.setitem(full_pipeline.STAGE_FUNCS, "docling", raise_boom)
-        monkeypatch.setitem(full_pipeline.STAGE_FUNCS, "embed", lambda d, a: {"status": "ok", "detail": "e"})
+        monkeypatch.setitem(enrich_script.STAGE_FUNCS, "docling", raise_boom)
+        monkeypatch.setitem(enrich_script.STAGE_FUNCS, "embed", lambda d, a: {"status": "ok", "detail": "e"})
 
-        rc = full_pipeline.main()
+        rc = enrich_script.main()
         out = capsys.readouterr().out
 
         assert rc == 0
@@ -223,7 +224,7 @@ class TestPipelineLock:
             raise runlock.AlreadyRunning("another sync or pipeline run is already running")
 
         monkeypatch.setattr(runlock, "pipeline_lock", lambda *a, **k: refuse())
-        monkeypatch.setattr(sys, "argv", ["full_pipeline.py", "--stages", "docling"])
+        monkeypatch.setattr(sys, "argv", ["enrich.py", "--stages", "docling"])
 
-        assert full_pipeline.main() == runlock.EXIT_ALREADY_RUNNING
+        assert enrich_script.main() == runlock.EXIT_ALREADY_RUNNING
         assert "already running" in capsys.readouterr().out

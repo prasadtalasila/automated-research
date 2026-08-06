@@ -2,7 +2,7 @@
 
 This is the default retrieval implementation genre skills call against
 (AGENTS.md's "Retrieval" section) -- stdlib-only, no venv or model
-download needed. `src/heavy/embed_index.py` (sentence-transformers +
+download needed. `src/enrich/embed_index.py` (sentence-transformers +
 Chroma/Qdrant) is a verified, working embedding-based upgrade path with
 a matching `search(query, k)` shape, ready to swap in without changing
 callers once BM25 stops being enough for this corpus -- that's a
@@ -15,7 +15,7 @@ Two boundaries worth knowing, because they're easy to assume otherwise.
 This module reads the ledger's `parsed_path` -- `content/parsed/*.txt` --
 and never `content/docling/`, so running the enrichment layer's Docling
 stage does not change what BM25 ranks or what its snippets say; only `[parser].backend`
-does. And nothing in `scripts/full_pipeline.py` imports this module, so
+does. And nothing in `scripts/enrich.py` imports this module, so
 the enrichment layer neither uses nor updates this index.
 
 Ranking is Okapi BM25 (stdlib-only: no rank_bm25 dependency), not raw
@@ -31,7 +31,7 @@ per document are cached to disk (config.RETRIEVAL_INDEX_PATH), keyed by
 a cheap per-item fingerprint (parsed-file stat -- exists/size/mtime, not
 content), so a call only re-tokenizes documents whose text actually
 changed since the last run -- mirroring src/ledger.py's own
-stat-before-hash skip logic and src/heavy/embed_index.py's embedding
+stat-before-hash skip logic and src/enrich/embed_index.py's embedding
 cache. Building a snippet for the returned top-k still reads those
 (bounded, small) documents' text fresh, since a snippet needs the real
 surrounding text, not just term counts.

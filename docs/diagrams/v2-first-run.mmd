@@ -22,7 +22,7 @@ flowchart TB
 
   F["<b>6 · Ask for a draft</b><br/><i>“write a survey section on digital twin composability”</i><br/><small>in Claude Code. The matching skill in <code>.claude/skills/</code><br/>picks it up and runs its own gate → references → render chain,<br/><b>looping on the gate until it exits 0</b> before showing you anything.</small>"]
 
-  G["<b>7 · Or drive that chain by hand</b><br/><code>python3 -m src.citation_gate &lt;draft&gt;</code> &nbsp;<i>← fix and repeat until OK</i><br/><code>python3 -m src.references &lt;draft&gt;</code><br/><code>python3 -m src.heavy.render_output &lt;draft&gt; --format pdf</code><br/><small>bare <code>python3</code> — none of these need the venv</small>"]
+  G["<b>7 · Or drive that chain by hand</b><br/><code>python3 -m src.citation_gate &lt;draft&gt;</code> &nbsp;<i>← fix and repeat until OK</i><br/><code>python3 -m src.references &lt;draft&gt;</code><br/><code>python3 -m src.render_output &lt;draft&gt; --format pdf</code><br/><small>bare <code>python3</code> — none of these need the venv</small>"]
 
   DONE(["<b>content/rendered/&lt;slug&gt;.pdf</b>"])
 

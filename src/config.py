@@ -305,7 +305,7 @@ PARSE_MIN_TOKENS = int(_get_float("PARSE_MIN_TOKENS", "parser", "min_tokens", de
 PROVENANCE_WEAK_SCORE = _get_float("PROVENANCE_WEAK_SCORE", "provenance", "weak_score", default=0.20)
 PROVENANCE_GOOD_SCORE = _get_float("PROVENANCE_GOOD_SCORE", "provenance", "good_score", default=0.50)
 
-# Heavier optional pipeline (pyproject.toml's "heavy" Poetry group), per src/heavy/.
+# Heavier optional pipeline (pyproject.toml's "enrich" Poetry group), per src/enrich/.
 DOCLING_DIR = CONTENT_DIR / "docling"
 # Per-doc (size, mtime_ns) PDF fingerprint, so docling_parse.parse_doc()
 # only re-runs Docling's layout/OCR models -- the slowest stage in this
@@ -317,10 +317,10 @@ DOCLING_CACHE_PATH = CONTENT_DIR / "docling_cache.json"
 # page/caption/citation for each. Changing this invalidates the whole
 # Docling cache -- it changes what every .md should contain, so the next
 # run re-parses the corpus from scratch. See DEVELOPER.md's "Figures".
-DOCLING_IMAGES = _get_bool("DOCLING_IMAGES", "heavy", "docling_images", default=False)
+DOCLING_IMAGES = _get_bool("DOCLING_IMAGES", "enrich", "docling_images", default=False)
 # Render scale for those bitmaps; 2.0 is ~144 DPI, legible for reading a
 # figure back while checking a draft without storing print-resolution PNGs.
-DOCLING_IMAGE_SCALE = _get_float("DOCLING_IMAGE_SCALE", "heavy", "docling_image_scale", default=2.0)
+DOCLING_IMAGE_SCALE = _get_float("DOCLING_IMAGE_SCALE", "enrich", "docling_image_scale", default=2.0)
 CHROMA_DIR = CONTENT_DIR / "chroma"
 
 TOPICS_PATH = CONTENT_DIR / "topics.json"
@@ -345,6 +345,6 @@ RENDER_COLLAPSE_CITATIONS = _get_bool(
 )
 
 EMBEDDING_MODEL = _get(
-    "EMBEDDING_MODEL", "heavy", "embedding_model",
+    "EMBEDDING_MODEL", "enrich", "embedding_model",
     default="sentence-transformers/all-MiniLM-L6-v2",
 )

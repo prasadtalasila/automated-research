@@ -293,7 +293,7 @@ def write_report(draft_path: Path, formats: list[str]) -> dict[str, Path]:
     """Writes the report and returns {format: path} for what succeeded.
 
     `md` is produced directly. `tex`/`pdf` go through
-    src/heavy/render_output.py, the same path every genre draft uses --
+    src/render_output.py, the same path every genre draft uses --
     it needs pandoc/pdflatex on PATH, so a missing binary is reported and
     skipped rather than failing the whole run, matching how every other
     stage in this project treats an absent optional tool.
@@ -311,7 +311,7 @@ def write_report(draft_path: Path, formats: list[str]) -> dict[str, Path]:
     # Imported here rather than at module top only to keep the import
     # cost off the md-only path; render_output is itself stdlib-only, so
     # there is no optional dependency to guard against.
-    from src.heavy import render_output
+    from src import render_output
 
     for fmt in remaining:
         try:

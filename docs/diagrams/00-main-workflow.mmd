@@ -30,7 +30,7 @@ flowchart TB
     direction LR
     XOR{{"which ranker?<br/><small>the genre skill picks</small>"}}
     BM25["<b>src/retrieval.py</b> · BM25<br/><small>stdlib keyword overlap, cached term-frequency index.<br/><b>the default every skill starts from</b></small>"]
-    EMB["<b>src/heavy/embed_index.py</b> · semantic<br/><small>same <code>search(q, k)</code> signature, so it is a drop-in.<br/>Named as the alternative by <code>survey-writer</code><br/>and <code>deep-research</code> — and only by those two.</small>"]
+    EMB["<b>src/enrich/embed_index.py</b> · semantic<br/><small>same <code>search(q, k)</code> signature, so it is a drop-in.<br/>Named as the alternative by <code>survey-writer</code><br/>and <code>deep-research</code> — and only by those two.</small>"]
     PASS["<b>src/passages.py</b> · evidence ladder<br/><small>docling sidecar → page → pdftotext</small>"]
     XOR -- "default" --> BM25
     XOR -. "only if content/chroma/ was built" .-> EMB
@@ -55,15 +55,15 @@ flowchart TB
   subgraph S5["<b>5 · PUBLISH</b> — stdlib only, no venv needed"]
     direction TB
     REFS["<b>python3 -m src.references</b><br/><small>IEEE ## References, numbered by first appearance,<br/>built only from citekeys the draft actually cites.<br/>Skipped for thesis .tex fragments, where the<br/>surrounding LaTeX owns the bibliography.</small>"]
-    REND["<b>python3 -m src.heavy.render_output</b><br/><small>pandoc --citeproc + assets/csl/ieee.csl</small>"]
+    REND["<b>python3 -m src.render_output</b><br/><small>pandoc --citeproc + assets/csl/ieee.csl</small>"]
     OUT[/"<b>content/rendered/&lt;slug&gt;.pdf | .tex | .docx | .md</b>"/]
     REFS --> REND --> OUT
   end
 
   %% ─────────────── ENRICHMENT (side branch) ───────────────
-  subgraph SH["<b>OPTIONAL · ENRICHMENT LAYER</b><br/><code>scripts/full_pipeline.py --stages …</code> · same run lock"]
+  subgraph SH["<b>OPTIONAL · ENRICHMENT LAYER</b><br/><code>scripts/enrich.py --stages …</code> · same run lock"]
     direction TB
-    H1["<b>docling</b> — <i>reads the PDF itself, not content/parsed/</i><br/><small><b>content/docling/&lt;doc&gt;.md</b> — layout-aware text<br/><b>&lt;doc&gt;.passages.json</b> — the quotable-passage sidecar<br/><b>&lt;doc&gt;_artifacts/</b> — figure bitmaps, written by Docling<br/><b>&lt;doc&gt;.figures.json</b> — page, caption, cite string per figure<br/>the last two only when <code>[heavy].docling_images</code> is on</small>"]
+    H1["<b>docling</b> — <i>reads the PDF itself, not content/parsed/</i><br/><small><b>content/docling/&lt;doc&gt;.md</b> — layout-aware text<br/><b>&lt;doc&gt;.passages.json</b> — the quotable-passage sidecar<br/><b>&lt;doc&gt;_artifacts/</b> — figure bitmaps, written by Docling<br/><b>&lt;doc&gt;.figures.json</b> — page, caption, cite string per figure<br/>the last two only when <code>[enrich].docling_images</code> is on</small>"]
     H2["<b>embed</b><br/><small>content/chroma/ — drop-in search(q,k)</small>"]
     H3["<b>bertopic</b><br/><small>content/topics.json</small>"]
     H1 --> H2 --> H3
@@ -90,7 +90,7 @@ flowchart TB
   LED == "the ledger is the<br/>only authority the<br/>gate consults" ==> GATE
   LED --> REFS
   ATT -. "the PDF, direct" .-> H1
-  RAW -. "src/heavy/corpus.py" .-> H1
+  RAW -. "src/enrich/corpus.py" .-> H1
   H1 -.-> PASS
   H2 -.-> EMB
   DRAFT --> SA

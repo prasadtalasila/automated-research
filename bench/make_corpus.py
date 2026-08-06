@@ -14,7 +14,7 @@ which matters here: one 675-page document is 5% of all pages in this
 corpus, and a sample that happens to exclude it understates the total by
 more than any other single choice in this harness.
 
-Run this before bench/bench_docling.py. Needs the "heavy" Poetry group
+Run this before bench/bench_docling.py. Needs the "enrich" Poetry group
 (pypdfium2 arrives with docling).
 """
 

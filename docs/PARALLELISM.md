@@ -55,10 +55,10 @@ serial, and is.
 Two entry points reach it, sharing the same machinery:
 
 ```
-  python -m src.sync                     scripts/full_pipeline.py
+  python -m src.sync                     scripts/enrich.py
   (corpus layer: bib ──► text)           (enrichment layer, opt-in)
           │                                        │
-          │ src/sync.py                            │ src/heavy/docling_parse.py
+          │ src/sync.py                            │ src/enrich/docling_parse.py
           │ _parse_parallel()                      │ parse_corpus()
           │ _executor_for()                        │ _executor_for()
           └────────────────┬───────────────────────┘
@@ -68,8 +68,8 @@ Two entry points reach it, sharing the same machinery:
    process_pool_context · prestart_pool · init_worker · usable_devices
 ```
 
-`src/heavy/docling_parse.py` keeps its own `_executor_for` rather than
-importing `sync`'s, so `src/heavy/` never depends on the core entry
+`src/enrich/docling_parse.py` keeps its own `_executor_for` rather than
+importing `sync`'s, so `src/enrich/` never depends on the core entry
 point — the dependency runs the other way everywhere else. Both delegate
 every *policy* decision to `pdf_text`, so "how many workers, which start
 method, which GPU" is answered in exactly one place.

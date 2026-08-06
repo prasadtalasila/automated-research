@@ -49,13 +49,13 @@ flowchart TB
   subgraph J2["<b>DRAFTING LAYER</b> — generative, on demand, you review it"]
     direction TB
     SKILL["<b>.claude/skills/</b> — five genre skills<br/><small>read the corpus layer · never write the ledger</small>"]
-    CHAIN["<b>the chain, on every draft</b><br/><code>python3 -m src.citation_gate</code> — <b>hard gate</b><br/><code>python3 -m src.references</code><br/><code>python3 -m src.heavy.render_output</code><br/><small><b>bare python3, no venv</b> — by design</small>"]
+    CHAIN["<b>the chain, on every draft</b><br/><code>python3 -m src.citation_gate</code> — <b>hard gate</b><br/><code>python3 -m src.references</code><br/><code>python3 -m src.render_output</code><br/><small><b>bare python3, no venv</b> — by design</small>"]
     SKILL --> CHAIN
   end
 
   subgraph JH["<b>OPTIONAL · ENRICHMENT LAYER</b> — you run it, no skill does"]
     direction TB
-    FULL["<code>python scripts/full_pipeline.py --stages …</code><br/><small><b>needs the venv + the heavy group</b><br/>takes the <b>same write lock</b> as sync</small>"]
+    FULL["<code>python scripts/enrich.py --stages …</code><br/><small><b>needs the venv + the enrich group</b><br/>takes the <b>same write lock</b> as sync</small>"]
     OUT3[/"content/docling/ · content/chroma/ · content/topics.json"/]
     FULL --> OUT3
   end
@@ -141,7 +141,7 @@ Each skill retrieves from the corpus layer, drafts into
    exactly the citekeys the draft cites, numbered by first appearance.
    Skipped for thesis `.tex` fragments, where the surrounding LaTeX owns
    the bibliography.
-3. `python3 -m src.heavy.render_output <draft> --format pdf` -- the
+3. `python3 -m src.render_output <draft> --format pdf` -- the
    rendered output. Citations render IEEE-style: numeric `[1]` markers,
    `[3]-[6]` for a consecutive run, over a numbered bibliography built
    from the citekeys actually cited.
@@ -178,20 +178,20 @@ every artefact it writes is a deeper reading of the same corpus, which is
 also why it takes the *same write lock* as `sync`. The drafting layer only
 ever reads what it produced.
 
-`scripts/full_pipeline.py` is the entry point, and it is the only one:
+`scripts/enrich.py` is the entry point, and it is the only one:
 
 ```bash
-.venv-full/bin/python scripts/full_pipeline.py --stages docling,embed
-.venv-full/bin/python scripts/full_pipeline.py --stages render --input draft.md
+.venv-full/bin/python scripts/enrich.py --stages docling,embed
+.venv-full/bin/python scripts/enrich.py --stages render --input draft.md
 ```
 
 | Stage | What it produces | Needs `--input`? |
 |---|---|---|
-| `docling` | `content/docling/<doc>.md` plus a `<doc>.passages.json` sidecar of quotable, reading-ordered passages (and figure bitmaps under `[heavy].docling_images`) | no |
+| `docling` | `content/docling/<doc>.md` plus a `<doc>.passages.json` sidecar of quotable, reading-ordered passages (and figure bitmaps under `[enrich].docling_images`) | no |
 | `embed` | `content/chroma/` -- sentence-transformers vectors per 200-word chunk | no |
 | `bertopic` | `content/topics.json` -- one cluster assignment per document | no |
 | `provenance` | the citation-provenance report -- the same code as `python3 -m src.citation_provenance`, wrapped for convenience rather than enrichment work | **yes** |
-| `render` | the rendered draft -- likewise the drafting layer's own `python3 -m src.heavy.render_output`, wrapped here | **yes** |
+| `render` | the rendered draft -- likewise the drafting layer's own `python3 -m src.render_output`, wrapped here | **yes** |
 
 Each stage probes its own prerequisites and reports `ok`, `partial`,
 `skipped`, `missing-binary` or `error`, so a missing TeX Live is a correct
@@ -205,18 +205,19 @@ What the three build stages are *for*, and which one to build first, is in
 [RETRIEVAL.md](RETRIEVAL.md).
 
 **`--stages` is the only way to run the first three.**
-`src/heavy/docling_parse.py`, `embed_index.py` and `topic_model.py` have
-no `__main__` block, so `python -m src.heavy.docling_parse` imports the
+`src/enrich/docling_parse.py`, `embed_index.py` and `topic_model.py` have
+no `__main__` block, so `python -m src.enrich.docling_parse` imports the
 module, does nothing, and exits 0 -- a silent no-op, not an error.
-`src/heavy/render_output.py` is the exception: it has a CLI, needs no
-package from the heavy group, and is what the drafting layer calls directly.
+`src/render_output.py` is not among them at all: it has a CLI, needs no
+package from the `enrich` group, and belongs to the drafting layer --
+which is why it lives in `src/` rather than in the package.
 
 **Calling it from a skill or an agent.** A skill runs inline with the same
 Bash access as the session that invoked it, so it *can* shell out to
-`scripts/full_pipeline.py` exactly as you would. The pattern to follow is
+`scripts/enrich.py` exactly as you would. The pattern to follow is
 the one the existing skills use: check the stack exists before calling
 into it (`content/chroma/` for embeddings, `content/docling/` for
-passages, `.venv-full/` for anything in the heavy group), and degrade to
+passages, `.venv-full/` for anything in the enrich group), and degrade to
 the lightweight default rather than erroring when it doesn't. Bear in mind
 what that costs: the enrichment layer takes the same write lock as `sync`,
 and
@@ -284,7 +285,7 @@ unavailable rather than failing.
 | Track parse status incrementally | stdlib `sqlite3` |
 | BM25-ranked retrieval | stdlib only |
 | Citation gate, References section, tex/pdf render | stdlib only, no venv (see [below](#which-interpreter-and-why)) |
-| Docling layout-aware parsing, embeddings/Chroma, BERTopic | venv, `heavy` Poetry group |
+| Docling layout-aware parsing, embeddings/Chroma, BERTopic | venv, `enrich` Poetry group |
 | Compiling generated `.tex` to PDF | `pandoc`, `pdflatex`, `latexmk` (`os-deps` stage) |
 
 ## Which interpreter, and why
@@ -294,9 +295,9 @@ tier each command is in; this is the reason there are tiers at all.
 
 | Tier | Needs | Commands |
 |---|---|---|
-| 1 | bare `python3`, stdlib only | `citation_gate`, `references`, `heavy.render_output`, `ledger`, `citation_provenance`, `citation_coverage`, `scripts/verbatim_check.py` |
+| 1 | bare `python3`, stdlib only | `citation_gate`, `references`, `render_output`, `ledger`, `citation_provenance`, `citation_coverage`, `scripts/verbatim_check.py` |
 | 2 | venv + `bibtexparser` | `src.sync` |
-| 3 | venv + the `heavy` group | `scripts/full_pipeline.py` |
+| 3 | venv + the `enrich` group | `scripts/enrich.py` |
 
 **The gate chain is deliberately in tier 1.** `citation_gate` ->
 `references` -> `render_output` runs on the system interpreter with no
@@ -310,12 +311,14 @@ Tier 2 is one package. `src.sync` needs `bibtexparser` because parsing
 BibTeX correctly -- nested braces, LaTeX escapes, multi-line values -- is
 not worth hand-rolling.
 
-**Directory membership is not the same axis.**
-`src/heavy/render_output.py` lives under `src/heavy/` and is in tier 1: it
-needs no package from the heavy group at all. What it needs is `pandoc`
-and `pdflatex`, which are operating-system packages, probed at runtime and
-reported as `missing-binary` when absent. A module's directory says which
-pipeline it belongs to, not which interpreter runs it.
+**Directory membership is not the same axis, and used to disagree with
+it.** `render_output.py` sat under `src/heavy/` until 3.0.0 while needing
+no package from that group at all -- it is the drafting layer's publish
+step. It now lives in `src/` beside the rest of that layer. What it needs
+is `pandoc` and `pdflatex`, which are operating-system packages, probed at
+runtime and reported as `missing-binary` when absent. That axis -- which
+binaries a command shells out to -- is still independent of which
+directory it lives in.
 
 ## Ladders and tiers
 
@@ -344,7 +347,7 @@ what is missing.
 
 ## One writer at a time
 
-`sync` and `full_pipeline.py` take the same lock over `content/`
+`sync` and `enrich.py` take the same lock over `content/`
 (`content/pipeline.lock.db`), because the unsafe overlap is any writer
 against any other writer, not just sync against sync. The second one to
 start exits `2` rather than interleaving, and the lock releases itself if

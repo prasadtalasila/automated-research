@@ -9,7 +9,7 @@ tags: [deep-research, multi-perspective, storm, citation]
 Every claim must resolve to one of:
 
 - a real **citekey** from `content/ledger.sqlite` (via `src.retrieval.search()`
-  or `src.heavy.embed_index.search()` if that stack has been built), cited
+  or `src.enrich.embed_index.search()` if that stack has been built), cited
   `[@citekey]`;
 - a `source-pdfs` document, discussed in prose by title/doc_id and
   explicitly marked **not citable** (per AGENTS.md's invariant -- never
@@ -27,9 +27,9 @@ It reads the same shared corpus layer as the other genre skills.
 - `content/ledger.sqlite` -- per-citekey status, populated by `sync`
 - `papers/bibliography.bib` (gitignored, per-host) -- source of truth for citekeys/metadata
 - `src/retrieval.py` -- `search(query, k, snippet_chars)`, keyword overlap
-- `src/heavy/embed_index.py` -- `search(query, k, snippet_chars)`, semantic
+- `src/enrich/embed_index.py` -- `search(query, k, snippet_chars)`, semantic
   (if built for this corpus -- check `content/chroma/` first)
-- `papers/pdfs/` (config.toml's `[source_pdfs].dir`) -- non-citable raw PDFs, see `src/heavy/corpus.py`
+- `papers/pdfs/` (config.toml's `[source_pdfs].dir`) -- non-citable raw PDFs, see `src/enrich/corpus.py`
 
 **Read-only means read-only: never run `python -m src.sync`.** That command
 belongs to the corpus layer, it takes the pipeline's write lock, and a
@@ -252,16 +252,16 @@ numbered IEEE-style entries; leave the body's inline citations as
 `[@citekey]` rather than hand-numbering them to `[1]`, since pandoc
 assigns the numbers at render time. Then render the other three formats:
 ```
-python3 -m src.heavy.render_output content/drafts/deep-research-<slug>.md --format tex
-python3 -m src.heavy.render_output content/drafts/deep-research-<slug>.md --format pdf
-python3 -m src.heavy.render_output content/drafts/deep-research-<slug>.md --format md
+python3 -m src.render_output content/drafts/deep-research-<slug>.md --format tex
+python3 -m src.render_output content/drafts/deep-research-<slug>.md --format pdf
+python3 -m src.render_output content/drafts/deep-research-<slug>.md --format md
 ```
 The `md` output is a numbered copy in `content/rendered/` -- the same
 IEEE numbers as the PDF, for a reader who won't open one. The draft
 itself keeps its `[@citekey]` markers.
 
-This needs only bare `python3` plus `pandoc`/`pdflatex` on PATH — no heavy
-venv required. If either command reports `[missing-binary]` or `[error]`,
+This needs only bare `python3` plus `pandoc`/`pdflatex` on PATH — no enrich
+group required. If either command reports `[missing-binary]` or `[error]`,
 print a one-line warning in chat with that message and continue anyway —
 a rendering failure never blocks presenting the `.md` report. Give the
 user: headline finding, the single most important contradiction, the

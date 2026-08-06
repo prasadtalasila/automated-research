@@ -3,7 +3,7 @@ config.PARSER names (pdftotext/docling).
 
 docling is mocked via sys.modules (it is imported
 lazily inside its _extract_* function, not at module top), matching
-tests/test_heavy_docling_parse.py's pattern -- fast, deterministic, and
+tests/test_enrich_docling_parse.py's pattern -- fast, deterministic, and
 doesn't need the real package installed.
 """
 
@@ -295,9 +295,9 @@ class TestUnavailableReason:
         monkeypatch.setattr(config, "PARSER", "pdftotext")
         assert "poppler-utils" in pdf_text.unavailable_reason()
 
-    def test_docling_mentions_heavy_group(self, monkeypatch):
+    def test_docling_mentions_enrich_group(self, monkeypatch):
         monkeypatch.setattr(config, "PARSER", "docling")
-        assert "poetry install --with heavy" in pdf_text.unavailable_reason()
+        assert "poetry install --with enrich" in pdf_text.unavailable_reason()
 
 
 class TestExtractTextMissingBinary:
@@ -305,7 +305,7 @@ class TestExtractTextMissingBinary:
     surface this as an uncaught FileNotFoundError traceback out of
     subprocess.run (src/sync.py caught only CalledProcessError) instead of
     a reported, honest result -- the same probe-and-report shape every
-    src/heavy/* stage already follows (e.g. src/heavy/render_output.py's
+    src/enrich/* stage already follows (e.g. src/render_output.py's
     MissingBinary)."""
 
     def test_raises_missing_binary_instead_of_file_not_found(
@@ -679,7 +679,7 @@ class TestGpuCount:
         assert pdf_text.gpu_count() == 0
 
     def test_zero_when_neither_nvidia_smi_nor_torch_can_answer(self, monkeypatch):
-        """The heavy group may be installed without a working torch, and
+        """The enrich group may be installed without a working torch, and
         a missing GPU is not an error -- it just means one device."""
         monkeypatch.setattr(config, "PARSER", "docling")
         _fake_nvidia_smi(monkeypatch, found=False)
@@ -1011,7 +1011,7 @@ class TestCudaIsInitialised:
         assert pdf_text.cuda_is_initialised() is False
 
     def test_true_once_something_has_used_a_gpu(self, monkeypatch):
-        """src/heavy/embed_index runs sentence-transformers, and a
+        """src/enrich/embed_index runs sentence-transformers, and a
         library caller may have done anything before calling in."""
         monkeypatch.setitem(
             sys.modules, "torch",

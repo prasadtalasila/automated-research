@@ -7,7 +7,7 @@ flowchart LR
 
   P1["<b>1 · SYNC</b><br/><i>deterministic</i><br/><br/><code>python -m src.sync</code><br/><br/><b>content/ledger.sqlite</b><br/><b>content/parsed/*.txt</b>"]
 
-  HEAVY["<b>ENRICHMENT — worth it for this genre</b><br/><code>full_pipeline.py --stages docling,embed</code><br/><br/><b>docling</b> → layout-aware .md + .passages.json<br/><small>better quotable passages, so claims survive review</small><br/><br/><b>embed</b> → content/chroma/<br/><small>semantic recall: finds the paper that argues the<br/>point in different words. <b>Both skills name<br/><code>embed_index.search()</code> by hand.</b></small>"]
+  HEAVY["<b>ENRICHMENT — worth it for this genre</b><br/><code>enrich.py --stages docling,embed</code><br/><br/><b>docling</b> → layout-aware .md + .passages.json<br/><small>better quotable passages, so claims survive review</small><br/><br/><b>embed</b> → content/chroma/<br/><small>semantic recall: finds the paper that argues the<br/>point in different words. <b>Both skills name<br/><code>embed_index.search()</code> by hand.</b></small>"]
 
   P2["<b>2 · DRAFT</b><br/><i>every sentence is a cited claim</i><br/><br/><b>survey-writer</b> — over-fetch <code>k=15</code>,<br/>hand-cluster into 2-4 sub-themes,<br/>comparison table + gap analysis<br/><br/><b>deep-research</b> — perspectives,<br/>parallel interviews, contradiction map,<br/>then cited sections<br/><br/><b>content/drafts/&lt;slug&gt;.md</b>"]
 

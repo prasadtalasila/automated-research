@@ -117,8 +117,8 @@ job -- see `docs/WRITING-STANDARDS.md` §5.
    from that same fragment (pandoc's LaTeX reader handles a preamble-less
    fragment fine):
    ```
-   python3 -m src.heavy.render_output content/drafts/<slug>.tex --format md
-   python3 -m src.heavy.render_output content/drafts/<slug>.tex --format pdf
+   python3 -m src.render_output content/drafts/<slug>.tex --format md
+   python3 -m src.render_output content/drafts/<slug>.tex --format pdf
    ```
    This needs only bare `python3` plus `pandoc`/`pdflatex` on PATH -- don't
    assume either is present or absent without checking; probe (or just try

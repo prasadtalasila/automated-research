@@ -30,7 +30,7 @@ This is a **different mechanism from `papers/pdfs/`** (`config.toml`'s
 `[source_pdfs].dir`, Quickstart step 1 above): that directory is for any
 raw PDF you already have but haven't cataloged in Zotero yet (just a file
 you drop there by hand -- this project has no automated fetching from any
-external source) -- see [`src/heavy/corpus.py`](../src/heavy/corpus.py) and
+external source) -- see [`src/enrich/corpus.py`](../src/enrich/corpus.py) and
 AGENTS.md's citekey invariant. Zotero's own exported attachments never
 belong there, and this project's only supported way to catalog a paper
 for citing is a Zotero export.

@@ -1,6 +1,6 @@
 """Stage 4: BERTopic clustering over the corpus.
 
-Needs `bertopic` from pyproject.toml's "heavy" Poetry group, in a venv. With a
+Needs `bertopic` from pyproject.toml's "enrich" Poetry group, in a venv. With a
 handful of documents, HDBSCAN's default min_cluster_size (10) will
 legitimately put everything in the outlier topic (-1) -- that is the
 correct output for a small corpus, not a bug. Don't lower
@@ -40,8 +40,8 @@ different granularity, not reusable as-is between the two.
 import json
 
 from src import config
-from src.heavy import embed_index
-from src.heavy.corpus import CorpusDoc
+from src.enrich import embed_index
+from src.enrich.corpus import CorpusDoc
 
 
 def _load_embed_cache() -> dict:

@@ -3,7 +3,7 @@
 This is the real embedding-based retrieval the corpus layer's
 src/retrieval.py deliberately deferred (keyword overlap only, pending a
 larger corpus). Needs `sentence-transformers` and `chromadb` from
-pyproject.toml's "heavy" Poetry group, in a venv.
+pyproject.toml's "enrich" Poetry group, in a venv.
 
 build_index() is incremental, mirroring the corpus layer's
 src/ledger.py: skip reprocessing whatever hasn't detectably changed
@@ -28,7 +28,7 @@ import tempfile
 from pathlib import Path
 
 from src import config
-from src.heavy.corpus import CorpusDoc, safe_filename
+from src.enrich.corpus import CorpusDoc, safe_filename
 
 _COLLECTION_PREFIX = "corpus"
 
@@ -172,7 +172,7 @@ def search(query: str, k: int = 5, snippet_chars: int = 500) -> list[dict]:
 
     Deliberately the same shape as `src.retrieval.search()` so this is a
     drop-in for it -- but with one difference a caller must handle. This
-    index covers the *heavy* corpus, which is wider than the ledger: a hit
+    index covers the *enrichment* corpus, which is wider than the ledger: a hit
     can come from `papers/pdfs/`, in which case `citekey` is `""` and
     `doc_id` is `doc:<stem>`. Those results are readable evidence and are
     never citable -- `citation_gate` resolves citekeys against the ledger,

@@ -53,12 +53,12 @@ cp config.toml.example config.toml
 
 ## Verify the toolchain
 
-Inside the running container, check that the render and heavy-pipeline
+Inside the running container, check that the render and enrichment
 dependencies actually resolved:
 
 ```bash
 command -v latexmk pandoc pdftotext
-python -c "import sentence_transformers, chromadb, bertopic, docling; print('heavy group OK')"
+python -c "import sentence_transformers, chromadb, bertopic, docling; print('enrich group OK')"
 ```
 
 ## Running pipeline commands inside the container
@@ -70,7 +70,7 @@ inside the container:
 
 ```bash
 python -m src.sync
-python scripts/full_pipeline.py --stages embed,bertopic
+python scripts/enrich.py --stages embed,bertopic
 python -m src.citation_gate path/to/draft.md
 ```
 

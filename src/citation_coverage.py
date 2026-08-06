@@ -2,7 +2,7 @@
 made it into a draft's citations.
 
 `src.retrieval.search()` (and its embedding-based upgrade,
-`src.heavy.embed_index.search()`) return candidate sources for a query --
+`src.enrich.embed_index.search()`) return candidate sources for a query --
 but nothing today reports whether a genre skill actually used them.
 A citekey that scored well but never got cited is either a sign the
 draft skipped a relevant source, or a sign the query was too broad; a

@@ -180,16 +180,16 @@ candidate for the chapter.
 11. **Render tex and pdf.** Once saved (and gated/referenced, if it has
     citations), also render the other three formats:
     ```
-    python3 -m src.heavy.render_output content/drafts/<slug>.md --format tex
-    python3 -m src.heavy.render_output content/drafts/<slug>.md --format pdf
-    python3 -m src.heavy.render_output content/drafts/<slug>.md --format md
+    python3 -m src.render_output content/drafts/<slug>.md --format tex
+    python3 -m src.render_output content/drafts/<slug>.md --format pdf
+    python3 -m src.render_output content/drafts/<slug>.md --format md
     ```
     The `md` output is a numbered copy in `content/rendered/` -- the same
     IEEE numbers as the PDF, for a reader who won't open one. The draft
     itself keeps its `[@citekey]` markers.
 
     This needs only bare `python3` plus `pandoc`/`pdflatex` on PATH -- no
-    heavy venv required. If either command reports `[missing-binary]` or
+    enrich group required. If either command reports `[missing-binary]` or
     `[error]`, print a one-line warning in chat with that message and
     continue anyway -- a rendering failure never blocks presenting the
     `.md` draft. Report the render outcome (paths to the `.tex`/`.pdf` if

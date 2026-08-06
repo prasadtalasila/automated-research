@@ -258,7 +258,7 @@ def main() -> int:
                     help="runs per configuration; the median is reported (default: 1)")
     ap.add_argument("--tag", required=True, help="names the output file")
     ap.add_argument("--python", default=".venv-full/bin/python",
-                    help="interpreter with the heavy group installed")
+                    help="interpreter with the enrich group installed")
     ap.add_argument("--dry-run", action="store_true", help="print the plan and exit")
     args = ap.parse_args()
 

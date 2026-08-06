@@ -6,7 +6,7 @@ different question entirely. This document says which is which, so you can
 decide what is worth building.
 
 **Written for** someone choosing whether to run
-`scripts/full_pipeline.py --stages embed,bertopic`, or wondering why a
+`scripts/enrich.py --stages embed,bertopic`, or wondering why a
 draft cited a paper they didn't expect. **Assumed:** you have run
 `python -m src.sync` and have a populated ledger. **Not covered:** how to
 tune any of them -- see [CONFIG.md](CONFIG.md) for the settings and
@@ -16,14 +16,14 @@ tune any of them -- see [CONFIG.md](CONFIG.md) for the settings and
 
 | | **BM25** | **embeddings** | **topic model** |
 |---|---|---|---|
-| Module | `src/retrieval.py` | `src/heavy/embed_index.py` | `src/heavy/topic_model.py` |
+| Module | `src/retrieval.py` | `src/enrich/embed_index.py` | `src/enrich/topic_model.py` |
 | Question it answers | which sources match this query? | *the same question* | what clusters exist in my corpus? |
 | Takes a query | yes | yes | **no** |
 | Method | Okapi BM25 over whitespace tokens | dense vectors, cosine distance | UMAP then HDBSCAN over one vector per document |
 | Unit of a hit | a whole document | a 200-word chunk | a whole document |
 | Corpus | ledger rows only | ledger rows **and** `papers/pdfs/` | ledger rows **and** `papers/pdfs/` |
 | Every hit citable? | **yes** | **no** -- see below | n/a |
-| Needs | stdlib, bare `python3` | venv + `heavy` group + a model download | venv + `heavy` group |
+| Needs | stdlib, bare `python3` | venv + `enrich` group + a model download | venv + `enrich` group |
 | Used by | every genre skill, by default | `survey-writer`, `deep-research` (only if built) | **nothing in this repository** |
 
 ```mermaid
@@ -34,12 +34,12 @@ flowchart TB
   subgraph SEARCH["<b>SEARCHING</b> — same question, two implementations. Pick one; nothing merges them."]
     direction LR
     BM25["<b>src/retrieval.py</b> · BM25<br/><small>stdlib · whole documents · always available<br/><b>every hit has a citekey</b></small>"]
-    EMB["<b>src/heavy/embed_index.py</b> · semantic<br/><small>heavy group · 200-word chunks<br/>same <code>search(q, k)</code> shape, so it is a drop-in<br/><b>some hits have no citekey</b></small>"]
+    EMB["<b>src/enrich/embed_index.py</b> · semantic<br/><small>enrich group · 200-word chunks<br/>same <code>search(q, k)</code> shape, so it is a drop-in<br/><b>some hits have no citekey</b></small>"]
   end
 
   subgraph SURVEY["<b>SURVEYING</b> — no query at all"]
     direction TB
-    BERT["<b>src/heavy/topic_model.py</b> · BERTopic<br/><small>clusters the whole corpus at once</small>"]
+    BERT["<b>src/enrich/topic_model.py</b> · BERTopic<br/><small>clusters the whole corpus at once</small>"]
     TOP[/"<b>content/topics.json</b><br/><small>read by you, not by any code here</small>"/]
     BERT --> TOP
   end
@@ -94,7 +94,7 @@ changed.
 
 ## Embeddings -- a replacement for BM25, not an addition
 
-`src/heavy/embed_index.py` chunks each document into 200 words with
+`src/enrich/embed_index.py` chunks each document into 200 words with
 40 words of overlap, encodes each chunk with a sentence-transformers model
 (`sentence-transformers/all-MiniLM-L6-v2` by default), and stores the
 vectors in a Chroma collection under `content/chroma/`. The collection is
@@ -121,7 +121,7 @@ membership in the ledger, and a `doc:` identifier can never be a BibTeX
 citekey. Read them freely -- but to cite one, add the paper to your
 reference manager, re-export, and re-run `sync`.
 
-`full_pipeline.py` counts them at the top of every run, before any stage
+`enrich.py` counts them at the top of every run, before any stage
 touches them, so you know how much of what you are about to index cannot
 be cited:
 
@@ -150,7 +150,7 @@ skills use BM25 only.
 
 ## Topic model -- a different question
 
-`src/heavy/topic_model.py` takes no query. It embeds each document once as
+`src/enrich/topic_model.py` takes no query. It embeds each document once as
 a whole, reduces with UMAP, clusters with HDBSCAN, and writes
 `content/topics.json`: one topic assignment per document, plus a topic
 table. It needs at least two documents with text.

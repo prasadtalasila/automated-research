@@ -48,10 +48,10 @@ variables so a tex/pdf output always opens with a 12pt, a4paper article
 class and 1-inch margins via the geometry package -- overridable per
 call, but those are the project's fixed defaults.
 
-`python -m src.heavy.render_output <file> --format tex|pdf|...` runs standalone
-with bare `python3` (no heavy venv) -- it depends only on stdlib plus
+`python -m src.render_output <file> --format tex|pdf|...` runs standalone
+with bare `python3` (no enrich group) -- it depends only on stdlib plus
 `src.config`/`src.citation_gate`/`src.references` (all three stdlib-only,
-same as this module), deliberately independent of `scripts/full_pipeline.py`,
+same as this module), deliberately independent of `scripts/enrich.py`,
 which drags in the full corpus build and the docling/embed/topic_model
 imports for stages this one doesn't need. The genre-writing skills under
 `.claude/skills/` call this CLI directly.
@@ -409,14 +409,14 @@ def render(
 
 
 def main() -> int:
-    """CLI entry point -- deliberately independent of scripts/full_pipeline.py.
+    """CLI entry point -- deliberately independent of scripts/enrich.py.
 
     That script imports docling/embed/topic_model at module load and
     builds the whole corpus before any stage runs, which drags in the
     multi-GB `.venv-full` for a stage that itself only needs stdlib +
     `src.config` + `src.citation_gate`. Genre skills that just want a
     tex/pdf rendering of a draft should be able to run this with bare
-    `python3`, no heavy venv required.
+    `python3`, no enrich group required.
     """
     parser = argparse.ArgumentParser(description="Render a Pandoc-markdown or LaTeX draft to tex/pdf/docx.")
     parser.add_argument("input", help="Path to the draft file (Markdown or LaTeX)")

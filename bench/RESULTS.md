@@ -77,7 +77,7 @@ second.
    inside the function** -- once per PDF. `initialized_pipelines` is an
    instance attribute, so every document re-initialises the models.
    Measured cold start for the first converter: **16.5s**.
-   `src/heavy/docling_parse.py` calls `_build_converter()` inside
+   `src/enrich/docling_parse.py` calls `_build_converter()` inside
    `parse_doc`, with the same effect.
 
 3. **`AcceleratorDevice.AUTO` resolves to `cuda:0`, always**
@@ -191,7 +191,7 @@ parse time.
 `initialized_pipelines` is an instance attribute -- so the pre-0.12.0
 `src/pdf_text.py`, which built one converter per PDF, paid a model reload
 for every document in the corpus. Both `pdf_text.py` and
-`heavy/docling_parse.py` now build one converter and reuse it, and
+`enrich/docling_parse.py` now build one converter and reuse it, and
 `parse_corpus` defers the build until a document actually needs parsing,
 so a fully-cached re-run loads no models at all.
 

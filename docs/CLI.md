@@ -6,6 +6,7 @@ short path; this is the full set.
 
 ## Table of contents
 
+- [Upgrading from 2.x](#upgrading-from-2x)
 - [Which interpreter](#which-interpreter)
 - [The full first run, step by step](#the-full-first-run-step-by-step)
 - [Every command and flag](#every-command-and-flag)
@@ -15,12 +16,40 @@ short path; this is the full set.
   - [`src.references`](#python3--m-srcreferences)
   - [`src.citation_coverage`](#python3--m-srccitation_coverage)
   - [`src.citation_provenance`](#python3--m-srccitation_provenance)
-  - [`src.heavy.render_output`](#python3--m-srcheavyrender_output)
-  - [`scripts/full_pipeline.py`](#scriptsfull_pipelinepy)
+  - [`src.render_output`](#python3--m-srcrender_output)
+  - [`scripts/enrich.py`](#scriptsenrichpy)
   - [`scripts/verbatim_check.py`](#scriptsverbatim_checkpy)
   - [`scripts/install_full_pipeline.sh`](#scriptsinstall_full_pipelinesh)
   - [`scripts/release.py`](#scriptsreleasepy)
 - [Environment variables](#environment-variables)
+
+## Upgrading from 2.x
+
+3.0.0 renamed the enrichment layer's identifiers to match the vocabulary
+the documentation uses. Nothing else about how any command behaves
+changed. Old spellings do not work -- there are no compatibility shims:
+
+| 2.x | 3.0.0 |
+|---|---|
+| `python3 -m src.heavy.render_output` | `python3 -m src.render_output` |
+| `python scripts/full_pipeline.py` | `python scripts/enrich.py` |
+| `poetry install --with heavy` | `poetry install --with enrich` |
+| `config.toml`'s `[heavy]` table | `[enrich]` |
+| `src/heavy/` | `src/enrich/`, and `render_output.py` moved up to `src/` |
+
+Two things deliberately did **not** change, because renaming them would
+invalidate work you already have on disk for no conceptual gain:
+`content/docling/`, `content/chroma/` and `content/topics.json` keep their
+names, and so does every `DOCLING_*` environment variable.
+
+`render_output` moving out of the package is the one rename that fixes a
+mistake rather than a label: it is the drafting layer's publish step, runs
+on bare `python3`, and never needed a package from that dependency group.
+Living under `src/heavy/` said the opposite.
+
+To upgrade: rename the `[heavy]` header in your `config.toml` to
+`[enrich]`, re-run `bash scripts/install_full_pipeline.sh python-deps`,
+and update any script of your own that calls the two commands above.
 
 ## Which interpreter
 
@@ -28,9 +57,9 @@ Three tiers. Commands below are written with the interpreter they need.
 
 | Tier | Interpreter | Commands |
 |---|---|---|
-| 1 | **`python3`** -- stdlib only, no venv | `src.citation_gate`, `src.references`, `src.heavy.render_output`, `src.ledger`, `src.citation_provenance`, `src.citation_coverage`, `scripts/verbatim_check.py` |
+| 1 | **`python3`** -- stdlib only, no venv | `src.citation_gate`, `src.references`, `src.render_output`, `src.ledger`, `src.citation_provenance`, `src.citation_coverage`, `scripts/verbatim_check.py` |
 | 2 | **`.venv-full/bin/python`** -- venv, for `bibtexparser` | `src.sync` |
-| 3 | **`.venv-full/bin/python`** -- venv with the `heavy` group | `scripts/full_pipeline.py` |
+| 3 | **`.venv-full/bin/python`** -- venv with the `enrich` group | `scripts/enrich.py` |
 
 Tier 1 is deliberate, not incidental. The chain that enforces the one rule
 -- `citation_gate` -> `references` -> `render_output` -- imports nothing
@@ -41,10 +70,11 @@ reasoning](ARCHITECTURE.md#which-interpreter-and-why).
 
 Two commands look like they belong in a higher tier and don't:
 
-- `render_output` lives under `src/heavy/` but needs only stdlib plus
+- `src.render_output` needs only stdlib plus
   `src.config`/`src.citation_gate`/`src.references`. It shells out to the
   `pandoc`/`pdflatex` binaries, which are OS packages rather than Python
-  dependencies.
+  dependencies. (It was `src.heavy.render_output` until 3.0.0, which made
+  it look like part of the enrichment layer; it never was.)
 - `src.citation_coverage` and `scripts/verbatim_check.py` are review aids
   built on `src.retrieval` and `src.config`, both stdlib. `verbatim_check`
   calls the `pdftotext` binary, again an OS package.
@@ -80,7 +110,7 @@ mkdir -p papers/pdfs && cp /path/to/some-paper.pdf papers/pdfs/
 #    runs -- install it yourself, or let the os-deps stage do it.
 pipx install poetry
 bash scripts/install_full_pipeline.sh os-deps      # root; pdftotext, Pandoc, TeX Live
-bash scripts/install_full_pipeline.sh python-deps  # .venv-full/ + the heavy group
+bash scripts/install_full_pipeline.sh python-deps  # .venv-full/ + the enrich group
 bash scripts/install_full_pipeline.sh dev-deps     # only to run the test suite
 
 # `all` is os-deps + python-deps in one call, and deliberately excludes
@@ -105,7 +135,7 @@ python3 -m src.ledger
 # 6. Re-run any step of that chain by hand (no venv needed for these).
 python3 -m src.citation_gate path/to/draft.md
 python3 -m src.references path/to/draft.md
-python3 -m src.heavy.render_output path/to/draft.md --format pdf
+python3 -m src.render_output path/to/draft.md --format pdf
 ```
 
 ## Every command and flag
@@ -242,10 +272,10 @@ python3 -m src.citation_provenance content/drafts/survey.md
 # python3 -m src.citation_provenance content/drafts/survey.md --formats md,tex,pdf
 ```
 
-### `python3 -m src.heavy.render_output`
+### `python3 -m src.render_output`
 
 Render a Pandoc-Markdown or LaTeX draft. Needs `pandoc` (and `pdflatex`
-for PDF) on `PATH`, but no Python package from the heavy group.
+for PDF) on `PATH`, but no Python package from the enrich group.
 
 Citations render IEEE-style -- `[1]`, and `[3]–[6]` for a consecutive run
 -- over a numbered bibliography of complete entries, via the CSL style
@@ -286,15 +316,15 @@ converting a thesis fragment's `\citep{...}` genuinely is a format
 conversion.
 
 ```bash
-python3 -m src.heavy.render_output content/drafts/survey.md --format pdf
-# python3 -m src.heavy.render_output content/drafts/survey.md --format tex
-# python3 -m src.heavy.render_output content/drafts/survey.md --format docx
-# python3 -m src.heavy.render_output content/drafts/survey.md --format md   # numbered Markdown, no pandoc needed
-# python3 -m src.heavy.render_output content/drafts/thesis.md \
+python3 -m src.render_output content/drafts/survey.md --format pdf
+# python3 -m src.render_output content/drafts/survey.md --format tex
+# python3 -m src.render_output content/drafts/survey.md --format docx
+# python3 -m src.render_output content/drafts/survey.md --format md   # numbered Markdown, no pandoc needed
+# python3 -m src.render_output content/drafts/thesis.md \
 #     --documentclass report --fontsize 11pt --papersize letter --margin 1.5in
 ```
 
-### `scripts/full_pipeline.py`
+### `scripts/enrich.py`
 
 Orchestrates the enrichment layer: docling -> embeddings/Chroma -> BERTopic
 -> provenance -> render. **Needs the venv.** Each stage probes its own
@@ -312,10 +342,10 @@ correct answer rather than a bug.
 | `--documentclass CLASS` | `article` | LaTeX documentclass for the `render` stage |
 
 ```bash
-.venv-full/bin/python scripts/full_pipeline.py
-# .venv-full/bin/python scripts/full_pipeline.py --stages docling
-# .venv-full/bin/python scripts/full_pipeline.py --stages embed,bertopic
-# .venv-full/bin/python scripts/full_pipeline.py --stages render \
+.venv-full/bin/python scripts/enrich.py
+# .venv-full/bin/python scripts/enrich.py --stages docling
+# .venv-full/bin/python scripts/enrich.py --stages embed,bertopic
+# .venv-full/bin/python scripts/enrich.py --stages render \
 #     --input content/drafts/survey.md --output-format pdf --documentclass report
 ```
 
@@ -349,7 +379,7 @@ One install path for both a bare machine and the Docker image. Takes
 
 | Stage | What it does |
 |---|---|
-| `python-deps` | **Default when no stage is given.** Creates the venv and runs `poetry install --with heavy` |
+| `python-deps` | **Default when no stage is given.** Creates the venv and runs `poetry install --with enrich` |
 | `os-deps` | `apt-get` the system packages (TeX Live, Pandoc, poppler-utils, Poetry, git/curl/unzip). Needs root; auto-sudo's. Opt-in -- not everyone wants a script touching apt |
 | `dev-deps` | `poetry install --with dev` (pytest, pytest-cov) into the same venv. Needed only to run the test suite. Run `python-deps` first |
 | `all` | `os-deps` + `python-deps`. **Does not include `dev-deps`** |

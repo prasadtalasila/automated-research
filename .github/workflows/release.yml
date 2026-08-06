@@ -39,7 +39,7 @@ jobs:
 
       # scripts/release.py is stdlib-only (tomllib/zipfile/shutil) and
       # only needs `git` on PATH (already true after actions/checkout) --
-      # no poetry/heavy-group install needed just to build the archive.
+      # no poetry/enrich-group install needed just to build the archive.
       - name: Build release archive
         run: python3 scripts/release.py
 
