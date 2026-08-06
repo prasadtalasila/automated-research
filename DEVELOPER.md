@@ -376,6 +376,35 @@ documents the enrichment corpus includes. `embed_index.get_text`'s
 docling-first ladder is the precedent that the reuse pattern already
 exists; the cache-key reconciliation is the work.
 
+### A dependency can shadow the standard library in spawned workers
+
+OpenCV -- transitively required by docling -- appends its own package
+directory to `sys.path` when imported, and that directory contains a
+`typing/` package. In this process the standard library usually wins the
+lookup, so nothing looks wrong. In a `spawn`ed worker it does not: spawn
+rebuilds `sys.path` from the parent's, the OpenCV entry can land ahead of
+the standard library, and `import typing` resolves to `cv2.typing`, which
+imports `cv2.dnn`, which needs `libGL.so.1`.
+
+On a host without that library -- any slim container -- every worker then
+dies before running a line of this project's code, and the parse reports
+each document as failed for a reason that names OpenCV and mentions
+neither PDFs nor docling. The entry is left on the path even when
+`import cv2` itself *fails*, so a host where OpenCV is merely broken
+poisons workers exactly like one where it works.
+
+`pdf_text.drop_stdlib_shadowing_path_entries()` removes such entries, and
+`process_pool_context()` calls it before any pool is built.
+`tests/conftest.py` does the same once per session, because the
+cross-process tests in `tests/test_runlock.py` spawn directly rather than
+through that seam.
+
+This was found as a test-suite hang (#45): the suite reached those tests,
+their spawned child died on import, and the parent waited out a timeout
+that no longer existed once a second Event entered the picture -- see
+`tests/lock_holder.py` for why the child is now killed rather than
+signalled.
+
 ### `content/topics.json` has no consumer
 
 `src/enrich/topic_model.py` writes it and nothing reads it -- no module, no

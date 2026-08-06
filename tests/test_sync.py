@@ -567,6 +567,27 @@ def _thread_executor(workers):
     return ThreadPoolExecutor(max_workers=workers)
 
 
+def _recording_executor(submitted):
+    """A thread executor that records each job's citekey when it is
+    *submitted*.
+
+    Recording inside the worker instead -- which is what this used to do
+    -- observes completion order, not submission order. With more than one
+    worker the two differ by whichever job happens to finish first, so an
+    assertion about submission order written that way passes or fails on a
+    race. `submit()` is called from one thread in a loop, so this is
+    deterministic.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    class RecordingExecutor(ThreadPoolExecutor):
+        def submit(self, fn, job, *args, **kwargs):
+            submitted.append(job[1])  # (pdf_path, citekey, threads)
+            return super().submit(fn, job, *args, **kwargs)
+
+    return lambda workers: RecordingExecutor(max_workers=workers)
+
+
 def fake_extract_one_factory(record=None, fail_citekeys=()):
     """Stands in for pdf_text.extract_one, the picklable pool entry point.
     Returns the (citekey, out_path, exception) triple it does."""
@@ -653,11 +674,16 @@ class TestParallelParsing:
         """One 675-page document in this project's real corpus is 5% of
         all its pages. Picked up last, it alone defines the wall clock --
         so submission is biggest-first (by file size, which needs no PDF
-        library to measure)."""
+        library to measure).
+
+        Observed at the executor rather than inside the worker: see
+        _recording_executor for why the worker-side version was a race.
+        """
         submitted = []
-        monkeypatch.setattr(pdf_text, "extract_one", fake_extract_one_factory(record=submitted))
+        monkeypatch.setattr(pdf_text, "extract_one", fake_extract_one_factory())
+        monkeypatch.setattr(sync, "_executor_for", _recording_executor(submitted))
         sync.run()
-        assert [c for c, _ in submitted] == [f"doc_{i}_2024" for i in reversed(range(6))]
+        assert submitted == [f"doc_{i}_2024" for i in reversed(range(6))]
 
     def test_one_bad_pdf_does_not_take_down_the_others(self, many_corpus, monkeypatch, capsys):
         monkeypatch.setattr(

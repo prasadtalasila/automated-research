@@ -300,6 +300,86 @@ class TestUnavailableReason:
         assert "poetry install --with enrich" in pdf_text.unavailable_reason()
 
 
+class TestDropStdlibShadowingPathEntries:
+    """A dependency that appends its own package directory to sys.path can
+    shadow the standard library for every spawned worker. OpenCV does
+    exactly this, and leaves the entry behind even when its own import
+    fails -- issue #45."""
+
+    def test_removes_an_entry_that_shadows_a_stdlib_module(self, tmp_path, monkeypatch):
+        shadowing = tmp_path / "site-packages" / "cv2"
+        (shadowing / "typing").mkdir(parents=True)
+        (shadowing / "typing" / "__init__.py").write_text("")
+        monkeypatch.setattr(sys, "path", ["", str(tmp_path), str(shadowing)])
+
+        removed = pdf_text.drop_stdlib_shadowing_path_entries()
+
+        assert removed == [str(shadowing)]
+        assert str(shadowing) not in sys.path
+        assert str(tmp_path) in sys.path  # unrelated entries are left alone
+
+    def test_a_package_directory_outside_site_packages_is_left_alone(
+        self, tmp_path, monkeypatch
+    ):
+        """A project of your own that contains a `typing/` package must
+        not lose its sys.path entry -- only an installed package
+        directory is a candidate."""
+        project = tmp_path / "my-project" / "vendor"
+        (project / "typing").mkdir(parents=True)
+        (project / "typing" / "__init__.py").write_text("")
+        monkeypatch.setattr(sys, "path", [str(project)])
+
+        assert pdf_text.drop_stdlib_shadowing_path_entries() == []
+        assert str(project) in sys.path
+
+    def test_a_site_packages_entry_without_a_shadowing_name_is_kept(
+        self, tmp_path, monkeypatch
+    ):
+        """Being installed is not enough; the directory has to actually
+        shadow something."""
+        harmless = tmp_path / "site-packages" / "requests"
+        harmless.mkdir(parents=True)
+        (harmless / "__init__.py").write_text("")
+        monkeypatch.setattr(sys, "path", [str(harmless)])
+
+        assert pdf_text.drop_stdlib_shadowing_path_entries() == []
+        assert str(harmless) in sys.path
+
+    def test_never_removes_site_packages_itself(self, tmp_path, monkeypatch):
+        """A `typing` backport installed into site-packages must not cost
+        the interpreter its entire import path."""
+        site = tmp_path / "site-packages"
+        (site / "typing").mkdir(parents=True)
+        (site / "typing" / "__init__.py").write_text("")
+        monkeypatch.setattr(sys, "path", [str(site)])
+
+        assert pdf_text.drop_stdlib_shadowing_path_entries() == []
+        assert str(site) in sys.path
+
+    def test_an_empty_entry_is_skipped(self, monkeypatch):
+        """An empty sys.path entry means the current directory. It is not
+        a package directory, and joining a name onto it would produce a
+        relative path that happens to exist."""
+        monkeypatch.setattr(sys, "path", ["", "/nonexistent"])
+
+        assert pdf_text.drop_stdlib_shadowing_path_entries() == []
+        assert sys.path == ["", "/nonexistent"]
+
+    def test_the_pool_context_sanitises_before_children_are_created(
+        self, tmp_path, monkeypatch
+    ):
+        """The whole point: children inherit the parent's sys.path, so it
+        has to be clean before the pool exists, not after."""
+        shadowing = tmp_path / "site-packages" / "cv2"
+        (shadowing / "typing").mkdir(parents=True)
+        (shadowing / "typing" / "__init__.py").write_text("")
+        monkeypatch.setattr(sys, "path", ["", str(shadowing)])
+
+        pdf_text.process_pool_context()
+
+        assert str(shadowing) not in sys.path
+
+
 class TestExtractTextMissingBinary:
     """Regression coverage: a host without poppler-utils installed used to
     surface this as an uncaught FileNotFoundError traceback out of

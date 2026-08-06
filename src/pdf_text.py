@@ -626,6 +626,60 @@ def prestart_pool() -> None:
         pass
 
 
+# Standard-library top-level names we have actually seen shadowed by a
+# path entry a dependency added to sys.path. Only `typing` so far, and
+# only via OpenCV -- but the list is the mechanism, not the diagnosis.
+_SHADOWED_STDLIB_NAMES = ("typing",)
+
+
+def drop_stdlib_shadowing_path_entries() -> list[str]:
+    """Remove sys.path entries that would shadow a standard-library
+    module, and return what was removed.
+
+    OpenCV -- pulled in transitively by docling -- appends its own package
+    directory to sys.path when imported, and that directory contains a
+    `typing/` package. On this process it usually loses the race against
+    the standard library, so nothing is visibly wrong. In a **spawned
+    worker** it does not: spawn rebuilds sys.path from the parent's, the
+    cv2 entry can land ahead of the stdlib, and `import typing` then
+    resolves to `cv2.typing`, which imports `cv2.dnn`, which needs
+    `libGL.so.1`.
+
+    On a host without that library -- any slim container -- the import
+    fails and every worker dies before it runs a line of this project's
+    code. The parse then reports every document as failed for a reason
+    that names OpenCV and mentions neither PDFs nor docling.
+
+    Worse, the failure survives its cause: `import cv2` leaves the path
+    entry behind even when the import itself raises, so a host where
+    OpenCV is merely *broken* poisons workers exactly like one where it
+    works.
+
+    Called before a pool is built, so children inherit a clean path.
+    Deliberately conservative: an entry is only dropped if it is a
+    directory *inside* site-packages that contains one of the shadowing
+    names, so a site-packages directory itself is never removed even if
+    something has installed a top-level `typing` backport into it.
+    """
+    removed = []
+    for entry in list(sys.path):
+        if not entry:
+            continue
+        parent = os.path.basename(os.path.dirname(entry.rstrip(os.sep)))
+        # The entry must be a package directory *inside* an installation
+        # directory. Checking only that the entry itself isn't named
+        # site-packages would still drop, say, a project directory that
+        # happens to contain a `typing/` package of its own.
+        if parent not in {"site-packages", "dist-packages"}:
+            continue
+        for name in _SHADOWED_STDLIB_NAMES:
+            if os.path.isfile(os.path.join(entry, name, "__init__.py")):
+                sys.path.remove(entry)
+                removed.append(entry)
+                break
+    return removed
+
+
 def process_pool_context():
     """The mp context to build the docling pool on, plus any complaint
     about how it was chosen.
@@ -636,6 +690,7 @@ def process_pool_context():
     server is started lazily by that call and imports its preload list
     once, so a list set afterwards would be read by nothing.
     """
+    drop_stdlib_shadowing_path_entries()
     method, complaint = start_method()
     ctx = multiprocessing.get_context(method)
     if method == "forkserver":
