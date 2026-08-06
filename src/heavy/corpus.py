@@ -172,7 +172,10 @@ def build_corpus() -> tuple[list[CorpusDoc], list[str]]:
         )
 
     manifest = _source_pdf_manifest()
-    if config.SOURCE_PDFS_DIR.exists():
+    # is_dir(), not exists(): a plain file where the directory is
+    # expected is a misconfiguration, and this module's contract is to
+    # degrade rather than raise on one.
+    if config.SOURCE_PDFS_DIR.is_dir():
         by_path, by_size = _ledger_pdf_index(rows)
         added = 0
         for pdf_path in sorted(config.SOURCE_PDFS_DIR.glob("*.pdf")):

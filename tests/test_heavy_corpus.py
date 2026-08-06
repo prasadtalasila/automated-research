@@ -102,10 +102,15 @@ class TestSourcePdfsAlreadyInTheLedger:
         return pdf
 
     def test_the_same_file_is_skipped(self, isolated_config):
-        pdf = self._ledger_pdf(isolated_config)
+        """The bib entry's own PDF living inside the source-pdfs directory
+        -- what happens when the reference manager's export and
+        `[source_pdfs].dir` are pointed at one place."""
         isolated_config.SOURCE_PDFS_DIR.mkdir(parents=True, exist_ok=True)
-        link = isolated_config.SOURCE_PDFS_DIR / "same.pdf"
-        link.symlink_to(pdf)
+        pdf = isolated_config.SOURCE_PDFS_DIR / "same.pdf"
+        pdf.write_bytes(b"%PDF-1.4 real")
+        con = ledger.connect()
+        ledger.upsert_reference(con, make_reference(citekey="smith2024", pdf_path=str(pdf)))
+        con.close()
 
         docs, complaints = corpus.build_corpus()
 
@@ -212,14 +217,11 @@ class TestUnreadableFilesAreNotFatal:
         _by_path, by_size = corpus._ledger_pdf_index(rows)
         assert by_size == {20: [("h", "hashed")]}
 
-    def test_a_dangling_symlink_is_treated_as_new(self, isolated_config):
-        isolated_config.SOURCE_PDFS_DIR.mkdir(parents=True, exist_ok=True)
-        broken = isolated_config.SOURCE_PDFS_DIR / "broken.pdf"
-        broken.symlink_to(isolated_config.SOURCE_PDFS_DIR / "does-not-exist.pdf")
-
-        docs, _ = corpus.build_corpus()
-
-        assert [d.doc_id for d in docs] == ["doc:broken"]
+    def test_a_file_that_cannot_be_stat_ed_is_treated_as_new(self, tmp_path):
+        """A dangling symlink or a file removed between the glob and the
+        check: no size to compare, so it cannot be shown to be a
+        duplicate, so it stays in the corpus."""
+        assert corpus._already_citable(tmp_path / "gone.pdf", {}, {13: [("h", "k")]}) is None
 
 
 class TestAssertNoCitekeyCollision:
