@@ -77,6 +77,62 @@ The distinction between the last two is the one worth holding on to:
 > A **ladder** answers "this is the best I could do." A **tier** answers
 > "you asked for something this host cannot give you."
 
+Drawn side by side, because the shapes are what separate them -- one
+descends on its own, the other doesn't descend at all:
+
+```mermaid
+flowchart TB
+
+  subgraph LAD["<b>LADDER</b> — the code descends, and nobody is asked"]
+    direction TB
+    LQ(["a question with more than one answer<br/><small>“which passage supports this claim?”</small>"])
+    L1{"<b>rung 1</b><br/><small>most faithful to the source</small>"}
+    L2{"<b>rung 2</b>"}
+    L3["<b>rung 3</b><br/><small>the worst acceptable answer</small>"]
+    LA(["<b>an answer, always</b><br/><small>the run does not stop —<br/>which is why each rung's cost is documented</small>"])
+    LQ --> L1
+    L1 -- "answers" --> LA
+    L1 -- "can't answer" --> L2
+    L2 -- "answers" --> LA
+    L2 -- "can't answer" --> L3
+    L3 --> LA
+  end
+
+  subgraph TIE["<b>TIER</b> — you choose, and nothing descends"]
+    direction TB
+    TQ(["a menu<br/><small>a <code>config.toml</code> key, or a flag you type</small>"])
+    T1["option A"]
+    T2["<b>option B</b><br/><small>the one you picked</small>"]
+    T3["option C"]
+    TOK(["exactly what you asked for"])
+    TNO(["<b>it stops, and names what is missing</b><br/><small>never option A or C instead</small>"])
+    TQ --> T1 & T2 & T3
+    T1 -.-> TOK
+    T3 -.-> TOK
+    T2 -- "available" --> TOK
+    T2 -- "unavailable" --> TNO
+  end
+
+  classDef q fill:#fff7ed,stroke:#c2410c,color:#431407
+  classDef rung fill:#eef2ff,stroke:#4f46e5,stroke-width:1.5px,color:#1e1b4b
+  classDef good fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#052e16
+  classDef stop fill:#fef2f2,stroke:#dc2626,stroke-width:2px,color:#450a0a
+  classDef dim fill:#f8fafc,stroke:#94a3b8,stroke-dasharray:4 3,color:#0f172a
+
+  class LQ,TQ q
+  class L1,L2,L3,T2 rung
+  class LA,TOK good
+  class TNO stop
+  class T1,T3 dim
+```
+
+The asymmetry in those two shapes is the whole reason to name them apart.
+A ladder always reaches an answer, so its worst rung is silent -- the
+output still looks like output, and nothing in the run says which rung
+produced it. A tier can only give you what you asked for or nothing, so
+its failure is loud and self-describing. Everything below is one or the
+other.
+
 A ladder that silently reaches its worst rung is the failure mode this
 repository worries about most, because the output still looks like output.
 That is why each ladder below states what its bottom rung costs you, not
@@ -135,13 +191,26 @@ Worth stating plainly, because the natural assumption is the expensive
 one and it is wrong: **the enrichment layer parses your whole corpus, not
 the papers a draft happens to cite.**
 
-`scripts/enrich.py` calls `corpus.build_corpus()`, which returns every
-row in the ledger -- that is, every citekey your BibTeX export produced --
-plus every `papers/pdfs/*.pdf` that isn't a duplicate of one. Every stage
-then receives that whole list. Nothing anywhere filters by draft, by
-reference list, or by citation: a draft citing eleven papers does not
-cause eleven papers to be parsed, and there is no command that would make
-it. The unit of work is the corpus.
+`scripts/enrich.py` calls `corpus.build_corpus()`, which returns:
+
+- **every row in the ledger.** `ledger.all_items()` is a bare
+  `SELECT * FROM items`, so this is every citekey your BibTeX export
+  produced, including entries whose reference-manager record has no PDF
+  attached at all.
+- **every `papers/pdfs/*.pdf` the ledger does not already cover.** A
+  source PDF matching one already attached to a citekey is skipped and
+  reported, so the same paper cannot enter the corpus twice -- once
+  citable, once not.
+
+Every stage then receives that whole list. Nothing anywhere filters by
+draft, by reference list, or by citation: a draft citing eleven papers
+does not cause eleven papers to be parsed, and there is no command that
+would make it. The unit of work is the corpus.
+
+Only the documents that have a PDF get parsed, though, which is worth
+knowing before reading a stage's counts. Measured on this project's own
+corpus: `build_corpus()` returns **642 documents, of which 497 have a PDF
+to parse** -- the remaining 145 are ledger entries with no attachment.
 
 That is why the enrichment layer is opt-in and why its cost is quoted
 per-corpus rather than per-draft: on this project's own 501-PDF corpus, a
@@ -336,7 +405,85 @@ they aren't mistaken for rungs:
 
 ## The mapping
 
-Everything above, in one table. Read a row as: *this decision selects this
+Everything above at once. Read left to right: *when a decision is made,
+which decision it is, what implements it, and what it leaves behind.* The
+three ladders all sit in the right-hand column of "decided at run time";
+the three tiers are all settled before a single PDF is opened.
+
+```mermaid
+flowchart LR
+
+  subgraph WHEN["<b>decided…</b>"]
+    direction TB
+    W1["<b>in <code>config.toml</code></b><br/><small>before the run starts</small>"]
+    W2["<b>by the command you type</b>"]
+    W3["<b>at run time</b><br/><small>per document, per worker —<br/>nobody is asked</small>"]
+  end
+
+  subgraph WHAT["<b>…this decision…</b>"]
+    direction TB
+    PB["<b>parser backend</b><br/><small>tier · <code>[parser].backend</code></small>"]
+    IN["<b>interpreter</b><br/><small>tier · which command</small>"]
+    RF["<b>render format</b><br/><small>tier · <code>--format</code></small>"]
+    EP["<b>evidence passages</b><br/><small>ladder · 4 rungs</small>"]
+    ET["<b>enrichment text source</b><br/><small>ladder · 3 rungs</small>"]
+    AC["<b>accelerator</b><br/><small>ladder · 2 rungs + 2 pre-flight checks</small>"]
+  end
+
+  subgraph HOW["<b>…implemented in…</b>"]
+    direction TB
+    M1["<code>src/pdf_text.py</code>"]
+    M2["<code>pyproject.toml</code> groups"]
+    M3["<code>src/render_output.py</code>"]
+    M4["<code>src/passages.py</code>"]
+    M5["<code>src/enrich/embed_index.py</code>"]
+  end
+
+  subgraph OUT["<b>…leaving this on disk</b>"]
+    direction TB
+    O1[/"content/parsed/&lt;citekey&gt;.txt<br/>+ .passages.json"/]
+    O2[/"content/rendered/&lt;slug&gt;.*"/]
+    O3(["nothing — it decides<br/>what may be <i>quoted</i>"])
+    O4[/"content/chroma/"/]
+    O5(["nothing — it decides<br/>only how <i>long</i> a parse takes"])
+  end
+
+  W1 --> PB
+  W2 --> IN & RF
+  W3 --> EP & ET & AC
+
+  PB --> M1 --> O1
+  IN --> M2
+  RF --> M3 --> O2
+  EP --> M4 --> O3
+  ET --> M5 --> O4
+  AC --> M1
+  M1 -.-> O5
+
+  classDef when fill:#fff7ed,stroke:#c2410c,color:#431407
+  classDef tier fill:#faf5ff,stroke:#9333ea,stroke-width:1.5px,color:#3b0764
+  classDef ladder fill:#eef2ff,stroke:#4f46e5,stroke-width:1.5px,color:#1e1b4b
+  classDef mod fill:#f8fafc,stroke:#94a3b8,color:#0f172a
+  classDef art fill:#f0fdf4,stroke:#16a34a,color:#052e16
+  classDef none fill:#f8fafc,stroke:#94a3b8,stroke-dasharray:4 3,color:#0f172a
+
+  class W1,W2,W3 when
+  class PB,IN,RF tier
+  class EP,ET,AC ladder
+  class M1,M2,M3,M4,M5 mod
+  class O1,O2,O4 art
+  class O3,O5 none
+```
+
+Two things that diagram makes visible and the table below doesn't. The
+parser backend is the only decision that reaches into two others -- it is
+what decides whether the evidence ladder has a rung 2 to land on, and it
+shares `src/pdf_text.py` with the accelerator ladder. And two decisions
+leave nothing on disk at all: they change what you are *allowed to do*
+with the files, or how long it takes to get them, which is exactly why
+neither shows up in a backup and neither can be inspected after the fact.
+
+The same thing as a table. Read a row as: *this decision selects this
 thing, is made here, is implemented there, and shows up on disk as that.*
 
 | Decision | Kind | Selects | Decided | Implemented in | Artefact |
