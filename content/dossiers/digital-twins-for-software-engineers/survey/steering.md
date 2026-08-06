@@ -5,6 +5,8 @@
      This is the only part of a drafting session that has nowhere else to
      live. One dated entry per instruction. -->
 
+*Illustrative: no user gave these. See `README.md`.*
+
 ## 2026-08-06 -- keep one running example, and keep calling it "the pot"
 
 Every section anchors to the potted plant, the moisture probe and the

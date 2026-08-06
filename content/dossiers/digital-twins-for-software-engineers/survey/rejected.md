@@ -9,6 +9,9 @@ statement about *this draft's* scope and this reader, never about the
 paper's quality -- several of these are cited by the thesis chapter and
 the deep-research briefing on the same topic.
 
+*Illustrative: these reasons were inferred from the finished drafts, not
+recorded during a relevance-scoring pass. See `README.md`.*
+
 | citekey | query that surfaced it | why rejected |
 |---|---|---|
 | `grieves_digital_2017` | digital twin definition | Origin/PLM framing. §1 is organised around the coupling criterion, not the concept's history; a survey that opens on provenance buries the distinction this reader needs |

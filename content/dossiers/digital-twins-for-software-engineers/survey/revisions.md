@@ -3,12 +3,14 @@
 <!-- Append-only, newest last. One entry per revision session: what
      changed, which sections, and why. -->
 
-## 2026-08-06 -- initial draft
+## 2026-08-06 -- initial draft (reconstructed)
 
-Written by `survey-writer` against a 55-citekey corpus (digest
-`5e9e732e92b7`). 36 citekeys kept, 19 retrieved and turned down (see
-`rejected.md`). Seven sections plus scope, comparison table and gap
-analysis.
+The draft itself predates this dossier: it shipped as example content,
+and this entry was written afterwards from the finished text rather than
+during the run that produced it. See `README.md`. The counts are real --
+36 citekeys cited, 19 more in the ledger that the draft does not use --
+and the corpus digest `5e9e732e92b7` is this checkout's, not the one the
+draft was originally written against.
 
 ## 2026-08-06 -- §2 opening leads with its point
 
