@@ -1,0 +1,274 @@
+{
+ "sample": {
+  "requested": 100,
+  "documents": 100,
+  "pages": 1683,
+  "pages_per_doc": 16.8,
+  "max_pages": 49,
+  "sample_mode": "trimmed",
+  "outlier_rule": "tukey_q3_plus_1.5_iqr",
+  "outlier_fence_pages": 49.0,
+  "outliers_excluded": 36,
+  "bib": "/workspace/.claude/worktrees/bridge-cse_01KhwXK9nHSwBG8iTQx1krky/bench/results/n100keep/sample.bib"
+ },
+ "workers": 12,
+ "cpus_pinned": "0-23,48-71",
+ "gpu_counts": [
+  1,
+  4
+ ],
+ "repeat": 2,
+ "sidecar_complaint": null,
+ "runs": [
+  {
+   "workers_requested": 12,
+   "workers_resolved": 12,
+   "gpus_requested": 1,
+   "cpus_pinned": "0-23,48-71",
+   "wall_seconds": 85.3,
+   "parsed": 100,
+   "exit_code": 0,
+   "device_complaints": [],
+   "gpu_state_before": [
+    {
+     "index": 0,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 1,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 2,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 3,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 4,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 5,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    }
+   ],
+   "content_dir": "/workspace/.claude/worktrees/bridge-cse_01KhwXK9nHSwBG8iTQx1krky/bench/results/n100keep/runs/g1-r0",
+   "name": "g1-r0",
+   "n_documents": 100
+  },
+  {
+   "workers_requested": 12,
+   "workers_resolved": 12,
+   "gpus_requested": 1,
+   "cpus_pinned": "0-23,48-71",
+   "wall_seconds": 85.4,
+   "parsed": 100,
+   "exit_code": 0,
+   "device_complaints": [],
+   "gpu_state_before": [
+    {
+     "index": 0,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 1,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 2,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 3,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 4,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 5,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    }
+   ],
+   "content_dir": "/workspace/.claude/worktrees/bridge-cse_01KhwXK9nHSwBG8iTQx1krky/bench/results/n100keep/runs/g1-r1",
+   "name": "g1-r1",
+   "n_documents": 100
+  },
+  {
+   "workers_requested": 12,
+   "workers_resolved": 12,
+   "gpus_requested": 4,
+   "cpus_pinned": "0-23,48-71",
+   "wall_seconds": 51.9,
+   "parsed": 100,
+   "exit_code": 0,
+   "device_complaints": [],
+   "gpu_state_before": [
+    {
+     "index": 0,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 1,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 2,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 3,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 4,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 5,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    }
+   ],
+   "content_dir": "/workspace/.claude/worktrees/bridge-cse_01KhwXK9nHSwBG8iTQx1krky/bench/results/n100keep/runs/g4-r0",
+   "name": "g4-r0",
+   "n_documents": 100
+  },
+  {
+   "workers_requested": 12,
+   "workers_resolved": 12,
+   "gpus_requested": 4,
+   "cpus_pinned": "0-23,48-71",
+   "wall_seconds": 51.0,
+   "parsed": 100,
+   "exit_code": 0,
+   "device_complaints": [],
+   "gpu_state_before": [
+    {
+     "index": 0,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 1,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 2,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 3,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 4,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 5,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    }
+   ],
+   "content_dir": "/workspace/.claude/worktrees/bridge-cse_01KhwXK9nHSwBG8iTQx1krky/bench/results/n100keep/runs/g4-r1",
+   "name": "g4-r1",
+   "n_documents": 100
+  }
+ ],
+ "comparisons": [
+  {
+   "kind": "same-config",
+   "left": "g1-r0",
+   "right": "g1-r1",
+   "compared": 100,
+   "only_in_left": [],
+   "only_in_right": [],
+   "txt_differ": [],
+   "sidecar_bytes_differ": [],
+   "spans_differ": []
+  },
+  {
+   "kind": "same-config",
+   "left": "g4-r0",
+   "right": "g4-r1",
+   "compared": 100,
+   "only_in_left": [],
+   "only_in_right": [],
+   "txt_differ": [
+    "frasheri_addressing_2023",
+    "zhang_digital-triplet_2024"
+   ],
+   "sidecar_bytes_differ": [
+    "frasheri_addressing_2023"
+   ],
+   "spans_differ": [
+    {
+     "citekey": "frasheri_addressing_2023",
+     "n_spans": [
+      197,
+      198
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "across-config",
+   "left": "g1-r0",
+   "right": "g4-r0",
+   "compared": 100,
+   "only_in_left": [],
+   "only_in_right": [],
+   "txt_differ": [
+    "frasheri_addressing_2023",
+    "noauthor_compilation_nodate",
+    "zhang_digital-triplet_2024"
+   ],
+   "sidecar_bytes_differ": [
+    "frasheri_addressing_2023",
+    "noauthor_compilation_nodate"
+   ],
+   "spans_differ": [
+    {
+     "citekey": "frasheri_addressing_2023",
+     "n_spans": [
+      198,
+      197
+     ]
+    },
+    {
+     "citekey": "noauthor_compilation_nodate",
+     "n_spans": [
+      1070,
+      1069
+     ]
+    }
+   ]
+  }
+ ]
+}

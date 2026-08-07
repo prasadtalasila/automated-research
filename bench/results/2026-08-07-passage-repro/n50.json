@@ -1,0 +1,237 @@
+{
+ "sample": {
+  "requested": 50,
+  "documents": 50,
+  "pages": 848,
+  "pages_per_doc": 17.0,
+  "max_pages": 49,
+  "outlier_rule": "tukey_q3_plus_1.5_iqr",
+  "outlier_fence_pages": 49.0,
+  "outliers_excluded": 36,
+  "bib": "/workspace/.claude/worktrees/bridge-cse_01KhwXK9nHSwBG8iTQx1krky/bench/results/n50/sample.bib"
+ },
+ "workers": 12,
+ "cpus_pinned": "0-23,48-71",
+ "gpu_counts": [
+  1,
+  4
+ ],
+ "repeat": 2,
+ "runs": [
+  {
+   "workers_requested": 12,
+   "workers_resolved": 12,
+   "gpus_requested": 1,
+   "cpus_pinned": "0-23,48-71",
+   "wall_seconds": 55.3,
+   "parsed": 50,
+   "exit_code": 0,
+   "device_complaints": [],
+   "gpu_state_before": [
+    {
+     "index": 0,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 1,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 2,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 3,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 4,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 5,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    }
+   ],
+   "content_dir": "/workspace/.claude/worktrees/bridge-cse_01KhwXK9nHSwBG8iTQx1krky/bench/results/n50/runs/g1-r0",
+   "name": "g1-r0",
+   "n_documents": 50
+  },
+  {
+   "workers_requested": 12,
+   "workers_resolved": 12,
+   "gpus_requested": 1,
+   "cpus_pinned": "0-23,48-71",
+   "wall_seconds": 55.7,
+   "parsed": 50,
+   "exit_code": 0,
+   "device_complaints": [],
+   "gpu_state_before": [
+    {
+     "index": 0,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 1,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 2,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 3,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 4,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 5,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    }
+   ],
+   "content_dir": "/workspace/.claude/worktrees/bridge-cse_01KhwXK9nHSwBG8iTQx1krky/bench/results/n50/runs/g1-r1",
+   "name": "g1-r1",
+   "n_documents": 50
+  },
+  {
+   "workers_requested": 12,
+   "workers_resolved": 12,
+   "gpus_requested": 4,
+   "cpus_pinned": "0-23,48-71",
+   "wall_seconds": 35.8,
+   "parsed": 50,
+   "exit_code": 0,
+   "device_complaints": [],
+   "gpu_state_before": [
+    {
+     "index": 0,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 1,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 2,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 3,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 4,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 5,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    }
+   ],
+   "content_dir": "/workspace/.claude/worktrees/bridge-cse_01KhwXK9nHSwBG8iTQx1krky/bench/results/n50/runs/g4-r0",
+   "name": "g4-r0",
+   "n_documents": 50
+  },
+  {
+   "workers_requested": 12,
+   "workers_resolved": 12,
+   "gpus_requested": 4,
+   "cpus_pinned": "0-23,48-71",
+   "wall_seconds": 35.0,
+   "parsed": 50,
+   "exit_code": 0,
+   "device_complaints": [],
+   "gpu_state_before": [
+    {
+     "index": 0,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 1,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 2,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 3,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 4,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    },
+    {
+     "index": 5,
+     "memory_used_mib": 0,
+     "utilisation_pct": 0
+    }
+   ],
+   "content_dir": "/workspace/.claude/worktrees/bridge-cse_01KhwXK9nHSwBG8iTQx1krky/bench/results/n50/runs/g4-r1",
+   "name": "g4-r1",
+   "n_documents": 50
+  }
+ ],
+ "comparisons": [
+  {
+   "kind": "same-config",
+   "left": "g1-r0",
+   "right": "g1-r1",
+   "compared": 50,
+   "only_in_left": [],
+   "only_in_right": [],
+   "txt_differ": [],
+   "sidecar_bytes_differ": [],
+   "spans_differ": []
+  },
+  {
+   "kind": "same-config",
+   "left": "g4-r0",
+   "right": "g4-r1",
+   "compared": 50,
+   "only_in_left": [],
+   "only_in_right": [],
+   "txt_differ": [],
+   "sidecar_bytes_differ": [],
+   "spans_differ": []
+  },
+  {
+   "kind": "across-config",
+   "left": "g1-r0",
+   "right": "g4-r0",
+   "compared": 50,
+   "only_in_left": [],
+   "only_in_right": [],
+   "txt_differ": [],
+   "sidecar_bytes_differ": [],
+   "spans_differ": []
+  }
+ ]
+}
