@@ -283,7 +283,7 @@ a specific span of a specific source.
 | `content/parsed/<citekey>.passages.json` | **No**, and this is the one that matters -- see below |
 | `content/rendered/*.md`, `*.tex` | **Yes** -- byte-identical, measured |
 | `content/rendered/*.pdf` | **No.** pdflatex embeds a creation timestamp and a trailer `/ID`; two renders of identical input differ. `SOURCE_DATE_EPOCH`/`FORCE_SOURCE_DATE` does *not* make them identical |
-| `content/topics.json` | **No.** UMAP is seeded (`random_state=42`), but HDBSCAN clusters the whole corpus, so assignments move when the corpus does -- a document's topic id is not a stable identifier |
+| `content/topics.json` | **Yes** on unchanged input -- UMAP is seeded (`random_state=42`) and HDBSCAN is deterministic, verified as identical assignments over three runs on identical embeddings. But **a topic id is not a stable identifier**: clustering is whole-corpus, so adding or removing one document can renumber every other document's topic. Stable across a re-run, not across a corpus change -- two different questions |
 | `content/retrieval_index.json` | A cache, not an output: term-frequency stats keyed by a per-item fingerprint, rebuilt for any document whose parsed text changed. Delete it and the next search rebuilds it |
 | `content/chroma/` | The embedding store the `embed` stage writes -- persistent, not a cache, but incremental: a document whose text hashes the same is not re-embedded. Inherits whatever instability its input text has |
 

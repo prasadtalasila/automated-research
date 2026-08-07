@@ -529,11 +529,21 @@ def main() -> int:
 
     sample = build_sample(args.sample, args.keep_outliers, args.outliers_only,
                           out_dir / "sample.bib")
+    # Worded per mode: "N outliers excluded" is actively wrong in
+    # --outliers-only, where the outliers are the sample. Comparing a
+    # trimmed arm's log against an outliers-only arm's is exactly when
+    # that matters, and exactly when it would mislead.
+    fence = sample["outlier_fence_pages"]
+    above = f" above {fence} pages" if fence else ""
+    if sample["sample_mode"] == "outliers-only":
+        selection = f"the {sample['documents']} page-count outlier(s){above}"
+    elif sample["sample_mode"] == "untrimmed":
+        selection = "no outlier trimming"
+    else:
+        selection = f"{sample['outliers_excluded']} outlier(s) excluded{above}"
     print(f"  sample: {sample['documents']} docs, {sample['pages']} pages "
           f"({sample['pages_per_doc']}/doc, max {sample['max_pages']}), "
-          f"{sample['outliers_excluded']} outlier(s) excluded"
-          + (f" above {sample['outlier_fence_pages']} pages"
-             if sample["outlier_fence_pages"] else ""), flush=True)
+          f"{selection}", flush=True)
     bib_path = Path(sample["bib"])
 
     runs = []
