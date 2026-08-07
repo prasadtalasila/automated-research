@@ -68,41 +68,22 @@ re-export. Skipping loses one paper and says so; letting it through would
 write outside `content/`.
 
 That rule is why a module needing bibliographic detail reads it back out
-of the ledger rather than re-opening the bib file. `src/references.py`
-formats an IEEE bibliography entry (authors, venue, volume, pages) from
-the `bib_fields` column, which `sync` populates via `bib_reader` -- it
-does not, and must not, parse `bibliography.bib` itself. The one thing
-that legitimately reads the bib file directly is pandoc's `--citeproc`,
-which is not this codebase.
+of the ledger rather than re-opening the bib file.
 
-To add papers: add them in your reference manager, re-export
-`bibliography.bib`, re-run `python -m src.sync`. There is no
-watch/auto-export step here.
-
-Removing a paper works the same way (delete it, re-export, re-run `sync`),
-but deletion of the corresponding `content/ledger.sqlite` row is opt-in:
-`sync` by default only reports a citekey that's dropped out of the bib
-file (`stale   <citekey> (no longer in bibliography.bib)`, one line per
-citekey, then a single summary note -- "Review the N stale item(s)
-above, then re-run with --remove-stale..."); pass `--remove-stale` to
-actually delete it. A bib export that comes back short a citekey is far
-more often a botched re-export or `BIB_FILE` pointing at the wrong path
-than an intentional removal, so the default leaves the ledger untouched
-until a human confirms with the flag. Even with `--remove-stale`, `sync`
-refuses (raises) rather than pruning if the bib file comes back
-*completely* empty against a non-empty ledger, for the same reason at the
-extreme -- see `src/ledger.py`'s `prune_missing`.
+Adding or removing a paper is the user's job, not a skill's: change it in
+the reference manager, re-export, re-run `python -m src.sync`. There is no
+watch/auto-export step. Removal is deliberately opt-in -- `sync` only
+*reports* a citekey that has dropped out of the bib file until it is
+re-run with `--remove-stale`, because a short export is more often a
+botched one than an intentional deletion. README.md and docs/ZOTERO.md
+have the full semantics.
 
 ## The three layers
 
-- **The corpus layer -- deterministic** (`python -m src.sync`): bib file read
-  -> ledger update -> PDF text extraction (paths come straight from the bib
-  file's `file` field; `src/pdf_text.py` dispatches to pdftotext (default),
-  or docling per `config.PARSER` -- see docs/CONFIG.md's "backend:
-  pdftotext or docling") -> advisory duplicate-citekey check (`src/dedup.py`)
-  -> stale-citekey report, or removal with `--remove-stale` (see "The bib
-  file is the source of truth" above). No LLM calls, no judgment calls,
-  idempotent. Safe to run unattended or on a schedule.
+- **The corpus layer -- deterministic** (`python -m src.sync`): bib file
+  read -> ledger update -> PDF text extraction -> duplicate-citekey check
+  -> stale-citekey report. No LLM calls, no judgment calls, idempotent;
+  safe to run unattended. docs/ARCHITECTURE.md has the stage detail.
 - **The drafting layer -- generative** (the `.claude/skills/`): invoked on
   demand, reviewed by the user. **Read-only over the corpus layer**: they
   never write to `content/ledger.sqlite`, and they never run `python -m
@@ -131,26 +112,15 @@ extreme -- see `src/ledger.py`'s `prune_missing`.
   gate anything. Don't promote one to a gate -- [SOUL.md](SOUL.md) has
   why.
 
-What a part *does* and what it *costs to install* are separate axes:
-`src/render_output.py` is drafting-layer code that needs no package from
-the `enrich` group, which is why it sits in `src/` rather than
-`src/enrich/`. (These layers were called "job 1", "job 2" and "the heavy
-pipeline" until 3.0.0; *heavy* now names nothing here.)
-
 ## Retrieval
 
-`src/retrieval.py` (BM25 ranking over a cached term-frequency index,
-stdlib-only, no venv or model download needed) is what the genre skills
-use by default. Term-frequency stats per document are cached to disk
-(`config.RETRIEVAL_INDEX_PATH`), keyed by a cheap per-item fingerprint
-(parsed-file stat, not content) so a call only re-tokenizes documents
-whose text actually changed since the last run (this doesn't touch
-`sync`). `src/enrich/embed_index.py`
-(sentence-transformers + Chroma) is a verified, working upgrade path with
-a matching `search(query, k)` shape, ready to swap in without changing
-callers once BM25 stops being enough -- that's a deliberate call to make
-when it comes up (source text quality/volume, query patterns), not a
-corpus-size threshold to assert a number for here.
+`src/retrieval.py` (BM25 over a cached term-frequency index, stdlib-only,
+no venv or model download needed) is what the genre skills use by
+default. `src/enrich/embed_index.py` (sentence-transformers + Chroma) is
+a working upgrade path with a matching `search(query, k)` shape, to swap
+in when BM25 stops being enough -- a judgement call, not a corpus-size
+threshold. docs/RETRIEVAL.md has the caching mechanics and the
+choose-between-them guidance.
 
 Retrieval finds a *document*; `src/passages.py` decides which part of it
 may be shown. Anything that needs to point at a span of a source rather
@@ -161,10 +131,10 @@ quotable. See docs/LADDERS.md.
 
 ## Config lives in `config.toml`
 
-`src/config.py` loads `config.toml` (repo root) via stdlib `tomllib`, with
-every setting overridable by an env var of the same name (e.g.
-`BIB_FILE=/other/path.bib python -m src.sync`). Add new settings there, not
-as hardcoded values in `config.py`.
+Every setting lives in `config.toml` at the repo root, and every one is
+overridable by an env var of the same name (e.g.
+`BIB_FILE=/other/path.bib python -m src.sync`). docs/CONFIG.md is the
+reference.
 
 `python -m src.citation_gate` needs no venv -- it only reads
 `content/ledger.sqlite` through stdlib `sqlite3` and runs with bare

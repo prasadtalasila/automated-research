@@ -19,6 +19,21 @@ each step -- reserve pausing for decisions that are genuinely irreversible
 regenerable) or genuinely ambiguous (a requirement with more than one
 reasonable reading and no clear tie-breaker in this file or the code).
 
+## Module boundaries
+
+`src/references.py` formats an IEEE bibliography entry (authors, venue,
+volume, pages) from the ledger's `bib_fields` column, which `sync`
+populates via `bib_reader` -- it does not, and must not, parse
+`bibliography.bib` itself. The one thing that legitimately reads the bib
+file directly is pandoc's `--citeproc`, which is not this codebase. See
+[AGENTS.md](AGENTS.md) for why `bib_reader` is the sole reader.
+
+What a part *does* and what it *costs to install* are separate axes:
+`src/render_output.py` is drafting-layer code that needs no package from
+the `enrich` group, which is why it sits in `src/` rather than
+`src/enrich/`. (The three layers were called "job 1", "job 2" and "the
+heavy pipeline" until 3.0.0; *heavy* now names nothing here.)
+
 ## Environment constraints on this host
 
 `pip install` outside a venv is blocked (PEP 668) -- unconditionally, on
