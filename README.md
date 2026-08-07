@@ -77,9 +77,15 @@ ways -- by depth, by genre, and in time order.
 
 The corpus layer is deterministic in the sense that matters most -- no
 LLM, no judgement calls, same bibliography in, same citekeys out -- but
-it is **not** bit-reproducible with every parser. With the default
-`pdftotext` backend it is: parsed text comes back byte-identical, and
-every ledger column is stable except the `last_synced` timestamp.
+it is **not** bit-reproducible with every parser. Re-running it over
+**unchanged inputs** with the default `pdftotext` backend, parsed text
+comes back byte-identical and every ledger column is stable except the
+`last_synced` timestamp.
+
+"Unchanged inputs" is doing real work in that sentence. Re-exporting
+`bibliography.bib` gives its PDFs fresh modification times, and that is a
+different input: `pdf_mtime_ns` legitimately changes, even for a
+byte-identical file.
 
 With the opt-in `docling` backend and a worker pool, it is not. Docling
 groups dense reference blocks slightly differently under load, so roughly

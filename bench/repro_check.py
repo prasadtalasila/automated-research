@@ -321,7 +321,19 @@ def run_once(bib: Path, workers: int, gpus: int, cpus: "str | None",
     parsed_match = _PARSED_LINE.search(combined)
     return {
         "workers_requested": workers,
+        # 1 when the line is absent, because `sync` prints it only when
+        # workers > 1 -- so its absence *is* the serial path, and this is
+        # an inference rather than a guess. Deliberately not falling back
+        # to `workers`: recording the requested count as the resolved one
+        # is exactly the confusion this field exists to prevent, and it
+        # would report 12 for a run that used 1.
+        #
+        # The provenance rides along, because the inference is only sound
+        # while that line keeps its wording. If it is ever reworded,
+        # every arm silently reads "resolved 1, inferred" -- visible
+        # here, invisible if only the number were kept.
         "workers_resolved": int(workers_match.group(2)) if workers_match else 1,
+        "workers_resolved_from": "sync-output" if workers_match else "inferred-serial",
         "gpus_requested": gpus,
         "cpus_pinned": cpus,
         "wall_seconds": round(wall, 1),
@@ -484,11 +496,14 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--sample", type=int, required=True,
                     help="documents to draw from bench/corpus.json, by page rank")
-    ap.add_argument("--keep-outliers", action="store_true",
-                    help="do not exclude page-count outliers (Tukey Q3+1.5*IQR)")
-    ap.add_argument("--outliers-only", action="store_true",
-                    help="parse ONLY the excluded outliers -- the arm that checks "
-                         "whether trimming removed the population the effect lives in")
+    # Mutually exclusive: build_sample would otherwise let --outliers-only
+    # win silently, recording a sampling rule the caller did not ask for.
+    outliers = ap.add_mutually_exclusive_group()
+    outliers.add_argument("--keep-outliers", action="store_true",
+                          help="do not exclude page-count outliers (Tukey Q3+1.5*IQR)")
+    outliers.add_argument("--outliers-only", action="store_true",
+                          help="parse ONLY the excluded outliers -- the arm that checks "
+                               "whether trimming removed the population the effect lives in")
     ap.add_argument("--workers", type=int, default=12,
                     help="held fixed across arms (default: 12)")
     ap.add_argument("--gpus", default="1,4",
