@@ -1,6 +1,6 @@
 ---
 name: deep-research
-description: Runs a multi-perspective, corpus-grounded deep-research pipeline over the synced bibliography + source-pdfs -- perspective discovery, parallel simulated interviews, contradiction mapping, outline, cited section writing, synthesis briefing, and self peer-review. Adapted from hadufer/claude-storm (MIT), itself an implementation of Stanford OVAL's STORM method (Shao et al., NAACL 2024) fused with Nav Toor's 4-prompt adaptation -- retooled here to cite only real citekeys from content/ledger.sqlite (never a URL, never invented) instead of live web sources. Triggers when the user asks for "deep research", a multi-perspective analysis, or an in-depth grounded report on a topic, as distinct from survey-writer's single-pass literature survey. Heavier and slower than survey-writer by design. Must run `python -m src.citation_gate` before presenting and refuses to invent a citekey. Stops and tells the user to run `python -m src.sync` if the ledger is empty, rather than syncing itself.
+description: Runs a multi-perspective, corpus-grounded deep-research pipeline over the synced bibliography -- perspective discovery, parallel simulated interviews, contradiction mapping, outline, cited section writing, synthesis briefing, and self peer-review. Adapted from hadufer/claude-storm (MIT), itself an implementation of Stanford OVAL's STORM method (Shao et al., NAACL 2024) fused with Nav Toor's 4-prompt adaptation -- retooled here to cite only real citekeys from content/ledger.sqlite (never a URL, never invented) instead of live web sources. Triggers when the user asks for "deep research", a multi-perspective analysis, or an in-depth grounded report on a topic, as distinct from survey-writer's single-pass literature survey. Heavier and slower than survey-writer by design. Must run `python -m src.citation_gate` before presenting and refuses to invent a citekey. Stops and tells the user to run `python -m src.sync` if the ledger is empty, rather than syncing itself.
 tags: [deep-research, multi-perspective, storm, citation]
 ---
 
@@ -10,10 +10,7 @@ Every claim must resolve to one of:
 
 - a real **citekey** from `content/ledger.sqlite` (via `src.retrieval.search()`
   or `src.enrich.embed_index.search()` if that stack has been built), cited
-  `[@citekey]`;
-- a `source-pdfs` document, discussed in prose by title/doc_id and
-  explicitly marked **not citable** (per AGENTS.md's invariant -- never
-  given a citekey, never a formal citation); or
+  `[@citekey]`; or
 - stated plainly as "not found in the corpus" -- never invented, never
   smoothed over.
 
@@ -29,7 +26,8 @@ It reads the same shared corpus layer as the other genre skills.
 - `src/retrieval.py` -- `search(query, k, snippet_chars)`, keyword overlap
 - `src/enrich/embed_index.py` -- `search(query, k, snippet_chars)`, semantic
   (if built for this corpus -- check `content/chroma/` first)
-- `papers/pdfs/` (config.toml's `[source_pdfs].dir`) -- non-citable raw PDFs, see `src/enrich/corpus.py`
+- `src/enrich/corpus.py` -- builds the enrichment corpus from the ledger and
+  nothing else, so every document it yields is citable and `doc_id == citekey`
 
 **Read-only means read-only: never run `python -m src.sync`.** That command
 belongs to the corpus layer, it takes the pipeline's write lock, and a
@@ -123,7 +121,7 @@ file).
 Give each subagent: `TOPIC`, its `PERSPECTIVE` (name + focus), `ROUNDS` (per
 depth). Each returns: core position, grounded key claims cited by real
 citekey, an only-this-perspective insight, strongest evidence, open
-questions, and the citekeys/doc_ids consulted.
+questions, and the citekeys consulted.
 
 No web fallback: if a perspective's searches turn up nothing relevant after
 reasonable reformulation, that's a real "thin coverage" finding to report,
@@ -273,8 +271,7 @@ not).
 ## Guardrails
 
 - **Grounded by default, closed-corpus.** Every claim traces to a real
-  citekey, or is marked as found only in a non-citable `source-pdfs`
-  document, or is stated as not found. Never fabricate a citekey, a quote,
+  citekey, or is stated as not found. Never fabricate a citekey, a quote,
   or a finding.
 - **Parallelize, with a cap.** Dispatch same-phase subagents in one message;
   bound concurrency per `reference.md` §1.

@@ -1093,8 +1093,8 @@ def _extract_docling(pdf_path: str, out_path: Path, threads: int | None = None) 
 
     src/enrich/docling_parse.py is the other consumer of this library, and
     is still not made redundant by this one: it parses the PDF a second
-    time under its own OCR and figure settings, and covers `papers/pdfs/`
-    documents that have no ledger row at all.
+    time under its own OCR and figure settings, and writes structured
+    Markdown plus figure records that this one does not.
     """
     converter = _docling_converter(threads)
     try:

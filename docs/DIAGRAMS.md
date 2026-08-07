@@ -191,7 +191,6 @@ flowchart TB
     ZOT[("Zotero library")]
     BIB["<b>papers/bibliography.bib</b><br/><i>the source of truth for citekeys</i>"]
     ATT[/"<b>papers/bibliography/files/&lt;id&gt;/*.pdf</b><br/><small>the companion folder Zotero writes beside the .bib —<br/>never rename it, the <code>file</code> fields are relative paths</small>"/]
-    RAW[/"papers/pdfs/*.pdf<br/><small>optional · raw PDFs you drop in by hand ·<br/><code>doc:&lt;stem&gt;</code>, never citable</small>"/]
     ZOT -- "Export · BibTeX + Export Files" --> BIB
     ZOT --> ATT
   end
@@ -272,7 +271,6 @@ flowchart TB
   LED == "the ledger is the<br/>only authority the<br/>gate consults" ==> GATE
   LED --> REFS
   ATT -. "the PDF, direct" .-> H1
-  RAW -. "src/enrich/corpus.py" .-> H1
   H1 -.-> PASS
   H2 -.-> EMB
   DRAFT --> SA
@@ -288,7 +286,7 @@ flowchart TB
   classDef heavy fill:#faf5ff,stroke:#9333ea,stroke-width:1.5px,color:#3b0764
 
   class BR,PT,BM25,PASS,REFS,REND src
-  class ZOT,BIB,ATT,RAW,LED,TXT,DRAFT,OUT store
+  class ZOT,BIB,ATT,LED,TXT,DRAFT,OUT store
   class GATE,XOR gate
   class BLOCK bad
   class ITER loop
@@ -326,7 +324,6 @@ flowchart TB
     direction LR
     BIB[/"papers/bibliography.bib"/]
     PDF[/"<b>papers/bibliography/files/&lt;id&gt;/*.pdf</b><br/><small>Zotero's companion folder, written beside the .bib<br/>by <b>Export Files</b> — renaming it breaks every<br/><code>file</code> field silently</small>"/]
-    RAW[/"papers/pdfs/*.pdf<br/><small>+ manifest.json · never citable</small>"/]
     CFG[/"config.toml"/]
   end
 
@@ -370,7 +367,7 @@ flowchart TB
   PDF -- "src/pdf_text.py" --> TXT
   PDF -- "src/pdf_text.py<br/><small>docling backend only</small>" --> CPS
   LED -- "which PDFs need a parse" --> TXT
-  RAW -- "src/enrich/corpus.py<br/><small>doc:&lt;stem&gt;, never a citekey</small>" --> DOC
+  LED -- "src/enrich/corpus.py<br/><small>every row, <code>doc_id == citekey</code></small>" --> DOC
   TXT -- "src/enrich/embed_index.py" --> CHR
   PDF -- "src/enrich/docling_parse.py" --> DOC
   CPS -. "<b>src/enrich/docling_parse.py</b><br/><small>adopts the corpus layer's parse<br/>instead of repeating it</small>" .-> DOC
@@ -395,7 +392,7 @@ flowchart TB
   classDef draft fill:#f0fdf4,stroke:#16a34a,color:#052e16
   classDef lock fill:#fefce8,stroke:#a16207,color:#422006
 
-  class BIB,PDF,RAW,CFG mine
+  class BIB,PDF,CFG mine
   class LED,TXT,CPS corpus
   class DOC,CHR,TOP heavy
   class RIX,DCA,TCA cache
@@ -617,9 +614,10 @@ finding the paper that makes your point in words you didn't search for.
 They are also the only two skills whose SKILL.md names
 `src.enrich.embed_index.search()` as an alternative to BM25.
 
-`deep-research` is the only skill that reads `papers/pdfs/` -- the
-non-citable source-PDF tray -- and it may only discuss those documents by
-title, never cite them.
+Both read the same corpus the rest of the pipeline does, and that corpus
+is the bibliography and nothing else -- so every document either skill can
+reach carries a citekey the gate will accept, and there is no class of
+source that has to be discussed by title because it may not be cited.
 
 `bertopic` sits off to one side because **no skill calls it.** It is for
 you, deciding what the survey should be about before anything is drafted.
@@ -631,7 +629,7 @@ question in this genre.
 ```mermaid
 flowchart LR
 
-  P0["<b>0 · CURATE</b><br/><i>you, in Zotero</i><br/><br/>Breadth is the whole job here.<br/>A thin corpus shows up<br/>immediately as a thin survey.<br/><br/><b>papers/bibliography.bib</b><br/><small>+ <code>papers/pdfs/</code> — <b>deep-research</b> is the<br/>only skill that reads those, and it may<br/>only discuss them by title, never cite them</small>"]
+  P0["<b>0 · CURATE</b><br/><i>you, in Zotero</i><br/><br/>Breadth is the whole job here.<br/>A thin corpus shows up<br/>immediately as a thin survey.<br/><br/><b>papers/bibliography.bib</b><br/><small>the only source either skill can reach —<br/>everything retrieval returns is citable</small>"]
 
   P1["<b>1 · SYNC</b><br/><i>deterministic</i><br/><br/><code>python -m src.sync</code><br/><br/><b>content/ledger.sqlite</b><br/><b>content/parsed/*.txt</b>"]
 

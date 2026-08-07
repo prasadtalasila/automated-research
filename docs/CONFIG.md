@@ -87,7 +87,6 @@ used as given.
 |---|---|---|---|
 | `[bib] path` | `BIB_FILE` | path | `papers/bibliography.bib` |
 | `[content] dir` | `CONTENT_DIR` | path | `content` |
-| `[source_pdfs] dir` | `SOURCE_PDFS_DIR` | path | `papers/pdfs` |
 
 - **`[bib] path`** -- the BibTeX export `src/bib_reader.py` parses. The
   only source of citekeys; nothing in the pipeline invents or renames
@@ -95,16 +94,12 @@ used as given.
 - **`[content] dir`** -- everything `sync` and the enrichment layer write:
   `ledger.sqlite`, `parsed/`, `provenance/`, `rendered/`, plus
   `docling/`, `chroma/` and `topics.json` from the enrichment stages.
-- **`[source_pdfs] dir`** -- raw PDFs with no bibliography entry, for the
-  enrichment layer's topic modelling and embeddings. **Never citable**: a
-  PDF here has no citekey, so add it to your reference manager,
-  re-export, and re-run `sync` before citing it. Keep it separate from
-  your reference manager's exported attachment folder: this is a
-  different mechanism, and pointing both at one directory is what
-  [ZOTERO.md](ZOTERO.md) warns against. A PDF here that the ledger
-  already covers is skipped and named at the start of the run rather than
-  indexed a second time -- see
-  [RETRIEVAL.md](RETRIEVAL.md).
+
+There is no key for "extra PDFs to enrich": the enrichment layer indexes
+the bibliography and nothing else, so everything it can retrieve is
+something a draft may cite. To add a paper, catalogue it in your
+reference manager, re-export, and re-run `sync` -- see
+[ZOTERO.md](ZOTERO.md).
 
 ### `[render]` -- citation style
 
@@ -287,17 +282,20 @@ They are two consumers of the same library, with different scopes:
   structured
   Markdown for the whole corpus into `content/docling/`, feeding the
   embedding and topic stages that need real reading order and section
-  boundaries. It **always** uses docling regardless of this setting, and
-  it covers `papers/pdfs/` documents that have no ledger row at all.
+  boundaries. It **always** uses docling regardless of this setting, over
+  exactly the same ledger documents -- it has no corpus of its own.
 
 They no longer duplicate the parse, though. When this setting is
 `docling`, the enrichment stage adopts the corpus layer's output for a
 citekey instead of parsing the PDF a second time -- a file copy in place
-of 6.65s per document. It falls back to a real parse for a `papers/pdfs/`
-document, for a run with `[enrich].docling_images` on, or when the
-artefacts are older than the PDF. The dependency only ever runs that way
-round: the enrichment layer reads the corpus layer's files, and the
-corpus layer is not shaped by this at all.
+of 6.65s per document. It falls back to a real parse for a citekey the
+corpus layer wrote no text for -- a PDF whose parse failed at sync time,
+say -- for a run with `[enrich].docling_images` on, because the corpus
+layer writes no figure bitmaps to adopt, or when the artefacts are older
+than the PDF, which means the PDF has been replaced since the corpus
+layer read it. The dependency only ever runs that way round: the
+enrichment layer reads the corpus layer's files, and the corpus layer is
+not shaped by this at all.
 
 ### `workers`, and how it is clamped
 

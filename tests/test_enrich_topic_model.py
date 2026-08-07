@@ -96,7 +96,7 @@ def make_docs_with_text(n, tmp_path):
         path = tmp_path / f"doc{i}.txt"
         path.write_text(f"document number {i} " * 5)
         docs.append(CorpusDoc(
-            doc_id=f"doc{i}", citekey=f"doc{i}", source="bib", title=f"T{i}",
+            doc_id=f"doc{i}", citekey=f"doc{i}", title=f"T{i}",
             pdf_path=None, text_path=str(path),
         ))
     return docs
@@ -170,7 +170,7 @@ class TestRunTopicModel:
 
     def test_skips_docs_with_no_text(self, isolated_config, fake_bertopic_stack, tmp_path):
         docs = make_docs_with_text(6, tmp_path)
-        docs.append(CorpusDoc(doc_id="no_text", citekey="no_text", source="bib", title="t", pdf_path=None))
+        docs.append(CorpusDoc(doc_id="no_text", citekey="no_text", title="t", pdf_path=None))
 
         result = topic_model.run_topic_model(docs)
         assert "no_text" not in result["assignments"]
@@ -237,7 +237,7 @@ class TestEmbeddingCache:
         new_doc_path = tmp_path / "doc_new.txt"
         new_doc_path.write_text("a brand new document")
         new_doc = CorpusDoc(
-            doc_id="doc_new", citekey="doc_new", source="bib", title="New",
+            doc_id="doc_new", citekey="doc_new", title="New",
             pdf_path=None, text_path=str(new_doc_path),
         )
         topic_model.run_topic_model(docs + [new_doc])

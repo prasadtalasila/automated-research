@@ -86,11 +86,6 @@ ways -- by depth, by genre, and in time order.
 #      Ex: file = {Full Text PDF:bibliography/files/16/paper-name.pdf:application/pdf}
 mkdir -p papers && cp -r /path/to/your/export/. papers/
 
-# Optional, and a different mechanism: papers/pdfs/ is where you drop a
-# raw PDF you have not cataloged in Zotero yet. The enrichment layer will
-# read it, but it has no citekey and can never be cited -- catalog it and
-# re-export to do that. Zotero's own exported attachments don't go here.
-
 cp config.toml.example config.toml
 
 # 2. Install dependencies. scripts/install_full_pipeline.sh is the only

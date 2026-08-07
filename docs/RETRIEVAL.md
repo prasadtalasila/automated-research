@@ -21,8 +21,7 @@ tune any of them -- see [CONFIG.md](CONFIG.md) for the settings and
 | Takes a query | yes | yes | **no** |
 | Method | Okapi BM25 over whitespace tokens | dense vectors, cosine distance | UMAP then HDBSCAN over one vector per document |
 | Unit of a hit | a whole document | a 200-word chunk | a whole document |
-| Corpus | ledger rows only | ledger rows **and** `papers/pdfs/` | ledger rows **and** `papers/pdfs/` |
-| Every hit citable? | **yes** | **no** -- see below | n/a |
+| Corpus | ledger rows only, so every hit is citable | *the same* | *the same* |
 | Needs | stdlib, bare `python3` | venv + `enrich` group + a model download | venv + `enrich` group |
 | Used by | every genre skill, by default | `survey-writer`, `deep-research` (only if built) | **nothing in this repository** |
 
@@ -33,8 +32,8 @@ flowchart TB
 
   subgraph SEARCH["<b>SEARCHING</b> — same question, two implementations. Pick one; nothing merges them."]
     direction LR
-    BM25["<b>src/retrieval.py</b> · BM25<br/><small>stdlib · whole documents · always available<br/><b>every hit has a citekey</b></small>"]
-    EMB["<b>src/enrich/embed_index.py</b> · semantic<br/><small>enrich group · 200-word chunks<br/>same <code>search(q, k)</code> shape, so it is a drop-in<br/><b>some hits have no citekey</b></small>"]
+    BM25["<b>src/retrieval.py</b> · BM25<br/><small>stdlib · whole documents · always available</small>"]
+    EMB["<b>src/enrich/embed_index.py</b> · semantic<br/><small>enrich group · 200-word chunks<br/>same <code>search(q, k)</code> shape, so it is a drop-in</small>"]
   end
 
   subgraph SURVEY["<b>SURVEYING</b> — no query at all"]
@@ -44,8 +43,8 @@ flowchart TB
     BERT --> TOP
   end
 
-  HITS(["ranked hits + snippets<br/><small>evidence a genre skill may cite from</small>"])
-  CORPUS[("your corpus<br/><small>content/parsed/ · content/docling/</small>")]
+  HITS(["ranked hits + snippets<br/><small>evidence a genre skill may cite from —<br/>every hit carries a real citekey</small>"])
+  CORPUS[("your corpus<br/><small>the bibliography, via the ledger<br/>content/parsed/ · content/docling/</small>")]
 
   Q --> BM25 --> HITS
   Q -. "only if content/chroma/ exists" .-> EMB
@@ -113,36 +112,20 @@ communities that use different vocabulary for the same idea, semantic
 recall is the reason to build this. On a small, vocabulary-consistent
 corpus, BM25 is usually enough -- which is why it stays the default.
 
-**The one hazard: not every hit is citable.** The enrichment layer's corpus
-is wider than the ledger. It includes any raw PDF you dropped into
-`papers/pdfs/`, which has no bibliography entry and therefore no citekey.
-Those results come back with `citekey: ""` and a `doc_id` like
-`doc:some-paper`, and they can never be cited: `citation_gate` checks
-membership in the ledger, and a `doc:` identifier can never be a BibTeX
-citekey. Read them freely -- but to cite one, add the paper to your
-reference manager, re-export, and re-run `sync`.
-
-`enrich.py` counts them at the top of every run, before any stage
-touches them, so you know how much of what you are about to index cannot
-be cited:
+**Every hit is citable, exactly as with BM25.** The enrichment layer
+indexes the ledger and nothing else, so a chunk that comes back from
+Chroma always carries a real citekey that `citation_gate` will accept.
+(An earlier version also swept a directory of raw PDFs gathered outside
+the bib file, and those hits came back with an empty citekey and could
+never be cited; that second source is gone.) The way to make a paper
+searchable here is therefore the same as everywhere else in this
+repository: catalogue it in your reference manager, re-export, and re-run
+`sync`. `enrich.py` prints what it is about to work on at the top of
+every run, before any stage touches it:
 
 ```
-  NOTE 3 document(s) from papers/pdfs have no bib entry, so they have no
-  citekey and can never be cited.
+Corpus: 42 doc(s) from papers/bibliography.bib
 ```
-
-A raw PDF that the ledger *already* covers -- the same file, or a
-byte-identical copy under another name -- is skipped instead of indexed
-twice, and named:
-
-```
-  skipped rossi-2023.pdf: same PDF as rossi_composable_2023, which is
-  already in the ledger.
-```
-
-That is the case that used to be silent, and it arises normally: catalogue
-a raw PDF in your reference manager, re-export, re-run `sync`, and the
-copy still sitting in `papers/pdfs/` is now a duplicate of a citable row.
 
 **Who uses it.** `survey-writer` and `deep-research` name it as the
 alternative to BM25, and `deep-research`'s subagents check that

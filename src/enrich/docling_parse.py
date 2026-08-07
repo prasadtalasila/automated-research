@@ -11,9 +11,7 @@ Not the same thing as `[parser].backend = "docling"`, and not made
 redundant by it. That setting points src/pdf_text.py at the same library
 to produce one .txt per citekey for BM25; this stage produces structured
 Markdown plus the `<doc>.passages.json` sidecar for the whole corpus,
-always, whatever that setting says -- including for `papers/pdfs/`
-documents, which have no ledger row and so are never parsed by the corpus
-layer at all.
+always, whatever that setting says.
 
 What it no longer does is repeat work the corpus layer has already done.
 When that setting *is* `docling`, `_reuse_corpus_parse` adopts the
@@ -65,7 +63,7 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from src import config, passages, pdf_text
-from src.enrich.corpus import CorpusDoc, safe_filename
+from src.enrich.corpus import CorpusDoc
 
 # Bump when a change to what parse_doc() *writes* makes an existing .md
 # stale even though its PDF hasn't changed -- the (size, mtime_ns)
@@ -263,7 +261,7 @@ def _figure_records(doc: CorpusDoc, dl_doc, image_names: list[str] | None = None
         caption = (pic.caption_text(dl_doc) or "").strip()
         page = pic.prov[0].page_no if pic.prov else None
         label_match = _CAPTION_LABEL_RE.match(caption)
-        ref = f"[@{doc.citekey}]" if doc.citekey else f"({doc.doc_id} -- not citable)"
+        ref = f"[@{doc.citekey}]"
         if label_match:
             kind = label_match.group(1).rstrip(".")
             # "Fig"/"Fig." -> "Figure", so the citation reads the way a
@@ -312,8 +310,9 @@ def _corpus_parse_available(doc: CorpusDoc) -> bool:
 
     Refused in three cases:
 
-    - a document with no citekey (`papers/pdfs/`), which the corpus layer
-      never sees at all;
+    - a document the corpus layer has not written parsed text for
+      (`text_path` unset -- e.g. a bib entry with no PDF attachment, or
+      one whose parse failed);
     - `config.DOCLING_IMAGES`, because the corpus layer writes no figure
       bitmaps and no `<stem>.figures.json`, and adopting a parse that
       lacks them would leave this stage's own output incomplete;
@@ -326,7 +325,7 @@ def _corpus_parse_available(doc: CorpusDoc) -> bool:
     adopting it here propagates it rather than creating it, and the fix is
     the same either way (`python -m src.sync --reparse`).
     """
-    if config.DOCLING_IMAGES or not doc.citekey or not doc.text_path:
+    if config.DOCLING_IMAGES or not doc.text_path:
         return False
     parsed = Path(doc.text_path)
     sidecar = passages.sidecar_path(doc.citekey)
@@ -406,8 +405,7 @@ def _is_cached(doc: CorpusDoc, cache: dict) -> bool:
     do. A stat is nanoseconds next to that.
     """
     try:
-        return cache.get(doc.doc_id) == _fingerprint(doc) and _outputs_present(
-            safe_filename(doc.doc_id))
+        return cache.get(doc.doc_id) == _fingerprint(doc) and _outputs_present(doc.doc_id)
     except OSError:
         return False
 
@@ -467,7 +465,7 @@ def parse_doc(doc: CorpusDoc, cache: dict | None = None, converter=None) -> Path
         cache = _load_cache()
 
     config.DOCLING_DIR.mkdir(parents=True, exist_ok=True)
-    stem = safe_filename(doc.doc_id)
+    stem = doc.doc_id
     out_path = config.DOCLING_DIR / f"{stem}.md"
 
     st = os.stat(doc.pdf_path)
@@ -518,9 +516,9 @@ def parse_doc(doc: CorpusDoc, cache: dict | None = None, converter=None) -> Path
     # reads it to quote a real passage rather than a window sliced out of
     # column-spliced flat text. Cheap next to the parse that produced it.
     # Same records the corpus layer writes, from src/passages.py's one
-    # definition of what a passage is -- but keyed by doc_id and under
-    # this layer's own directory, because this parse also covers
-    # `papers/pdfs/` documents that have no citekey to key on.
+    # definition of what a passage is -- but under this layer's own
+    # directory, because this parse runs under its own OCR and figure
+    # settings and must not overwrite the corpus layer's copy.
     passages_path = config.DOCLING_DIR / f"{stem}.passages.json"
     passages_path.write_text(json.dumps(passages.passage_records(dl_doc), indent=2))
 
@@ -628,7 +626,7 @@ def parse_corpus(docs: list[CorpusDoc]) -> dict[str, str]:
     # A set of doc_ids rather than a list of docs: `d not in [...]` would
     # compare every doc against every reusable one, which is quadratic in
     # the corpus and compares whole dataclasses to do it. doc_id is unique
-    # by construction (corpus.assert_no_citekey_collision).
+    # by construction -- it is the ledger's citekey, a primary key.
     reusable = {d.doc_id for d in docs if d.pdf_path and not _is_cached(d, cache)
                 and _corpus_parse_available(d)}
     if reusable:

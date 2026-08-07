@@ -191,19 +191,22 @@ Worth stating plainly, because the natural assumption is the expensive
 one and it is wrong: **the enrichment layer parses your whole corpus, not
 the papers a draft happens to cite.**
 
-`scripts/enrich.py` calls `corpus.build_corpus()`, which returns:
+`scripts/enrich.py` calls `corpus.build_corpus()`, which returns **every
+row in the ledger, and nothing else.** `ledger.all_items()` is a bare
+`SELECT * FROM items`, so this is every citekey your BibTeX export
+produced, including entries whose reference-manager record has no PDF
+attached at all.
 
-- **every row in the ledger.** `ledger.all_items()` is a bare
-  `SELECT * FROM items`, so this is every citekey your BibTeX export
-  produced, including entries whose reference-manager record has no PDF
-  attached at all.
-- **every `papers/pdfs/*.pdf` the ledger does not already cover.** A
-  source PDF that duplicates one already attached to a citekey is skipped
-  and reported by name, so the same paper cannot enter the corpus twice --
-  once citable, once not. The check is resolved path first, then sha256
-  against the ledger PDFs of matching size, so a copy saved under a
-  different name is caught too. (Issue #42, fixed in #46. That fix is
-  about *this* bullet only -- it did not narrow the first one.)
+That the bibliography is the *only* source is a guarantee the rest of the
+layer is built on, not an accident of the current implementation: every
+document carries a real citekey, `doc_id == citekey`, and so every Chroma
+hit, every topic member and every figure record names something a draft
+is allowed to cite. An earlier version also swept a hand-filled directory
+of raw PDFs into the corpus under ids the citation gate would always
+reject, which cost every stage downstream a permanently non-citable case
+in exchange for indexing evidence no draft was ever allowed to use. If a
+paper is worth indexing it is worth cataloguing: put it in your reference
+manager, re-export, and re-run `python -m src.sync`.
 
 Every stage then receives that whole list. Nothing anywhere filters by
 draft, by reference list, or by citation: a draft citing eleven papers
@@ -226,9 +229,9 @@ citekey, the two layers would otherwise produce the same document twice
 from the same PDF, and the second pass buys nothing. The dependency runs
 one way only -- the enrichment layer reads `content/parsed/`, and the
 corpus layer neither knows nor cares that it does. Reuse is refused for a
-`papers/pdfs/` document (no citekey, so the corpus layer has never seen
-it), for a run with figures on (the corpus layer writes no bitmaps), and
-for artefacts older than their PDF.
+document the corpus layer wrote no parsed text for (a bib entry with no
+PDF attached, or one whose parse failed), for a run with figures on (the
+corpus layer writes no bitmaps), and for artefacts older than their PDF.
 
 ## The three ladders
 
@@ -287,7 +290,7 @@ this document?
 |---|---|---|
 | 1 | `content/docling/<doc_id>.md` | the enrichment layer's own parse; image references are stripped before embedding |
 | 2 | the ledger's `parsed_path` `.txt` | whatever the corpus layer produced, verbatim |
-| 3 | `pdftotext -layout` into a temp file | for a `papers/pdfs/` document the ledger has never seen |
+| 3 | `pdftotext -layout` into a temp file | for a bib item the corpus layer has not parsed -- a parse that failed, or one not re-run since the PDF was attached |
 
 This ladder is why the enrichment layer's `embed` stage does not *require*
 its `docling` stage: running `--stages embed` alone works, just on

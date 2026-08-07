@@ -202,18 +202,19 @@ step are all local/deterministic. Any LLM-backed synthesis happens only
 via the `.claude/skills/` drafting layer, invoked through a Claude Code
 session rather than a standalone API call.
 
-`src/enrich/corpus.py` unifies two identifier namespaces: ledger items get
-`doc_id == citekey` (real, citable); raw PDFs gathered outside the bib file
-(e.g. an open metadata-API search, under `config.toml`'s `[source_pdfs].dir`
-default `papers/pdfs/*.pdf`) get `doc:<filename stem>`, which can never
-collide with a bib citekey (those never contain a colon) and which
-`citation_gate.py` will always reject. Keep it that way -- don't give a
-`source-pdfs`-sourced doc anything citekey-shaped. `build_corpus()` also
-skips a source PDF the ledger already covers (same path, or same
-size-and-digest) and returns a complaint naming it, so the same paper
-never enters the corpus twice, once citable and once not. (`source-pdfs` here is
-`CorpusDoc.source`'s internal tag value, not the name of a directory you
-should expect to find on disk.)
+`src/enrich/corpus.py` sources the enrichment corpus from the ledger and
+nothing else, so every document it yields is citable and
+`doc_id == citekey`. Keep it that way -- the enrichment layer must never
+index a document a draft would not be allowed to cite. If a paper is
+worth enriching, it belongs in the reference manager: catalogue it,
+re-export, and re-run `python -m src.sync`.
+
+This is narrower than it used to be. An earlier design also swept raw
+PDFs gathered outside the bib file (`config.toml`'s `[source_pdfs].dir`,
+default `papers/pdfs/*.pdf`) into the corpus under a `doc:<stem>` id that
+`citation_gate.py` always rejected. That made every stage downstream
+carry a permanently non-citable case; the directory, its config key, and
+that second namespace are all gone.
 
 ## Retrieval
 

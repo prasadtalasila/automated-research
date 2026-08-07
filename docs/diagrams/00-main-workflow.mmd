@@ -9,7 +9,6 @@ flowchart TB
     ZOT[("Zotero library")]
     BIB["<b>papers/bibliography.bib</b><br/><i>the source of truth for citekeys</i>"]
     ATT[/"<b>papers/bibliography/files/&lt;id&gt;/*.pdf</b><br/><small>the companion folder Zotero writes beside the .bib —<br/>never rename it, the <code>file</code> fields are relative paths</small>"/]
-    RAW[/"papers/pdfs/*.pdf<br/><small>optional · raw PDFs you drop in by hand ·<br/><code>doc:&lt;stem&gt;</code>, never citable</small>"/]
     ZOT -- "Export · BibTeX + Export Files" --> BIB
     ZOT --> ATT
   end
@@ -90,7 +89,6 @@ flowchart TB
   LED == "the ledger is the<br/>only authority the<br/>gate consults" ==> GATE
   LED --> REFS
   ATT -. "the PDF, direct" .-> H1
-  RAW -. "src/enrich/corpus.py" .-> H1
   H1 -.-> PASS
   H2 -.-> EMB
   DRAFT --> SA
@@ -106,7 +104,7 @@ flowchart TB
   classDef heavy fill:#faf5ff,stroke:#9333ea,stroke-width:1.5px,color:#3b0764
 
   class BR,PT,BM25,PASS,REFS,REND src
-  class ZOT,BIB,ATT,RAW,LED,TXT,DRAFT,OUT store
+  class ZOT,BIB,ATT,LED,TXT,DRAFT,OUT store
   class GATE,XOR gate
   class BLOCK bad
   class ITER loop
