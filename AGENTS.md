@@ -13,7 +13,10 @@ file and that one seem to disagree, that one is the tie-breaker.
 
 ## The hard invariant: never fabricate a citekey
 
-Why this is the one thing that cannot bend: [SOUL.md](SOUL.md).
+Fabricated placeholder references have made it into real papers before --
+that is the failure mode this pipeline is built to prevent, and it is why
+this is the one rule that cannot bend. [SOUL.md](SOUL.md) states the
+invariant itself.
 
 Rule: a citekey may only be used if it appears in `papers/bibliography.bib`
 (source of truth -- see below) and was picked up into `content/ledger.sqlite`
