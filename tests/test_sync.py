@@ -617,6 +617,17 @@ class TestConfigureLogging:
         assert "ordinary message" in err
         assert "file only message" not in err
 
+    def test_the_log_file_is_utf8(self, isolated_config, monkeypatch):
+        """Explicit encoding, not the platform default: a citekey or
+        title carrying an accented or non-Latin name (this corpus has
+        real ones -- Schroder-with-an-umlaut, Greek in formulae) must
+        not depend on whatever locale the host happens to be in."""
+        monkeypatch.setattr(config, "LOGGING_LEVEL", "INFO")
+        sync._configure_logging()
+        sync.logger.info("Wüllnerstraße αβγ")
+        log_text = (config.LOGS_DIR / "sync.log").read_text(encoding="utf-8")
+        assert "Wüllnerstraße αβγ" in log_text
+
 
 MANY_BIB = "".join(f"""
 @article{{doc_{i}_2024,
@@ -1226,6 +1237,14 @@ class TestStallWatchdog:
         assert rc == 1
         assert "6 failed" in captured.out
         assert "no document finished" in caplog.text.lower()
+        # The console handler's formatter is bare "%(message)s" -- no
+        # level name -- so the message text itself has to carry the
+        # label, or a scheduled run tailing stderr sees an unlabeled
+        # line. Checked on the raw message (record.getMessage()), not
+        # caplog.text: pytest's own capture format already injects the
+        # level name, which would make this assertion pass even if the
+        # actual message text lost it.
+        assert any("WARNING" in r.getMessage() for r in caplog.records)
 
     def test_progress_resets_the_clock(self, many_corpus, monkeypatch, capsys):
         """A slow-but-moving run must never be killed: the timeout is
@@ -1543,6 +1562,9 @@ class TestStallWarning:
         # The warning has to be actionable, not just early.
         assert "stall_timeout" in text
         assert text.index("no completions in") < text.index("giving up on the")
+        # See test_a_stalled_pool_is_abandoned_and_its_documents_reported
+        # for why this checks the raw message, not caplog.text.
+        assert any("WARNING" in r.getMessage() for r in caplog.records)
 
     def test_a_run_that_finishes_between_warning_and_kill_is_not_killed(
         self, many_corpus, monkeypatch, capsys

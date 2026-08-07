@@ -157,7 +157,7 @@ def _as_they_land(futures, executor, stalled):
         if not done and not warned and half is not None:
             warned = True
             logger.warning(
-                "no completions in %.0fs; giving up at %.0fs "
+                "WARNING no completions in %.0fs; giving up at %.0fs "
                 "([parser].stall_timeout). %d document(s) still running -- if "
                 "this host is simply slow (CPU-only, OCR on, large scans), "
                 "raise or disable that setting rather than letting the run be "
@@ -171,7 +171,7 @@ def _as_they_land(futures, executor, stalled):
             stalled.append(True)
             pdf_text.terminate_workers(executor)
             logger.warning(
-                "no document finished in %ss ([parser].stall_timeout) -- "
+                "WARNING no document finished in %ss ([parser].stall_timeout) -- "
                 "giving up on the %d still outstanding. They are reported as "
                 "failures below and retried on the next run.",
                 config.PARSER_STALL_TIMEOUT, len(pending),
@@ -268,9 +268,9 @@ def _parse_parallel(refs, workers: int, threads: int | None):
         # rather than raised, so the run still writes its ledger updates,
         # its summary, and a nonzero exit code.
         logger.warning(
-            "a parse worker died (%s) -- the documents it had not finished "
-            "are reported as failures below. A lower [parser].workers is "
-            "the usual fix.",
+            "WARNING a parse worker died (%s) -- the documents it had not "
+            "finished are reported as failures below. A lower "
+            "[parser].workers is the usual fix.",
             broken,
         )
     # Marked transient: these documents were never given a fair attempt,
@@ -405,7 +405,7 @@ def run(remove_stale: bool = False, reparse: bool = False) -> int:
                 warning = pdf_text.quality_warning(text)
                 if warning:
                     low_quality.append(citekey)
-                    logger.warning("%s: %s", citekey, warning)
+                    logger.warning("WARNING %s: %s", citekey, warning)
             elif isinstance(exc, pdf_text.BackendUnavailable):
                 # The up-front probe passed, but the backend vanished
                 # (pdftotext dropped from PATH, or the docling
@@ -634,6 +634,7 @@ def _configure_logging() -> None:
     config.LOGS_DIR.mkdir(parents=True, exist_ok=True)
     file_handler = logging.handlers.RotatingFileHandler(
         config.LOGS_DIR / "sync.log", maxBytes=5_000_000, backupCount=5,
+        encoding="utf-8",
     )
     file_handler.setFormatter(logging.Formatter(
         "%(asctime)s %(levelname)s %(name)s: %(message)s"
