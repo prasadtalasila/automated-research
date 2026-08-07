@@ -126,42 +126,87 @@ def get_client_and_model():
 
 def build_index(docs: list[CorpusDoc]) -> dict[str, int]:
     """Embeds and upserts each doc's chunks, skipping docs whose text is
-    unchanged since the last call. Returns {doc_id: n_chunks}."""
+    unchanged since the last call. Returns {doc_id: n_chunks}.
+
+    Reports each document as it is *reached*, not as it finishes: the
+    line is opened before `model.encode()` and closed by whatever the
+    document turned out to be. A stage that prints only on completion
+    still leaves the slowest document in the corpus looking like a hang
+    for as long as it takes -- and a stage that printed nothing at all
+    until it returned is how issue #50 came to be filed against a run
+    that was working fine, then Ctrl-C'd at 399 of 501 documents.
+
+    Same `  [done/total] <doc_id>` shape src/sync.py and
+    docling_parse.py already use for their own per-document progress, and
+    flushed for the reason pdf_text.py flushes its interrupt notice:
+    stdout is block-buffered when it isn't a terminal, and the tail of an
+    interrupted run is exactly the part worth keeping.
+    """
     client, model = get_client_and_model()
     collection = client.get_or_create_collection(_collection_name())
 
     counts = {}
-    for doc in docs:
-        text = get_text(doc)
-        if not text:
-            counts[doc.doc_id] = 0
-            continue
+    n_embedded = n_unchanged = n_no_text = 0
+    try:
+        for position, doc in enumerate(docs, start=1):
+            print(f"  [{position}/{len(docs)}] {doc.doc_id}", end="", flush=True)
 
-        text_hash = hash_text(text)
-        existing = collection.get(where={"doc_id": doc.doc_id})
-        if existing["ids"] and all(m.get("text_hash") == text_hash for m in existing["metadatas"]):
-            counts[doc.doc_id] = len(existing["ids"])
-            continue
-        if existing["ids"]:
-            collection.delete(ids=existing["ids"])
+            text = get_text(doc)
+            if not text:
+                counts[doc.doc_id] = 0
+                n_no_text += 1
+                print(" -- no text to embed", flush=True)
+                continue
 
-        chunks = chunk_text(text)
-        if not chunks:
-            counts[doc.doc_id] = 0
-            continue
-        embeddings = model.encode(chunks, show_progress_bar=False).tolist()
-        ids = [f"{doc.doc_id}::{i}" for i in range(len(chunks))]
-        metadatas = [
-            {
-                "doc_id": doc.doc_id,
-                "citekey": doc.citekey,
-                "title": doc.title,
-                "text_hash": text_hash,
-            }
-            for _ in chunks
-        ]
-        collection.upsert(ids=ids, documents=chunks, embeddings=embeddings, metadatas=metadatas)
-        counts[doc.doc_id] = len(chunks)
+            text_hash = hash_text(text)
+            existing = collection.get(where={"doc_id": doc.doc_id})
+            if existing["ids"] and all(m.get("text_hash") == text_hash for m in existing["metadatas"]):
+                counts[doc.doc_id] = len(existing["ids"])
+                n_unchanged += 1
+                print(f" -- unchanged, {len(existing['ids'])} chunk(s)", flush=True)
+                continue
+            if existing["ids"]:
+                collection.delete(ids=existing["ids"])
+
+            chunks = chunk_text(text)
+            if not chunks:
+                # Whitespace-only text lands here rather than above.
+                # Reported the same way because it amounts to the same
+                # thing for a reader: nothing of this document is in the
+                # index, and no amount of waiting will change that.
+                counts[doc.doc_id] = 0
+                n_no_text += 1
+                print(" -- no text to embed", flush=True)
+                continue
+
+            embeddings = model.encode(chunks, show_progress_bar=False).tolist()
+            ids = [f"{doc.doc_id}::{i}" for i in range(len(chunks))]
+            metadatas = [
+                {
+                    "doc_id": doc.doc_id,
+                    "citekey": doc.citekey,
+                    "title": doc.title,
+                    "text_hash": text_hash,
+                }
+                for _ in chunks
+            ]
+            collection.upsert(ids=ids, documents=chunks, embeddings=embeddings, metadatas=metadatas)
+            counts[doc.doc_id] = len(chunks)
+            n_embedded += 1
+            print(f" -- embedded, {len(chunks)} chunk(s)", flush=True)
+    except KeyboardInterrupt:
+        # Chroma has already persisted every chunk upserted so far, and
+        # the next run's text-hash check skips those documents -- so an
+        # interrupted run is worth something and the message says so,
+        # rather than leaving the reader to guess (the same promise
+        # docling_parse.py makes when its own pool is interrupted).
+        print(f"\n  interrupted after {len(counts)}/{len(docs)} document(s) "
+              "-- what is embedded is kept; re-run to continue.", flush=True)
+        raise
+
+    print(f"  {len(docs)} document(s): {n_embedded} embedded, {n_unchanged} unchanged, "
+          f"{n_no_text} with no text -- {sum(counts.values())} chunk(s) in the index",
+          flush=True)
     return counts
 
 

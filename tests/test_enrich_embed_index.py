@@ -8,6 +8,7 @@ functions shadows the real packages for the duration of the test
 without needing them uninstalled.
 """
 
+import io
 import re
 import subprocess
 import sys
@@ -290,6 +291,120 @@ class TestBuildIndexIncremental:
 
         remaining = collection.get(where={"doc_id": "a2024"})
         assert len(remaining["ids"]) == counts["a2024"] == 1
+
+
+class TestBuildIndexReporting:
+    """Issue #50: the stage printed nothing between its header and its
+    return, so a run over a real corpus was indistinguishable from a hung
+    one, and the one that prompted the issue was Ctrl-C'd partway."""
+
+    def make_doc(self, tmp_path, text, doc_id="a2024"):
+        parsed = tmp_path / f"{doc_id}.txt"
+        parsed.write_text(text)
+        return CorpusDoc(doc_id=doc_id, citekey=doc_id, title="A", pdf_path=None, text_path=str(parsed))
+
+    def test_names_each_document_with_its_position_and_outcome(
+        self, isolated_config, fake_enrich_deps, tmp_path, capsys
+    ):
+        docs = [self.make_doc(tmp_path, "word " * 10, doc_id="a2024"),
+                self.make_doc(tmp_path, "word " * 10, doc_id="b2024")]
+
+        embed_index.build_index(docs)
+
+        out = capsys.readouterr().out
+        assert "  [1/2] a2024 -- embedded, 1 chunk(s)" in out
+        assert "  [2/2] b2024 -- embedded, 1 chunk(s)" in out
+
+    def test_names_the_document_before_embedding_it(
+        self, isolated_config, fake_enrich_deps, tmp_path, monkeypatch
+    ):
+        """The name has to be on the terminal *before* model.encode(), not
+        after it returns: a line printed on completion still leaves the
+        slowest document in the corpus looking like a hang for as long as
+        it takes, which is the whole complaint in issue #50."""
+        stream = io.StringIO()
+        monkeypatch.setattr(sys, "stdout", stream)
+        printed_when_encode_ran = []
+
+        def encode(self, texts, show_progress_bar=False):
+            printed_when_encode_ran.append(stream.getvalue())
+            return FakeArray([FakeArray([float(len(t))]) for t in texts])
+
+        monkeypatch.setattr(FakeSentenceTransformer, "encode", encode)
+
+        embed_index.build_index([self.make_doc(tmp_path, "word " * 10)])
+
+        assert "a2024" in printed_when_encode_ran[0]
+
+    def test_reports_an_unchanged_document_as_such(
+        self, isolated_config, fake_enrich_deps, tmp_path, capsys
+    ):
+        doc = self.make_doc(tmp_path, "word " * 10)
+        embed_index.build_index([doc])
+        capsys.readouterr()
+
+        embed_index.build_index([doc])
+
+        assert "  [1/1] a2024 -- unchanged, 1 chunk(s)" in capsys.readouterr().out
+
+    def test_reports_a_document_with_no_text(self, isolated_config, fake_enrich_deps, capsys):
+        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="A", pdf_path=None)
+
+        embed_index.build_index([doc])
+
+        assert "  [1/1] a2024 -- no text to embed" in capsys.readouterr().out
+
+    def test_reports_whitespace_only_text_as_no_text(
+        self, isolated_config, fake_enrich_deps, tmp_path, capsys
+    ):
+        embed_index.build_index([self.make_doc(tmp_path, "   ")])
+
+        assert "  [1/1] a2024 -- no text to embed" in capsys.readouterr().out
+
+    def test_closing_line_tallies_every_disposition(
+        self, isolated_config, fake_enrich_deps, tmp_path, capsys
+    ):
+        unchanged = self.make_doc(tmp_path, "word " * 10, doc_id="a2024")
+        embed_index.build_index([unchanged])
+        capsys.readouterr()
+
+        embed_index.build_index([
+            unchanged,
+            self.make_doc(tmp_path, "word " * 300, doc_id="b2024"),
+            CorpusDoc(doc_id="c2024", citekey="c2024", title="C", pdf_path=None),
+        ])
+
+        out = capsys.readouterr().out
+        assert ("  3 document(s): 1 embedded, 1 unchanged, 1 with no text "
+                "-- 3 chunk(s) in the index") in out
+
+    def test_interrupt_says_how_far_it_got_and_that_the_work_is_kept(
+        self, isolated_config, fake_enrich_deps, tmp_path, monkeypatch, capsys
+    ):
+        docs = [self.make_doc(tmp_path, "word " * 10, doc_id="a2024"),
+                self.make_doc(tmp_path, "word " * 10, doc_id="b2024")]
+
+        calls = []
+
+        def encode(self, texts, show_progress_bar=False):
+            calls.append(texts)
+            if len(calls) == 2:  # Ctrl+C while the second document is under the embedder
+                raise KeyboardInterrupt
+            return FakeArray([FakeArray([float(len(t))]) for t in texts])
+
+        monkeypatch.setattr(FakeSentenceTransformer, "encode", encode)
+
+        with pytest.raises(KeyboardInterrupt):
+            embed_index.build_index(docs)
+
+        out = capsys.readouterr().out
+        assert "interrupted after 1/2 document(s)" in out
+        assert "re-run to continue" in out
+        # The first document's chunks are already in Chroma, and the next
+        # run's text-hash check will skip them -- so the run is worth
+        # something and the message has to say so.
+        collection = FakeChromaClient.instances[-1].collections[embed_index._collection_name()]
+        assert collection.get(where={"doc_id": "a2024"})["ids"]
 
 
 class TestCollectionName:

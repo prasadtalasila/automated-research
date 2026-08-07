@@ -362,6 +362,25 @@ correct answer rather than a bug.
 #     --input content/drafts/survey.md --output-format pdf --documentclass report
 ```
 
+The `embed` stage names each document as it reaches it, so a run over a
+real corpus is legible rather than silent for its whole duration:
+
+```
+=== embed ===
+  [1/646] abbiati_modelling_2024 -- embedded, 92 chunk(s)
+  [2/646] abduvakhobov_scalable_2024 -- unchanged, 65 chunk(s)
+  [3/646] adhikari_digital_2023 -- no text to embed
+  ...
+  646 document(s): 102 embedded, 399 unchanged, 145 with no text -- 32033 chunk(s) in the index
+```
+
+`unchanged` is the incremental skip (same text as last run, not
+re-encoded); `no text to embed` is a bib entry with no parsed text behind
+it, which stays searchable by title through `src/retrieval.py` and not by
+meaning. Ctrl+C is safe: every chunk upserted before the interrupt is
+already in `content/chroma/`, the stage says how far it got, and re-running
+picks up from there.
+
 ### `scripts/verbatim_check.py`
 
 Review aid with two subcommands: verbatim overlap between a draft and a
