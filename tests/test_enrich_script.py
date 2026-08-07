@@ -118,7 +118,7 @@ class TestParseArgs:
 
 class TestMain:
     def test_runs_only_selected_stages_and_prints_summary(self, monkeypatch, capsys):
-        docs = [CorpusDoc(doc_id="a", citekey="a", title="t", pdf_path=None)]
+        docs = [CorpusDoc(citekey="a", title="t", pdf_path=None)]
         monkeypatch.setattr(enrich_script.corpus, "build_corpus", lambda: docs)
         monkeypatch.setattr(sys, "argv", ["enrich.py", "--stages", "docling,embed"])
 
@@ -139,7 +139,7 @@ class TestMain:
     def test_reports_the_corpus_size_before_any_stage_runs(self, monkeypatch, capsys):
         """What went into the corpus decides what every stage indexes, so
         the count has to be visible while the run is still cheap to stop."""
-        docs = [CorpusDoc(doc_id="a", citekey="a", title="t", pdf_path=None)]
+        docs = [CorpusDoc(citekey="a", title="t", pdf_path=None)]
         monkeypatch.setattr(enrich_script.corpus, "build_corpus", lambda: docs)
         monkeypatch.setattr(sys, "argv", ["enrich.py", "--stages", "embed"])
         monkeypatch.setitem(
@@ -158,7 +158,7 @@ class TestMain:
         """Naming a stage this pipeline no longer has would otherwise be
         a silent no-op -- main() iterates STAGE_ORDER and skips anything
         unselected, so an unused name never surfaces."""
-        docs = [CorpusDoc(doc_id="a", citekey="a", title="t", pdf_path=None)]
+        docs = [CorpusDoc(citekey="a", title="t", pdf_path=None)]
         monkeypatch.setattr(enrich_script.corpus, "build_corpus", lambda: docs)
         monkeypatch.setattr(sys, "argv", ["enrich.py", "--stages", "retired-stage,embed"])
         monkeypatch.setitem(enrich_script.STAGE_FUNCS, "embed", lambda d, a: {"status": "ok", "detail": "e"})
@@ -174,7 +174,7 @@ class TestMain:
         """`--stages "docling, embed,"` is natural to type. Without
         normalisation the space makes a real stage look unknown and the
         trailing comma puts a blank name in the warning."""
-        docs = [CorpusDoc(doc_id="a", citekey="a", title="t", pdf_path=None)]
+        docs = [CorpusDoc(citekey="a", title="t", pdf_path=None)]
         monkeypatch.setattr(enrich_script.corpus, "build_corpus", lambda: docs)
         monkeypatch.setattr(sys, "argv", ["enrich.py", "--stages", "docling, embed,"])
 
@@ -190,7 +190,7 @@ class TestMain:
         assert "WARNING: unknown stage" not in out
 
     def test_stage_exception_does_not_abort_other_stages(self, monkeypatch, capsys):
-        docs = [CorpusDoc(doc_id="a", citekey="a", title="t", pdf_path=None)]
+        docs = [CorpusDoc(citekey="a", title="t", pdf_path=None)]
         monkeypatch.setattr(enrich_script.corpus, "build_corpus", lambda: docs)
         monkeypatch.setattr(sys, "argv", ["enrich.py", "--stages", "docling,embed"])
 

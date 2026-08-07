@@ -51,6 +51,16 @@ with no discoverable author) is the citekey everywhere downstream.
 `src/bib_reader.py` parses it and is the only place that reads it; nothing
 else should ever generate or guess a citekey.
 
+One constraint follows from that, enforced in `bib_reader.citekey_problem()`:
+a citekey is also a **filename stem** (`content/parsed/<citekey>.txt`, its
+`.passages.json` sidecar, the enrichment layer's `content/docling/<citekey>.md`),
+so it has to be usable as one. A citekey containing a path separator, a
+character Windows forbids, or a reserved device name is **skipped with a
+warning naming it**, rather than sanitised -- this project never rewrites a
+citekey, so the only fix is to rename it in the reference manager and
+re-export. Skipping loses one paper and says so; letting it through would
+write outside `content/`.
+
 That rule is why a module needing bibliographic detail reads it back out
 of the ledger rather than re-opening the bib file. `src/references.py`
 formats an IEEE bibliography entry (authors, venue, volume, pages) from
@@ -204,7 +214,7 @@ session rather than a standalone API call.
 
 `src/enrich/corpus.py` sources the enrichment corpus from the ledger and
 nothing else, so every document it yields is citable and
-`doc_id == citekey`. Keep it that way -- the enrichment layer must never
+keyed by its citekey alone. Keep it that way -- the enrichment layer must never
 index a document a draft would not be allowed to cite. If a paper is
 worth enriching, it belongs in the reference manager: catalogue it,
 re-export, and re-run `python -m src.sync`.

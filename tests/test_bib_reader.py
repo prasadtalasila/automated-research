@@ -176,6 +176,104 @@ class TestCountRawEntries:
         assert bib_reader._count_raw_entries("") == 0
 
 
+class TestCitekeyProblem:
+    """A citekey becomes a filename stem (content/parsed/<citekey>.txt and
+    the enrichment layer's own outputs), so one that can't be a filename
+    has to be caught here -- at the only boundary both layers share."""
+
+    @pytest.mark.parametrize("citekey", [
+        "smith_example_2024",
+        "smith2024",
+        "ok.with.dots",
+        "naive_2024",
+        "naïve_2024",          # non-ASCII is a perfectly legal filename
+        "UPPER-and-dash_2024",
+        "CONSTANT",            # only exactly CON is reserved, not a prefix of it
+    ])
+    def test_accepts_a_usable_citekey(self, citekey):
+        assert bib_reader.citekey_problem(citekey) is None
+
+    @pytest.mark.parametrize("citekey,expected", [
+        ("smith/2024", "'/'"),           # writes into a subdirectory that doesn't exist
+        ("../escape2024", "'/'"),        # escapes content/ entirely
+        ("a\\b", "'\\\\'"),              # the Windows separator
+        ("doc:legacy", "':'"),           # a drive spec / alternate data stream there
+        ("a<b", "'<'"),
+        ("a|b", "'|'"),
+        ('a"b', "'\"'"),
+    ])
+    def test_rejects_a_path_hostile_citekey(self, citekey, expected):
+        problem = bib_reader.citekey_problem(citekey)
+        assert problem is not None
+        assert expected in problem
+
+    def test_rejects_a_control_character_without_printing_it(self):
+        problem = bib_reader.citekey_problem("a\x01b")
+        assert "control character (0x01)" in problem
+
+    @pytest.mark.parametrize("citekey", ["", "   "])
+    def test_rejects_an_empty_citekey(self, citekey):
+        assert bib_reader.citekey_problem(citekey) == "it is empty"
+
+    @pytest.mark.parametrize("citekey", [".", ".."])
+    def test_rejects_a_bare_path_component(self, citekey):
+        assert "reserved meaning" in bib_reader.citekey_problem(citekey)
+
+    @pytest.mark.parametrize("citekey", ["trailing.", "trailing "])
+    def test_rejects_a_trailing_dot_or_space(self, citekey):
+        """Windows strips both, so two citekeys differing only by one
+        would collide on disk there and not here."""
+        assert "Windows strips" in bib_reader.citekey_problem(citekey)
+
+    @pytest.mark.parametrize("citekey", ["CON", "con", "NUL", "COM1", "LPT9", "aux.txt"])
+    def test_rejects_a_windows_reserved_device_name(self, citekey):
+        assert "reserved device name" in bib_reader.citekey_problem(citekey)
+
+
+class TestReadLibrarySkipsUnusableCitekeys:
+    def test_a_path_hostile_entry_is_skipped_and_named(self, isolated_config, capsys):
+        write_bib(
+            isolated_config.BIB_FILE_PATH,
+            """
+@article{smith/2024,
+  title = {Slash In Key},
+  author = {Smith, Jane},
+  year = {2024},
+}
+@article{good_2024,
+  title = {Fine},
+  author = {Doe, John},
+  year = {2024},
+}
+""",
+        )
+        refs = bib_reader.read_library()
+
+        # The good entry survives: one bad citekey must not cost the run.
+        assert [r.citekey for r in refs] == ["good_2024"]
+        out = capsys.readouterr().out
+        assert "smith/2024" in out
+        assert "cannot appear in a filename" in out
+        # It has to say what to do about it -- this project never renames
+        # a citekey itself, so the fix is only ever in the bib file.
+        assert "reference manager" in out
+
+    def test_a_traversing_citekey_never_becomes_a_reference(self, isolated_config, capsys):
+        """The case that would have written outside content/."""
+        write_bib(
+            isolated_config.BIB_FILE_PATH,
+            """
+@article{../escape2024,
+  title = {Escapes},
+  author = {Smith, Jane},
+  year = {2024},
+}
+""",
+        )
+        assert bib_reader.read_library() == []
+        assert "escape2024" in capsys.readouterr().out
+
+
 class TestReadLibrary:
     def test_missing_bib_file_raises(self, isolated_config):
         with pytest.raises(FileNotFoundError, match="No bib file"):

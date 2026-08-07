@@ -30,7 +30,7 @@ draft against its sources -- never draft content, since citing a paper
 grants no right to reproduce its figures. See DEVELOPER.md's "Figures
 and copyright".
 
-parse_corpus() is incremental: a per-doc_id (size, mtime_ns) fingerprint
+parse_corpus() is incremental: a per-citekey (size, mtime_ns) fingerprint
 is cached to config.DOCLING_CACHE_PATH, so a PDF that's unchanged since
 the last call skips straight past DocumentConverter -- the slowest stage
 in this whole pipeline (373s for 5 PDFs, per DEVELOPER.md's own known-gaps
@@ -102,7 +102,7 @@ def _load_cache() -> dict:
     if not isinstance(items, dict):
         return {}
     return {
-        doc_id: fp for doc_id, fp in items.items()
+        citekey: fp for citekey, fp in items.items()
         if isinstance(fp, list) and len(fp) == 2 and all(isinstance(n, int) for n in fp)
     }
 
@@ -405,7 +405,7 @@ def _is_cached(doc: CorpusDoc, cache: dict) -> bool:
     do. A stat is nanoseconds next to that.
     """
     try:
-        return cache.get(doc.doc_id) == _fingerprint(doc) and _outputs_present(doc.doc_id)
+        return cache.get(doc.citekey) == _fingerprint(doc) and _outputs_present(doc.citekey)
     except OSError:
         return False
 
@@ -458,26 +458,26 @@ def parse_doc(doc: CorpusDoc, cache: dict | None = None, converter=None) -> Path
     of standalone parse_doc() calls pays that cost per document, which is
     what parse_corpus exists to avoid."""
     if not doc.pdf_path:
-        raise ValueError(f"{doc.doc_id}: no PDF to parse")
+        raise ValueError(f"{doc.citekey}: no PDF to parse")
 
     owns_cache = cache is None
     if owns_cache:
         cache = _load_cache()
 
     config.DOCLING_DIR.mkdir(parents=True, exist_ok=True)
-    stem = doc.doc_id
+    stem = doc.citekey
     out_path = config.DOCLING_DIR / f"{stem}.md"
 
     st = os.stat(doc.pdf_path)
     fingerprint = [st.st_size, st.st_mtime_ns]
-    if cache.get(doc.doc_id) == fingerprint and _outputs_present(stem):
+    if cache.get(doc.citekey) == fingerprint and _outputs_present(stem):
         return out_path
 
     # Before the converter, for the same reason as the cache check above:
     # a document the corpus layer has already parsed costs a file copy
     # here instead of a second run of the slowest stage in the repository.
     if _reuse_corpus_parse(doc, out_path, stem):
-        cache[doc.doc_id] = fingerprint
+        cache[doc.citekey] = fingerprint
         if owns_cache:
             _save_cache(cache)
         return out_path
@@ -522,7 +522,7 @@ def parse_doc(doc: CorpusDoc, cache: dict | None = None, converter=None) -> Path
     passages_path = config.DOCLING_DIR / f"{stem}.passages.json"
     passages_path.write_text(json.dumps(passages.passage_records(dl_doc), indent=2))
 
-    cache[doc.doc_id] = fingerprint
+    cache[doc.citekey] = fingerprint
     if owns_cache:
         _save_cache(cache)
     return out_path
@@ -579,7 +579,7 @@ def _reset_worker_converter() -> None:
 
 
 def parse_one(job: tuple) -> tuple:
-    """One worker's unit of work: (doc, threads) in, (doc_id, status,
+    """One worker's unit of work: (doc, threads) in, (citekey, status,
     fingerprint) out.
 
     Module-level and exception-free by design -- both the argument and
@@ -591,13 +591,13 @@ def parse_one(job: tuple) -> tuple:
     doc, threads = job
     try:
         out_path = parse_doc(doc, cache={}, converter=_worker_converter(threads))
-        return doc.doc_id, f"ok: {out_path}", _fingerprint(doc)
+        return doc.citekey, f"ok: {out_path}", _fingerprint(doc)
     except Exception as exc:  # noqa: BLE001 -- report per-doc, don't abort the batch
-        return doc.doc_id, f"error: {exc}", None
+        return doc.citekey, f"error: {exc}", None
 
 
 def parse_corpus(docs: list[CorpusDoc]) -> dict[str, str]:
-    """Returns {doc_id: 'ok' | 'error: ...'} -- never raises for a single doc failure.
+    """Returns {citekey: 'ok' | 'error: ...'} -- never raises for a single doc failure.
 
     Parallelised by [parser].workers exactly like src/sync.py, and for
     the same reason: this is the slowest stage in the repository, and a
@@ -623,18 +623,18 @@ def parse_corpus(docs: list[CorpusDoc]) -> dict[str, str]:
     # worker, or the run pays a process and a model load to discover
     # there was nothing to parse. parse_doc does the actual adoption,
     # in whichever process ends up calling it.
-    # A set of doc_ids rather than a list of docs: `d not in [...]` would
+    # A set of citekeys rather than a list of docs: `d not in [...]` would
     # compare every doc against every reusable one, which is quadratic in
-    # the corpus and compares whole dataclasses to do it. doc_id is unique
-    # by construction -- it is the ledger's citekey, a primary key.
-    reusable = {d.doc_id for d in docs if d.pdf_path and not _is_cached(d, cache)
+    # the corpus and compares whole dataclasses to do it. A citekey is
+    # unique by construction: it is the ledger's primary key.
+    reusable = {d.citekey for d in docs if d.pdf_path and not _is_cached(d, cache)
                 and _corpus_parse_available(d)}
     if reusable:
         print(f"  reusing the corpus layer's docling parse for "
               f"{len(reusable)} document(s) -- no second parse needed")
 
     pending = [d for d in docs if d.pdf_path and not _is_cached(d, cache)
-               and d.doc_id not in reusable]
+               and d.citekey not in reusable]
     workers, complaint = pdf_text.resolve_workers(len(pending))
     if complaint:
         print(complaint)
@@ -648,21 +648,21 @@ def parse_corpus(docs: list[CorpusDoc]) -> dict[str, str]:
         cached = [d for d in docs if d not in pending]
         for doc in cached:
             try:
-                status[doc.doc_id] = f"ok: {parse_doc(doc, cache=cache)}"
+                status[doc.citekey] = f"ok: {parse_doc(doc, cache=cache)}"
             except Exception as exc:  # noqa: BLE001 -- as below
-                status[doc.doc_id] = f"error: {exc}"
+                status[doc.citekey] = f"error: {exc}"
         # Explicit shutdown rather than `with`, for the reason src/sync.py
         # gives: the context manager waits for every queued job, so
         # Ctrl+C would drain the whole corpus before exiting.
         executor = _executor_for(workers)
         done = 0
         try:
-            for doc_id, doc_status, fingerprint in executor.map(parse_one, jobs):
-                status[doc_id] = doc_status
+            for citekey, doc_status, fingerprint in executor.map(parse_one, jobs):
+                status[citekey] = doc_status
                 if fingerprint is not None:
-                    cache[doc_id] = fingerprint
+                    cache[citekey] = fingerprint
                 done += 1
-                print(f"  [{done}/{len(jobs)}] {doc_id}")
+                print(f"  [{done}/{len(jobs)}] {citekey}")
         except KeyboardInterrupt:
             executor.shutdown(wait=False, cancel_futures=True)
             pdf_text.terminate_workers(executor)
@@ -677,8 +677,8 @@ def parse_corpus(docs: list[CorpusDoc]) -> dict[str, str]:
         for doc in docs:
             try:
                 out_path = parse_doc(doc, cache=cache, converter=converter)
-                status[doc.doc_id] = f"ok: {out_path}"
+                status[doc.citekey] = f"ok: {out_path}"
             except Exception as exc:  # noqa: BLE001 -- report per-doc, don't abort the batch
-                status[doc.doc_id] = f"error: {exc}"
+                status[doc.citekey] = f"error: {exc}"
     _save_cache(cache)
     return status

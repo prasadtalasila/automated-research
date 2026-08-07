@@ -27,7 +27,7 @@ document can shift every cluster assignment, so unlike
 embed_index.build_index() there's no "skip this doc" option for the
 clustering itself. What *is* skippable is the expensive part before it:
 re-embedding a document's full text with model.encode(). This module
-caches one whole-text embedding per doc_id (config.TOPIC_EMBED_CACHE_PATH,
+caches one whole-text embedding per citekey (config.TOPIC_EMBED_CACHE_PATH,
 keyed by the same hash_text() embed_index.py uses for its own per-chunk
 cache) and only calls encode() for docs whose text hash changed since the
 last run, batching all of them into one encode() call rather than one per
@@ -65,7 +65,7 @@ def run_topic_model(docs: list[CorpusDoc]) -> dict:
     for doc in docs:
         text = embed_index.get_text(doc)
         if text:
-            doc_texts[doc.doc_id] = text
+            doc_texts[doc.citekey] = text
 
     if len(doc_texts) < 2:
         raise ValueError(f"Need at least 2 documents with text to run BERTopic; got {len(doc_texts)}")
@@ -73,30 +73,30 @@ def run_topic_model(docs: list[CorpusDoc]) -> dict:
     _client, model = embed_index.get_client_and_model()  # reuse the same embedding model
 
     cache = _load_embed_cache()
-    doc_hashes = {doc_id: embed_index.hash_text(text) for doc_id, text in doc_texts.items()}
+    doc_hashes = {citekey: embed_index.hash_text(text) for citekey, text in doc_texts.items()}
     # Track which model produced each cached vector, not just the text hash
     # that produced it: swapping config.toml's embedding_model changes every
     # vector's dimensionality without changing any doc's text, and mixing
     # dimensions in the same `embeddings` array below breaks BERTopic outright.
-    stale_doc_ids = [
-        doc_id for doc_id in doc_texts
-        if doc_id not in cache
-        or cache[doc_id]["hash"] != doc_hashes[doc_id]
-        or cache[doc_id].get("model") != config.EMBEDDING_MODEL
+    stale_citekeys = [
+        citekey for citekey in doc_texts
+        if citekey not in cache
+        or cache[citekey]["hash"] != doc_hashes[citekey]
+        or cache[citekey].get("model") != config.EMBEDDING_MODEL
     ]
-    if stale_doc_ids:
-        new_vecs = model.encode([doc_texts[d] for d in stale_doc_ids], show_progress_bar=False)
-        for doc_id, vec in zip(stale_doc_ids, new_vecs):
-            cache[doc_id] = {
-                "hash": doc_hashes[doc_id],
+    if stale_citekeys:
+        new_vecs = model.encode([doc_texts[d] for d in stale_citekeys], show_progress_bar=False)
+        for citekey, vec in zip(stale_citekeys, new_vecs):
+            cache[citekey] = {
+                "hash": doc_hashes[citekey],
                 "model": config.EMBEDDING_MODEL,
                 "embedding": vec.tolist(),
             }
         _save_embed_cache(cache)
 
-    doc_ids = list(doc_texts)
-    texts = [doc_texts[d] for d in doc_ids]
-    embeddings = np.array([cache[d]["embedding"] for d in doc_ids])
+    citekeys = list(doc_texts)
+    texts = [doc_texts[d] for d in citekeys]
+    embeddings = np.array([cache[d]["embedding"] for d in citekeys])
 
     # UMAP's spectral initialization needs n_neighbors < n_samples or it
     # raises outright (not just a bad clustering) -- BERTopic's own
@@ -127,7 +127,7 @@ def run_topic_model(docs: list[CorpusDoc]) -> dict:
 
     result = {
         "n_docs": len(texts),
-        "assignments": dict(zip(doc_ids, [int(t) for t in topics])),
+        "assignments": dict(zip(citekeys, [int(t) for t in topics])),
         "topic_info": json.loads(topic_model.get_topic_info().to_json(orient="records")),
     }
     config.TOPICS_PATH.parent.mkdir(parents=True, exist_ok=True)

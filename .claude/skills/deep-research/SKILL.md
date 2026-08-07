@@ -27,7 +27,7 @@ It reads the same shared corpus layer as the other genre skills.
 - `src/enrich/embed_index.py` -- `search(query, k, snippet_chars)`, semantic
   (if built for this corpus -- check `content/chroma/` first)
 - `src/enrich/corpus.py` -- builds the enrichment corpus from the ledger and
-  nothing else, so every document it yields is citable and `doc_id == citekey`
+  nothing else, so every document it yields is citable, keyed by its citekey
 
 **Read-only means read-only: never run `python -m src.sync`.** That command
 belongs to the corpus layer, it takes the pipeline's write lock, and a

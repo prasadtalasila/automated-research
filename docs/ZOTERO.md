@@ -51,6 +51,27 @@ if the bib file comes back completely empty against a non-empty ledger,
 for the same reason -- fix the export/path rather than deleting everything
 in one run.
 
+## Citekeys have to work as filenames
+
+A citekey is not only an identifier here -- it is the stem of every file
+the pipeline writes for that paper (`content/parsed/<citekey>.txt`, and
+the enrichment layer's `content/docling/<citekey>.md`). So a citekey
+containing `/` or `\`, one of `: * ? " < > |`, or a name Windows reserves
+(`CON`, `NUL`, `COM1`...) is **skipped**, with a warning naming it:
+
+```
+  WARNING skipping citekey 'smith/2024': it contains '/', which cannot
+  appear in a filename. ...  Rename it in your reference manager,
+  re-export, and re-run sync.
+```
+
+Zotero's own key generator won't produce one of those, so you are most
+likely to hit this with Better BibTeX and a custom key pattern. This
+project never rewrites a citekey -- the bib file is the source of truth --
+so the fix is always to rename it in the reference manager and re-export.
+Ordinary accented characters (`naïve_2024`) are fine; they are legal in a
+filename.
+
 All paths are configurable in `config.toml` (repo root), overridable
 per-run with an env var of the same name, e.g. `BIB_FILE=/path/to/other.bib
 python -m src.sync`. See [CONFIG.md](CONFIG.md) for the

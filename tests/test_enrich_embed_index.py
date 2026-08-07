@@ -165,7 +165,7 @@ class TestGetText:
         (isolated_config.DOCLING_DIR / "a2024.md").write_text(
             "real text\n\n![Image](a2024_artifacts/image_000000_abc.png)\n\nmore text\n"
         )
-        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=None)
+        doc = CorpusDoc(citekey="a2024", title="t", pdf_path=None)
 
         out = embed_index.get_text(doc)
 
@@ -175,13 +175,13 @@ class TestGetText:
     def test_prefers_docling_output(self, isolated_config):
         isolated_config.DOCLING_DIR.mkdir(parents=True)
         (isolated_config.DOCLING_DIR / "a2024.md").write_text("docling content")
-        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=None, text_path="ignored.txt")
+        doc = CorpusDoc(citekey="a2024", title="t", pdf_path=None, text_path="ignored.txt")
         assert embed_index.get_text(doc) == "docling content"
 
     def test_falls_back_to_text_path(self, isolated_config, tmp_path):
         parsed = tmp_path / "parsed.txt"
         parsed.write_text("parsed text content")
-        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=None, text_path=str(parsed))
+        doc = CorpusDoc(citekey="a2024", title="t", pdf_path=None, text_path=str(parsed))
         assert embed_index.get_text(doc) == "parsed text content"
 
     def test_falls_back_to_pdftotext_subprocess(self, isolated_config, monkeypatch, tmp_path):
@@ -192,11 +192,11 @@ class TestGetText:
             return subprocess.CompletedProcess(cmd, 0)
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=str(tmp_path / "a.pdf"))
+        doc = CorpusDoc(citekey="a2024", title="t", pdf_path=str(tmp_path / "a.pdf"))
         assert embed_index.get_text(doc) == "pdftotext output"
 
     def test_returns_none_when_nothing_available(self, isolated_config):
-        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=None)
+        doc = CorpusDoc(citekey="a2024", title="t", pdf_path=None)
         assert embed_index.get_text(doc) is None
 
 
@@ -214,10 +214,10 @@ class TestBuildIndex:
         parsed = tmp_path / "a.txt"
         parsed.write_text(" ".join(["word"] * 10))
         doc_with_text = CorpusDoc(
-            doc_id="a2024", citekey="a2024", title="A", pdf_path=None, text_path=str(parsed)
+            citekey="a2024", title="A", pdf_path=None, text_path=str(parsed)
         )
         doc_without_text = CorpusDoc(
-            doc_id="b2024", citekey="b2024", title="B", pdf_path=None
+            citekey="b2024", title="B", pdf_path=None
         )
 
         counts = embed_index.build_index([doc_with_text, doc_without_text])
@@ -231,23 +231,57 @@ class TestBuildIndex:
         upsert_call = collection.upserted[0]
         assert upsert_call["ids"] == ["a2024::0"]
         assert upsert_call["metadatas"][0] == {
-            "doc_id": "a2024", "citekey": "a2024", "title": "A",
+            "citekey": "a2024", "title": "A",
             "text_hash": embed_index.hash_text(" ".join(["word"] * 10)),
         }
 
     def test_empty_chunks_from_whitespace_only_text(self, isolated_config, fake_enrich_deps, tmp_path):
         parsed = tmp_path / "empty.txt"
         parsed.write_text("   ")
-        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="A", pdf_path=None, text_path=str(parsed))
+        doc = CorpusDoc(citekey="a2024", title="A", pdf_path=None, text_path=str(parsed))
         counts = embed_index.build_index([doc])
         assert counts["a2024"] == 0
 
 
 class TestBuildIndexIncremental:
-    def make_doc(self, tmp_path, text, doc_id="a2024"):
-        parsed = tmp_path / f"{doc_id}.txt"
+    def make_doc(self, tmp_path, text, citekey="a2024"):
+        parsed = tmp_path / f"{citekey}.txt"
         parsed.write_text(text)
-        return CorpusDoc(doc_id=doc_id, citekey=doc_id, title="A", pdf_path=None, text_path=str(parsed))
+        return CorpusDoc(citekey=citekey, title="A", pdf_path=None, text_path=str(parsed))
+
+    def test_a_pre_57_collection_is_not_re_embedded(self, isolated_config, fake_enrich_deps, tmp_path):
+        """Collections written before #57 carry a `doc_id` metadata key
+        that build_index no longer writes or queries. They must still hit
+        the unchanged-text skip: re-embedding an existing corpus because
+        of a field rename would cost a full encode pass for nothing.
+
+        This works because `citekey` was always written alongside `doc_id`
+        with the same value, which is what makes the query switch safe --
+        the claim is load-bearing, so it is tested rather than asserted.
+        """
+        doc = self.make_doc(tmp_path, "word " * 10)
+        text = embed_index.get_text(doc)
+
+        client, _ = embed_index.get_client_and_model()
+        collection = client.get_or_create_collection(embed_index._collection_name())
+        collection.upsert(
+            ids=["a2024::0"],
+            documents=[" ".join(text.split())],
+            embeddings=[[1.0]],
+            metadatas=[{
+                "doc_id": "a2024",          # the retired key, as v3.3.0 wrote it
+                "citekey": "a2024",
+                "source": "bib",            # retired even earlier, in #56
+                "title": "A",
+                "text_hash": embed_index.hash_text(text),
+            }],
+        )
+        upserts_before = len(collection.upserted)
+
+        counts = embed_index.build_index([doc])
+
+        assert counts["a2024"] == 1
+        assert len(collection.upserted) == upserts_before  # no re-encode
 
     def test_second_call_with_unchanged_text_skips_encode(self, isolated_config, fake_enrich_deps, tmp_path):
         doc = self.make_doc(tmp_path, "word " * 10)
@@ -266,13 +300,13 @@ class TestBuildIndexIncremental:
         doc = self.make_doc(tmp_path, "word " * 10)
         embed_index.build_index([doc])
 
-        # Same doc_id, different (longer) text -> different hash, different chunk count.
-        doc2 = self.make_doc(tmp_path, "different word " * 300, doc_id="a2024")
+        # Same citekey, different (longer) text -> different hash, different chunk count.
+        doc2 = self.make_doc(tmp_path, "different word " * 300, citekey="a2024")
         counts = embed_index.build_index([doc2])
 
         client = FakeChromaClient.instances[-1]
         collection = client.collections[embed_index._collection_name()]
-        remaining = collection.get(where={"doc_id": "a2024"})
+        remaining = collection.get(where={"citekey": "a2024"})
 
         assert counts["a2024"] == len(remaining["ids"]) > 1
         # No stale chunks left over from the first, shorter version.
@@ -283,13 +317,13 @@ class TestBuildIndexIncremental:
         embed_index.build_index([doc_long])
         client = FakeChromaClient.instances[-1]
         collection = client.collections[embed_index._collection_name()]
-        long_chunk_count = len(collection.get(where={"doc_id": "a2024"})["ids"])
+        long_chunk_count = len(collection.get(where={"citekey": "a2024"})["ids"])
         assert long_chunk_count > 1
 
-        doc_short = self.make_doc(tmp_path, "word " * 10, doc_id="a2024")
+        doc_short = self.make_doc(tmp_path, "word " * 10, citekey="a2024")
         counts = embed_index.build_index([doc_short])
 
-        remaining = collection.get(where={"doc_id": "a2024"})
+        remaining = collection.get(where={"citekey": "a2024"})
         assert len(remaining["ids"]) == counts["a2024"] == 1
 
 
@@ -298,16 +332,16 @@ class TestBuildIndexReporting:
     return, so a run over a real corpus was indistinguishable from a hung
     one, and the one that prompted the issue was Ctrl-C'd partway."""
 
-    def make_doc(self, tmp_path, text, doc_id="a2024"):
-        parsed = tmp_path / f"{doc_id}.txt"
+    def make_doc(self, tmp_path, text, citekey="a2024"):
+        parsed = tmp_path / f"{citekey}.txt"
         parsed.write_text(text)
-        return CorpusDoc(doc_id=doc_id, citekey=doc_id, title="A", pdf_path=None, text_path=str(parsed))
+        return CorpusDoc(citekey=citekey, title="A", pdf_path=None, text_path=str(parsed))
 
     def test_names_each_document_with_its_position_and_outcome(
         self, isolated_config, fake_enrich_deps, tmp_path, capsys
     ):
-        docs = [self.make_doc(tmp_path, "word " * 10, doc_id="a2024"),
-                self.make_doc(tmp_path, "word " * 10, doc_id="b2024")]
+        docs = [self.make_doc(tmp_path, "word " * 10, citekey="a2024"),
+                self.make_doc(tmp_path, "word " * 10, citekey="b2024")]
 
         embed_index.build_index(docs)
 
@@ -348,7 +382,7 @@ class TestBuildIndexReporting:
         assert "  [1/1] a2024 -- unchanged, 1 chunk(s)" in capsys.readouterr().out
 
     def test_reports_a_document_with_no_text(self, isolated_config, fake_enrich_deps, capsys):
-        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="A", pdf_path=None)
+        doc = CorpusDoc(citekey="a2024", title="A", pdf_path=None)
 
         embed_index.build_index([doc])
 
@@ -364,14 +398,14 @@ class TestBuildIndexReporting:
     def test_closing_line_tallies_every_disposition(
         self, isolated_config, fake_enrich_deps, tmp_path, capsys
     ):
-        unchanged = self.make_doc(tmp_path, "word " * 10, doc_id="a2024")
+        unchanged = self.make_doc(tmp_path, "word " * 10, citekey="a2024")
         embed_index.build_index([unchanged])
         capsys.readouterr()
 
         embed_index.build_index([
             unchanged,
-            self.make_doc(tmp_path, "word " * 300, doc_id="b2024"),
-            CorpusDoc(doc_id="c2024", citekey="c2024", title="C", pdf_path=None),
+            self.make_doc(tmp_path, "word " * 300, citekey="b2024"),
+            CorpusDoc(citekey="c2024", title="C", pdf_path=None),
         ])
 
         out = capsys.readouterr().out
@@ -381,8 +415,8 @@ class TestBuildIndexReporting:
     def test_interrupt_says_how_far_it_got_and_that_the_work_is_kept(
         self, isolated_config, fake_enrich_deps, tmp_path, monkeypatch, capsys
     ):
-        docs = [self.make_doc(tmp_path, "word " * 10, doc_id="a2024"),
-                self.make_doc(tmp_path, "word " * 10, doc_id="b2024")]
+        docs = [self.make_doc(tmp_path, "word " * 10, citekey="a2024"),
+                self.make_doc(tmp_path, "word " * 10, citekey="b2024")]
 
         calls = []
 
@@ -404,7 +438,7 @@ class TestBuildIndexReporting:
         # run's text-hash check will skip them -- so the run is worth
         # something and the message has to say so.
         collection = FakeChromaClient.instances[-1].collections[embed_index._collection_name()]
-        assert collection.get(where={"doc_id": "a2024"})["ids"]
+        assert collection.get(where={"citekey": "a2024"})["ids"]
 
 
 class TestCollectionName:
@@ -423,10 +457,10 @@ class TestCollectionName:
 
 
 class TestBuildIndexModelChange:
-    def make_doc(self, tmp_path, text, doc_id="a2024"):
-        parsed = tmp_path / f"{doc_id}.txt"
+    def make_doc(self, tmp_path, text, citekey="a2024"):
+        parsed = tmp_path / f"{citekey}.txt"
         parsed.write_text(text)
-        return CorpusDoc(doc_id=doc_id, citekey=doc_id, title="A", pdf_path=None, text_path=str(parsed))
+        return CorpusDoc(citekey=citekey, title="A", pdf_path=None, text_path=str(parsed))
 
     def test_model_swap_re_embeds_into_a_separate_collection_despite_unchanged_text(
         self, isolated_config, fake_enrich_deps, tmp_path, monkeypatch
@@ -463,7 +497,7 @@ class TestSearch:
         collection = client.get_or_create_collection(embed_index._collection_name())
         collection.query_response = {
             "documents": [["some long document text " * 5]],
-            "metadatas": [[{"doc_id": "a2024", "citekey": "a2024", "source": "bib", "title": "A"}]],
+            "metadatas": [[{"citekey": "a2024", "title": "A"}]],
             "distances": [[0.123]],
         }
 

@@ -78,7 +78,7 @@ def strip_image_refs(markdown: str) -> str:
 def get_text(doc: CorpusDoc) -> str | None:
     """Best available text for a doc: Docling output > existing parsed text
     > on-the-fly pdftotext. Doesn't require the Docling stage to have run."""
-    docling_path = config.DOCLING_DIR / f"{doc.doc_id}.md"
+    docling_path = config.DOCLING_DIR / f"{doc.citekey}.md"
     if docling_path.exists():
         return strip_image_refs(docling_path.read_text())
     if doc.text_path and Path(doc.text_path).exists():
@@ -126,7 +126,7 @@ def get_client_and_model():
 
 def build_index(docs: list[CorpusDoc]) -> dict[str, int]:
     """Embeds and upserts each doc's chunks, skipping docs whose text is
-    unchanged since the last call. Returns {doc_id: n_chunks}.
+    unchanged since the last call. Returns {citekey: n_chunks}.
 
     Reports each document as it is *reached*, not as it finishes: the
     line is opened before `model.encode()` and closed by whatever the
@@ -136,7 +136,7 @@ def build_index(docs: list[CorpusDoc]) -> dict[str, int]:
     until it returned is how issue #50 came to be filed against a run
     that was working fine, then Ctrl-C'd at 399 of 501 documents.
 
-    Same `  [done/total] <doc_id>` shape src/sync.py and
+    Same `  [done/total] <citekey>` shape src/sync.py and
     docling_parse.py already use for their own per-document progress, and
     flushed for the reason pdf_text.py flushes its interrupt notice:
     stdout is block-buffered when it isn't a terminal, and the tail of an
@@ -149,19 +149,23 @@ def build_index(docs: list[CorpusDoc]) -> dict[str, int]:
     n_embedded = n_unchanged = n_no_text = 0
     try:
         for position, doc in enumerate(docs, start=1):
-            print(f"  [{position}/{len(docs)}] {doc.doc_id}", end="", flush=True)
+            print(f"  [{position}/{len(docs)}] {doc.citekey}", end="", flush=True)
 
             text = get_text(doc)
             if not text:
-                counts[doc.doc_id] = 0
+                counts[doc.citekey] = 0
                 n_no_text += 1
                 print(" -- no text to embed", flush=True)
                 continue
 
             text_hash = hash_text(text)
-            existing = collection.get(where={"doc_id": doc.doc_id})
+            # Queried by citekey, which every collection this code has
+            # ever written carries -- the retired `doc_id` key held the
+            # same value alongside it -- so an index built before #57
+            # keeps working without a rebuild.
+            existing = collection.get(where={"citekey": doc.citekey})
             if existing["ids"] and all(m.get("text_hash") == text_hash for m in existing["metadatas"]):
-                counts[doc.doc_id] = len(existing["ids"])
+                counts[doc.citekey] = len(existing["ids"])
                 n_unchanged += 1
                 print(f" -- unchanged, {len(existing['ids'])} chunk(s)", flush=True)
                 continue
@@ -174,16 +178,15 @@ def build_index(docs: list[CorpusDoc]) -> dict[str, int]:
                 # Reported the same way because it amounts to the same
                 # thing for a reader: nothing of this document is in the
                 # index, and no amount of waiting will change that.
-                counts[doc.doc_id] = 0
+                counts[doc.citekey] = 0
                 n_no_text += 1
                 print(" -- no text to embed", flush=True)
                 continue
 
             embeddings = model.encode(chunks, show_progress_bar=False).tolist()
-            ids = [f"{doc.doc_id}::{i}" for i in range(len(chunks))]
+            ids = [f"{doc.citekey}::{i}" for i in range(len(chunks))]
             metadatas = [
                 {
-                    "doc_id": doc.doc_id,
                     "citekey": doc.citekey,
                     "title": doc.title,
                     "text_hash": text_hash,
@@ -191,7 +194,7 @@ def build_index(docs: list[CorpusDoc]) -> dict[str, int]:
                 for _ in chunks
             ]
             collection.upsert(ids=ids, documents=chunks, embeddings=embeddings, metadatas=metadatas)
-            counts[doc.doc_id] = len(chunks)
+            counts[doc.citekey] = len(chunks)
             n_embedded += 1
             print(f" -- embedded, {len(chunks)} chunk(s)", flush=True)
     except KeyboardInterrupt:
