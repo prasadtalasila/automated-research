@@ -34,6 +34,8 @@ def make_repo(tmp_path):
     (repo / "AGENTS.md").write_text("agent guidance")
     (repo / "DEVELOPER-AGENTS.md").write_text("agent guidance for developing this repo")
     (repo / "SOUL.md").write_text("why this exists")
+    (repo / ".claude" / "skills" / "survey-writer").mkdir(parents=True)
+    (repo / ".claude" / "skills" / "survey-writer" / "SKILL.md").write_text("# survey")
     (repo / "bench").mkdir()
     (repo / "bench" / "bench_docling.py").write_text("x = 1")
     (repo / "content" / "drafts").mkdir(parents=True)
@@ -83,6 +85,9 @@ class TestTrackedFiles:
         assert "SOUL.md" in paths
         assert "AGENTS.md" in paths
         assert "DEVELOPER-AGENTS.md" in paths
+        # .claude/ ships for the same reason -- the genre skills are what
+        # cite AGENTS.md, so the two have to travel together.
+        assert ".claude/skills/survey-writer/SKILL.md" in paths
 
     def test_excludes_bench(self, repo):
         # bench/ measures *this* repo's parser on *this* host's corpus --
@@ -105,8 +110,9 @@ class TestBuildRelease:
 
         assert zip_path == repo / "release" / "chitragupta-9.9.9.zip"
         assert zip_path.exists()
-        assert n_files == 7  # README.md, SOUL.md, AGENTS.md, DEVELOPER-AGENTS.md,
-        #                      DEVELOPER.md, pyproject.toml, src/foo.py
+        assert n_files == 8  # README.md, SOUL.md, AGENTS.md, DEVELOPER-AGENTS.md,
+        #                      DEVELOPER.md, pyproject.toml, src/foo.py,
+        #                      .claude/skills/survey-writer/SKILL.md
 
         with zipfile.ZipFile(zip_path) as zf:
             names = set(zf.namelist())
@@ -127,6 +133,7 @@ class TestBuildRelease:
         assert any(n.endswith("/SOUL.md") for n in names)
         assert any(n.endswith("/AGENTS.md") for n in names)
         assert any(n.endswith("/DEVELOPER-AGENTS.md") for n in names)
+        assert any("/.claude/skills/" in n for n in names)
 
     def test_zip_ships_content_and_papers_as_empty_directories(self, repo):
         import zipfile
@@ -160,7 +167,7 @@ class TestBuildRelease:
 
         zip_path, n_files = release.build_release()
 
-        assert n_files == 7
+        assert n_files == 8
         assert not stale_staging.exists()
 
 
