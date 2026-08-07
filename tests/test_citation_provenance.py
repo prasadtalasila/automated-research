@@ -477,6 +477,58 @@ class TestWriteReportAndCli:
         assert "md" in written and "pdf" not in written
         assert "pandoc not found" in capsys.readouterr().err
 
+    def test_pandoc_failure_warns_and_still_returns_md(self, isolated_config, monkeypatch, capsys):
+        """A quoted excerpt can carry a glyph (e.g. a circled digit lifted
+        verbatim from the source PDF) that pdflatex's default fonts can't
+        set -- render() raises CalledProcessError, not MissingBinary, and
+        that must degrade the same way rather than crashing the CLI."""
+        import subprocess
+
+        from src import render_output
+
+        def raise_called_process_error(*a, **k):
+            raise subprocess.CalledProcessError(
+                43, ["pandoc"], output="",
+                stderr="! LaTeX Error: Unicode character not set up for use with LaTeX.\n",
+            )
+
+        monkeypatch.setattr(render_output, "render", raise_called_process_error)
+        _add_item("a_2024", parsed_text="hysteresis band\fpage two")
+        path = config.CONTENT_DIR / "d.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("The hysteresis band matters [@a_2024].\n")
+
+        written = cp.write_report(path, ["md", "pdf"])
+
+        assert "md" in written and "pdf" not in written
+        err = capsys.readouterr().err
+        assert "pandoc failed" in err
+        assert "LaTeX Error" in err
+
+    def test_pandoc_failure_with_no_stderr_falls_back_to_the_exception(
+        self, isolated_config, monkeypatch, capsys,
+    ):
+        """capture_output=True always sets .stderr on the CalledProcessError
+        render() raises, but the `exc.stderr or exc` fallback exists for a
+        reason -- exercise it directly so it can't silently print `None`."""
+        import subprocess
+
+        from src import render_output
+
+        def raise_called_process_error(*a, **k):
+            raise subprocess.CalledProcessError(43, ["pandoc"])
+
+        monkeypatch.setattr(render_output, "render", raise_called_process_error)
+        _add_item("a_2024", parsed_text="hysteresis band\fpage two")
+        path = config.CONTENT_DIR / "d.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("The hysteresis band matters [@a_2024].\n")
+
+        written = cp.write_report(path, ["md", "pdf"])
+
+        assert "md" in written and "pdf" not in written
+        assert "pandoc failed" in capsys.readouterr().err
+
     def test_cli_reports_missing_draft(self, isolated_config, capsys):
         assert cp.main([str(config.CONTENT_DIR / "nope.md")]) == 1
         assert "No such draft" in capsys.readouterr().err
