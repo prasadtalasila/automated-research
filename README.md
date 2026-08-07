@@ -231,43 +231,36 @@ Every stage probes its own prerequisites and reports `ok`, `skipped` or
 
 ## Hardware requirements
 
-The table below is what the pipeline needs, not what it was developed
-on. The specific observations behind it come from two reference
-machines, named here because [docs/PERFORMANCE.md](docs/PERFORMANCE.md)
-refers back to them -- **treat every measured figure as that machine's,
-and expect yours to differ**:
+What the pipeline needs, not what it was developed on. The split below is
+the one that matters: the **corpus layer** -- `sync`, the citation gate,
+keyword retrieval -- is light enough for any laptop, and the optional
+**enrichment layer** is what costs real disk and real time.
 
-- **the small machine** -- 4 cores, 9.7GB RAM (~3GB actually free), no GPU.
-- **the multi-GPU machine** -- 4x NVIDIA A40 46GB, 96 cores (48 available
-  to the process), 251GB RAM, driver 555.42.02, verified 2026-07-30.
-
-
-| Resource | Minimum (corpus layer only) | Recommended (`src/enrich/` in regular use) |
+| Resource | Minimum (corpus layer only) | Recommended (enrichment layer in regular use) |
 |---|---|---|
-| Disk | ~1GB (bibtexparser + content/) | **10-20GB+** -- the full venv alone is **6.0GB** (torch pulled in twice over via sentence-transformers/docling, plus docling's own layout/OCR models); TeX Live adds several GB more on top |
-| RAM | ~1-2GB (sync, citation_gate, keyword retrieval are all lightweight) | **8GB minimum, 16GB+ better**. At ~3GB free, Docling parsing a 17-page PDF pushed the process to 3.6GB RSS and the host swapped 6.3GB -- it still finished, just slowly. Bigger PDFs or a bigger corpus will make this worse |
-| CPU | 1-2 cores | **4+ cores** without a GPU -- Docling's layout inference and BERTopic's UMAP/HDBSCAN are CPU-bound if there's no GPU to offload to; more cores directly reduces wall-clock time |
-| GPU | none needed | **none required**, but if present, `scripts/install_full_pipeline.sh`'s `ensure_gpu_torch` detects the NVIDIA driver's supported CUDA ceiling (`nvidia-smi`) and automatically reinstalls torch from a matching CUDA-tagged wheel index -- verified end-to-end on the multi-GPU machine (driver capped at CUDA 12.5; the default pip/Poetry-resolved torch wheel needed CUDA 13 and silently ran CPU-only until this ran). sentence-transformers/Docling/BERTopic all then use the GPU automatically |
-| Network | needed once, for `poetry install` | also needed for first-run model downloads (the embedding model, Docling's layout/OCR models) |
+| Disk | ~1GB | **10-20GB+** -- the full venv alone is **6.0GB** (torch pulled in twice over via sentence-transformers/docling, plus docling's own layout/OCR models); TeX Live adds several GB more |
+| RAM | ~1-2GB | **8GB minimum, 16GB+ better**. At ~3GB free, Docling on a 17-page PDF pushed the process to 3.6GB RSS and the host swapped 6.3GB -- it finished, just slowly |
+| CPU | 1-2 cores | **4+ cores** -- without a GPU, Docling's layout inference and BERTopic's UMAP/HDBSCAN are CPU-bound, and more cores directly cut wall-clock time |
+| GPU | none needed | **none required.** If one is present the installer detects it and torch is set up to use it automatically -- worth ~4.7x on the parse |
+| Network | once, for `poetry install` | also for first-run model downloads (the embedding model, Docling's layout/OCR models) |
 
-Tips:
-- **No GPU, disk tight**: `pip`/Poetry's default torch wheel pulls a full
-  set of `nvidia-*` CUDA packages even with no GPU present (several GB,
-  unused). Install torch from the CPU-only wheel index first (`pip
-  install torch --index-url https://download.pytorch.org/whl/cpu`, inside
-  the venv) before running `scripts/install_full_pipeline.sh` if disk is
-  tight and there's no GPU to use anyway.
-- **GPU present but `torch.cuda.is_available()` is `False`**: this is
-  exactly the failure mode `ensure_gpu_torch` (in
-  `scripts/install_full_pipeline.sh`) exists to catch and fix
-  automatically on every `python-deps`/`dev-deps` run -- it's idempotent
-  and safe to re-run by hand:
-  ```bash
-  .venv-full/bin/python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
-  ```
-  If it still reports `False` after `bash scripts/install_full_pipeline.sh python-deps`,
-  your driver may predate every CUDA wheel tag the script knows about --
-  see that function's own comments for the manual fallback.
+**For a sense of scale at the top end:** this project's own bibliography
+-- 501 PDFs, 13,400 pages, 1.54GB -- parses in **about 4 minutes** on a
+96-core machine with four A40s, against **1h 56m** serially on that same
+host. On ordinary hardware a first full Docling parse is measured in tens
+of minutes. A *second* run over an unchanged corpus costs close to
+nothing either way, because every stage skips what hasn't changed -- which
+is what makes it safe to put `sync` on a schedule.
+
+Every measured figure in this project comes from one of two reference
+machines: **the small machine** (4 cores, 9.7GB RAM, no GPU) and **the
+multi-GPU machine** (96 cores, 251GB RAM, 4x NVIDIA A40 -- the one in the
+paragraph above). **Treat each figure as that machine's, and expect yours
+to differ.** [docs/PERFORMANCE.md](docs/PERFORMANCE.md) has their full
+specifications, what each setting costs, and the two install-time traps
+worth knowing before you start (a CPU-only host pulling several GB of
+unused CUDA packages, and a GPU host where `torch.cuda.is_available()`
+comes back `False`).
 
 ## 📖 Research Citation
 
@@ -313,7 +306,7 @@ split by who is asking.
 | Document | Answers |
 |---|---|
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | What does each setting *cost*? Every measured figure in one place, organised by setting |
-| [docs/PDF-PARSER.md](docs/PDF-PARSER.md) | Which PDF backend should I use, and why were two others dropped? |
+| [docs/PDF-PARSER.md](docs/PDF-PARSER.md) | Which PDF backend should I use, why were two dropped, and why was each newer candidate not adopted? |
 
 **Reading the output**
 
@@ -326,8 +319,9 @@ split by who is asking.
 
 | Document | Answers |
 |---|---|
-| [docs/DESIGN.md](docs/DESIGN.md) | How is this put together, what patterns does it lean on, and what happens when two runs collide? |
+| [docs/DESIGN.md](docs/DESIGN.md) | Why does this refuse what it refuses? The hard constraints, the conflict policy when two runs collide, and the failure analysis behind both |
 | [docs/PARALLELISM.md](docs/PARALLELISM.md) | How does the parallel parse actually work, what is each component for, and what is planned next? |
+| [docs/GROBID-CITATION-GRAPH.md](docs/GROBID-CITATION-GRAPH.md) | **A proposal, not a plan.** What would it take to build a corpus-internal citation graph, and is it worth a JDK and a long-running service? |
 | [DEVELOPER.md](DEVELOPER.md) | How do I run the tests, where does everything live, and what is unbuilt? |
 | [DOCKER.md](DOCKER.md) | How do I run this in a container? |
 | [AGENTS.md](AGENTS.md) | The rules a coding agent working here must follow -- above all, never fabricate a citekey |

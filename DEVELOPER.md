@@ -52,8 +52,10 @@ release zip for the same reason `tests/` is.
   architecture, components, and the roadmap
 - [bench/README.md](bench/README.md) -- how to run it, and what each
   switch measures
-- [bench/RESULTS.md](bench/RESULTS.md) -- the 2026-08-02 baseline, with
-  raw per-PDF timings in `bench/results/`
+- [bench/RESULTS.md](bench/RESULTS.md) -- the dated measurement record,
+  newest last, with raw per-run data in `bench/results/`. Read its
+  "Which sections are current" table first: several early conclusions
+  were overturned by later runs and are kept, marked, rather than deleted
 - [bench/PARALLELISM-PLAN.md](bench/PARALLELISM-PLAN.md) -- what is still
   unknown, and what to measure before changing it
 
@@ -63,10 +65,11 @@ The headline, in the order it was found:
    measured at 1h 56m), with the A40 at ~7% utilization and three CPU
    cores of 48 busy. The GPU was worth only 1.79x over CPU-only -- the
    work was CPU-bound.
-2. Turning OCR off (v0.12.0) was worth 2.46x on a serial sample, more
-   than the GPU. Measured end to end later: 2.08x serially, but 3.91x at
-   12 workers and 4.79x at 24, since OCR competes for the same CPU the
-   parallelism needs.
+2. Turning OCR off (v0.12.0) was worth more than the GPU: **2.08x
+   serially, 3.91x at 12 workers and 4.79x at 24**, since OCR competes
+   for the same CPU the parallelism needs. (An earlier 2.46x, from a
+   16-PDF serial sample, is still quoted in older text; it estimated the
+   serial case only.)
 3. Parallelising `sync` (v1.0.0) was worth 3.60x at four workers.
 4. That moved the bottleneck onto a single GPU: `AcceleratorDevice.AUTO`
    resolves to `cuda:0` in every worker, so GPU 0 ran at 100% while
@@ -87,11 +90,18 @@ The headline, in the order it was found:
    12-worker efficiency is 89%, not the 60% previously reported, and that
    `worker_ceiling()`'s `cpus // 4` clamp costs **1.41x**: 32 workers
    beat the 12 it allows.
+8. Asking whether a *quotable passage* survives a re-parse (2026-08-07,
+   `bench/repro_check.py`) found that ~1% of documents come back with a
+   different passage text, and -- correcting what this project had
+   asserted twice -- that two runs of the **same** configuration are not
+   exempt either. The artifact-by-artifact contract that came out of it
+   is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#what-is-reproducible-and-what-is-not).
 
-The lesson worth carrying: every one of those steps was measured, and six
-intermediate conclusions were wrong until the next measurement corrected
-them -- including two that sat in the code as stated fact. `bench/` exists so that the next one is
-checked too.
+The lesson worth carrying: every one of those steps was measured, and
+seven intermediate conclusions were wrong until the next measurement
+corrected them -- including two that sat in the code as stated fact, and
+one that had been written into three documents. `bench/` exists so that
+the next one is checked too.
 
 ## Writing a script that drives the enrichment layer
 
@@ -114,10 +124,17 @@ immediately rather than subtly.
 ## Repository layout
 
 ```
-README.md                 you are here
-bench/                    parser wall-clock measurement (dev-only, not shipped) -- see "Benchmarking
-                          the parser" above; corpus.json/sample*.json are generated and gitignored,
-                          results/*.jsonl are committed evidence
+README.md                 the user-facing overview: what this is, the Quickstart, hardware sizing
+bench/                    parser measurement (dev-only, not shipped) -- see "Benchmarking the parser"
+                          above; corpus.json/sample*.json are generated and gitignored, results/ is
+                          committed evidence
+  bench_docling.py          backend extraction timings, one process
+  sweep_sync.py             the real `python -m src.sync` swept over worker/GPU counts -- the harness
+                            every pool-level figure must come from
+  run_parallel.py           independent-process baseline; answers a different question to sweep_sync.py
+  make_corpus.py            builds the gitignored work lists from your own bib file
+  repro_check.py            compares two parses at three levels (bytes, passage spans, passage texts)
+                            and self-checks its own detector on every run
 AGENTS.md                 instructions for coding agents working in this repo -- hard invariants, install
                           notes, dev process, commit/PR/release conventions
 DEVELOPER.md              this file -- test running, repo layout, open questions
@@ -131,7 +148,10 @@ docs/                     reference docs that ship in the release zip -- everyth
   ZOTERO.md                 getting a bib file and its PDFs into the shape this pipeline expects
   CLI.md                    every command, and which interpreter each one needs
   CONFIG.md                 every setting, with config.toml.example reproduced in full
-  PDF-PARSER.md             parser backend tradeoffs, and why grobid/markitdown were removed
+  PDF-PARSER.md             parser backend tradeoffs, why grobid/markitdown were removed, and why
+                            marker/surya/xberg/unstructured were surveyed and not adopted
+  GROBID-CITATION-GRAPH.md  a proposal, not a plan: what a GROBID stage alongside docling would
+                            buy (a corpus-internal citation graph) and what it would cost
   ARCHITECTURE.md           what runs, what each part writes, what is optional, and which interpreter
                             each command needs -- the user-facing companion to DESIGN.md
   RETRIEVAL.md              BM25 vs embeddings vs topic model: which answers what, and what to build
@@ -142,6 +162,12 @@ docs/                     reference docs that ship in the release zip -- everyth
     svg/*.svg                 rendered exports (mmdc -b white -w 1900). Exports only -- edit the
                               fenced block in DIAGRAMS.md, then re-render
   CITATION-PROVENANCE.md    what src/citation_provenance.py reports and how to read it
+  LADDERS.md                every automatic fallback chain the code walks, and every tier you pick
+                            yourself -- and what the bottom rung of each costs
+  WRITING-STANDARDS.md      the prose standards the genre skills share, and their sources in the
+                            technical-communication literature
+  NAME.md                   where "chitragupta" comes from
+  logo.svg, logo-dark.svg   the README banner, light and dark
 LICENSE                   MIT
 assets/                   data files the pipeline reads at runtime, tracked and shipped
   csl/ieee.csl              the CSL style pandoc formats citations with ([render].csl default).
@@ -207,6 +233,8 @@ tests/                    pytest suite -- unit tests per module + end-to-end fea
 content/                  generated, gitignored (regenerate with sync)
   ledger.sqlite, parsed/<citekey>.txt, provenance/,
   docling/, chroma/, topics.json, topic_embed_cache.json, rendered/  (src/enrich/ outputs)
+logs/                     gitignored -- sync.log, rotated at 5MB x 5 backups. Level from
+                          config.toml's [logging]; relocate with the LOGS_DIR env var
 .claude/skills/           drafting layer: survey-writer, thesis-chapter-writer,
                           textbook-chapter-writer, tutorial-writer, deep-research
 .claude/agents/           deep-research's subagents: deep-research-interviewer, deep-research-writer, peer-reviewer
@@ -291,25 +319,22 @@ Full design rationale, including the measurements behind those choices:
 
 ## Open questions and unbuilt features
 
-Run this pipeline as a cron job monitoring the bib file. To do so,
-the following tasks need to be completed in priority order:
+Running this pipeline on a schedule was the long-standing goal here.
+**Most of it now exists**, as of 3.4.0: `logs/sync.log` with rotation,
+a pages/s throughput figure, exit codes an unattended caller can branch
+on, and worked cron and systemd units in
+[docs/CLI.md](docs/CLI.md#running-sync-on-a-schedule) -- including the
+absolute-interpreter-path detail that cron's minimal environment
+requires.
 
-1. **Bib-file freshness is the blocker, not an afterthought.** With no
-   continuous auto-export, `bibliography.bib` is a manual, point-in-time
-   snapshot -- a cron job watching only its mtime does nothing until a
-   human re-exports it.
-2. **No scheduling mechanism exists yet** -- no crontab entry, no systemd
-   timer. Given `sync` is already cheap and idempotent, a stateless cron
-   entry polling every N minutes is the right shape (survives reboots
-   without supervision) rather than a long-running watchdog daemon.
-3. **No log file / failure surfacing.** `sync` prints to stdout/stderr;
-   unattended it needs redirecting to a log (with rotation) and a way to
-   notice repeated failures, since cron's default "mail root" often goes
-   unread.
-4. **Cron's minimal environment.** A crontab entry needs the venv's
-   Python invoked by absolute path
-   (`/workspace/git/chitragupta/.venv-full/bin/python`) -- cron
-   doesn't source your shell profile or activate venvs.
+**One blocker is left, and it is not a coding task.** With no continuous
+auto-export, `bibliography.bib` is a manual, point-in-time snapshot: a
+scheduled `sync` re-reads whatever was last exported, so it keeps the
+corpus consistent with the bib file but cannot keep the bib file
+consistent with your reference manager. A schedule watching only its
+mtime does nothing until a human re-exports. Closing that properly means
+either a Zotero auto-export plugin (outside this repo) or accepting that
+the export stays a deliberate human step.
 
 ### `content/topics.json` has no consumer
 

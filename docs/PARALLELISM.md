@@ -409,7 +409,10 @@ docling exposes no batch API — upstream work, not local.
 - **Threads for docling.** It holds the GIL.
 - **Bit-reproducible output under load.** docling exposes no determinism
   setting, and torch's *raises* rather than degrades on ops with no
-  deterministic implementation.
+  deterministic implementation. What that costs is stated artifact by
+  artifact in
+  [ARCHITECTURE.md](ARCHITECTURE.md#what-is-reproducible-and-what-is-not);
+  it is a real cost of raising `workers`, not only a curiosity.
 
 ### Open questions
 

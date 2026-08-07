@@ -23,13 +23,14 @@ throughput", "the parse is CPU-bound, not GPU-bound" -- not absolute
 times to plan against. Where a figure only makes sense against the
 hardware, the hardware is named.
 
-Two reference machines are used throughout, and
-[README.md](../README.md#hardware-requirements) describes both in full:
+Two reference machines are used throughout. This is their full
+specification; [README.md](../README.md#hardware-requirements) has the
+sizing guidance that follows from it.
 
 | Name used below | What it is |
 |---|---|
-| **the small machine** | 4 cores, 9.7 GB RAM, no GPU |
-| **the multi-GPU machine** | 96 logical cores (48 available to the process), 251 GB RAM, 4x NVIDIA A40 46 GB, driver 555.42.02, CUDA 12.5 |
+| **the small machine** | 4 cores, 9.7 GB RAM (~3 GB actually free), no GPU |
+| **the multi-GPU machine** | 96 logical cores (48 available to the process), 251 GB RAM, 4x NVIDIA A40 46 GB, driver 555.42.02, CUDA 12.5. Verified 2026-07-30 |
 
 The corpus is this project's own bibliography: **501 PDFs, 13,400 pages,
 1.54 GB**, median 16 pages, with one 675-page book that is 5% of all
@@ -37,6 +38,42 @@ pages by itself. Software: docling 2.117.0, torch 2.7.1+cu126,
 Python 3.12.3.
 
 Reproduce any of it with the harness in `bench/` -- see `bench/README.md`.
+
+## Install-time costs and traps
+
+Two costs land before any setting below matters, and both are paid at
+install time. Neither is a knob you tune -- they are the two ways the
+install comes out wrong.
+
+**No GPU, disk tight -- several GB of CUDA you will never use.**
+`pip`/Poetry's default torch wheel pulls a full set of `nvidia-*` CUDA
+packages whether or not a GPU is present. That is most of what makes the
+venv 6.0 GB. On a CPU-only host, install torch from the CPU-only wheel
+index *before* running the installer:
+
+```bash
+.venv-full/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
+bash scripts/install_full_pipeline.sh python-deps
+```
+
+**GPU present, but `torch.cuda.is_available()` is `False` -- silently
+CPU-only.** This is the failure mode that costs the entire 4.70x below
+while looking like a working install. `scripts/install_full_pipeline.sh`'s
+`ensure_gpu_torch` exists to catch it: it reads the driver's supported
+CUDA ceiling from `nvidia-smi` and reinstalls torch from a matching
+CUDA-tagged wheel index. It runs on every `python-deps`/`dev-deps` install,
+is idempotent, and is safe to re-run by hand. Check with:
+
+```bash
+.venv-full/bin/python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+```
+
+It was verified end to end on the multi-GPU machine, whose driver caps at
+CUDA 12.5 while the Poetry-resolved wheel wanted CUDA 13 -- exactly the
+mismatch that runs CPU-only without complaining. If it still reports
+`False` after a `python-deps` install, the driver may predate every wheel
+tag the script knows; that function's own comments have the manual
+fallback.
 
 ## `[parser].backend` -- pdftotext or docling
 
@@ -382,18 +419,12 @@ Two costs, both worth knowing before turning it on:
   `docling_image_scale = 2.0` is roughly 144 DPI, enough to read a figure
   back without storing print-resolution files.
 
-## `[source_pdfs] dir` -- retired
+## `[source_pdfs] dir` -- retired in 3.3.0
 
-Up to 2.5.x the enrichment layer also indexed a directory of raw PDFs
-gathered outside the bib file, and cross-checked each one against the
-ledger so a paper the bib file already covered was not indexed twice.
-That check cost ~0.45 ms per new PDF and ~2.3 ms per PDF it had to hash
--- negligible against a 6.65s docling parse, and the measurements stand
-in `bench/RESULTS.md`.
-
-The directory itself is now gone: the enrichment corpus is the
-bibliography, so there is no second source to deduplicate against and
-nothing left to measure here. See `src/enrich/corpus.py` for why.
+Nothing left to measure: the enrichment corpus is now the bibliography
+alone, so there is no second source to deduplicate against. A config file
+still naming the key is ignored. `src/enrich/corpus.py` has the reasoning,
+and the retired duplicate-check timings stand in `bench/RESULTS.md`.
 
 ## Where it all ended up
 
@@ -417,26 +448,28 @@ contribution.** The largest is a boolean.
 these numbers; `bench/RESULTS.md` carries the measurements themselves,
 including the conclusions later ones overturned.
 
-## Output is not bit-reproducible under heavy concurrency
+## What raising the worker count costs in reproducibility
 
-Comparing a one-GPU and a four-GPU run over all 501 documents: **6 files
-differ**, by 0 to 59 bytes out of ~100 KB each (under 0.06%).
+Worth pricing alongside the speedups above, because it is the one cost of
+parallelism that is not measured in seconds: **the more workers, the less
+reproducible the parse.** Docling groups dense reference blocks into
+elements differently under contention, which changes both the parsed text
+and the passage spans quoted from it.
 
-The differences are not device-dependent -- parsing the same document
-explicitly on three different GPUs gives byte-identical output every
-time, and repeating a run at the same worker count reproduces exactly.
-What varies is docling's element grouping inside dense reference blocks
-under heavy concurrency: the same words, split across list elements
-differently. Nothing is lost, and retrieval tokenises on whitespace, so
-BM25 ranking is unaffected.
+At the scale this matters: comparing runs over all 501 documents, ~1.4%
+of documents come back with different text and ~1.0% with a different
+quotable passage. Two runs of the *same* configuration are not exempt, at
+roughly a third of that rate. Serial parsing has not been observed to
+vary.
 
-**It cannot be turned off from docling** -- its `PdfPipelineOptions` has
-no determinism, seed or reproducibility setting of any kind. The only
-lever is below it, in torch, and that is deliberately not taken: it costs
-throughput in exactly the models this pipeline lives in, and it *raises*
-rather than degrades on an op with no deterministic implementation,
-turning a cosmetic difference into a hard failure.
+**The full contract is
+[ARCHITECTURE.md's "What is reproducible, and what is not"](ARCHITECTURE.md#what-is-reproducible-and-what-is-not)**,
+artifact by artifact, and `bench/RESULTS.md`'s 2026-08-07 section has the
+measurement. Both are stated once, there.
 
-So do not expect `content/parsed/` to be byte-identical across runs at
-high worker counts. At small ones it is: over 8 documents at 4 workers,
-output is byte-identical between start methods and across repeats.
+Two corrections to figures that stood in this document until 3.3.3, kept
+because the retracted versions were quoted elsewhere: the earlier "6
+files differ, under 0.06%" understated the effect by counting bytes
+rather than passages, and "repeating a run at the same worker count
+reproduces exactly" is **false** -- 5 of 572 same-configuration
+comparisons differ in bytes and 2 in passage text.
