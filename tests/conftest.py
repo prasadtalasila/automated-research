@@ -106,6 +106,7 @@ def isolated_config(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "TOPICS_PATH", content_dir / "topics.json")
     monkeypatch.setattr(config, "TOPIC_EMBED_CACHE_PATH", content_dir / "topic_embed_cache.json")
     monkeypatch.setattr(config, "RENDERED_DIR", content_dir / "rendered")
+    monkeypatch.setattr(config, "LOGS_DIR", tmp_path / "logs")
     return config
 
 

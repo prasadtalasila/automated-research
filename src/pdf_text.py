@@ -6,11 +6,14 @@ consumer (src/ledger.py, src/retrieval.py, scripts/verbatim_check.py)
 stays backend-agnostic; only this module needs to know which one is
 configured.
 
-pdftotext has no Python dependency (a subprocess call to poppler-utils)
-and is the only backend whose output has page boundaries (form-feed
-characters between pages) -- docling produces one continuous document.
-See config.toml's [parser] comment for the full tradeoffs (speed,
-page-boundary loss) before switching off the default.
+pdftotext has no Python dependency (a subprocess call to poppler-utils).
+Its output has native page boundaries (form-feed characters between
+pages); docling's does not by default, but _extract_docling below asks
+for the same `\f` markers explicitly, so both backends' output in
+content/parsed/ has the same shape -- see that function's docstring for
+the one way the two aren't quite identical. See config.toml's [parser]
+comment for the full tradeoffs (speed, OCR cost) before switching off
+the default.
 
 The dispatch is deliberately a table rather than an if/else: adding a
 backend is a `_extract_*` function plus one `_EXTRACTORS` entry, and
@@ -234,6 +237,12 @@ class interrupt_guard:
         return False
 
     def _on_sigint(self, _signum, _frame):
+        # Deliberately still a bare print, not src.sync's logger: this
+        # runs inside a signal handler a couple of lines before
+        # os._exit(130), and print(..., flush=True) is a call this
+        # project has already measured exiting in 0.0s (see the class
+        # docstring) -- not a call site to introduce the logging module's
+        # own locking/formatting machinery into for a marginal gain.
         print(f"\n  interrupted -- {self._describe()}. Work already "
               "finished is kept; re-run to continue.", file=sys.stderr, flush=True)
         terminate_workers(self._executor)
@@ -1059,6 +1068,13 @@ def _demote_to_cpu() -> None:
     """
     global _WORKER_DEVICE
     _WORKER_DEVICE = "cpu"
+    # Deliberately still a bare print, not src.sync's logger: this runs
+    # inside a docling worker *process* (forkserver/spawn, never plain
+    # fork -- see _executor_for's docstring), which has no handler of its
+    # own and no route back to the parent's without a QueueHandler this
+    # project has chosen not to build for one rare message. It still
+    # reaches the terminal via the worker's inherited stderr fd, same as
+    # before; it just won't appear in logs/sync.log.
     print("  WARNING a parse worker ran out of GPU memory -- it has fallen back "
           "to the CPU for the rest of this run, which is slower but finishes. "
           "Another process is most likely holding the card.", file=sys.stderr)
@@ -1192,6 +1208,30 @@ def quality_warning(text: str) -> str | None:
         f"characters ({total} words checked) -- the parser is probably losing "
         f"spaces between words, which degrades retrieval"
     )
+
+
+def page_count(text: str) -> int:
+    """Pages in already-extracted `text`, from the `\\f` page-break
+    markers both backends write into content/parsed/<citekey>.txt --
+    pdftotext natively, docling via _extract_docling's
+    page_break_placeholder (see that function's docstring).
+
+    The two backends don't put `\\f` in the same places, confirmed
+    against real `pdftotext -layout` output rather than assumed:
+    pdftotext writes one *after* every page, including the last, so an
+    N-page document ends in `\\f` and contains N of them. Docling's
+    placeholder only goes *between* pages (its own docstring says so),
+    so an N-page document contains N-1 and does not end in one.
+    `.rstrip()` before counting erases exactly that difference -- form
+    feed is whitespace, so it discards a trailing one if pdftotext wrote
+    it and is a no-op if docling didn't -- leaving `count + 1` correct
+    for both without this function needing to know which backend ran.
+
+    Exact for pdftotext. An undercount for docling by however many pages
+    contributed no extracted item, since those get no break -- fine for
+    a throughput ratio (sync's pages/s summary line), not a page census.
+    """
+    return text.rstrip().count("\f") + 1
 
 
 def extract_text(pdf_path: str, citekey: str, threads: int | None = None) -> Path:

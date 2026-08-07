@@ -13,6 +13,7 @@ this document can stay a reference rather than an argument.
   - [Paths](#paths)
   - [`[render]` -- citation style](#render----citation-style)
   - [`[parser]` -- PDF text extraction](#parser----pdf-text-extraction)
+  - [`[logging]` -- sync's log file](#logging----syncs-log-file)
   - [`[provenance]` -- citation-support bands](#provenance----citation-support-bands)
   - [`[enrich]` -- the optional enrichment layer](#enrich----the-optional-enrichment-layer)
 - [How values are parsed](#how-values-are-parsed)
@@ -178,6 +179,25 @@ The values in full:
 - **`long_word_ratio`** -- a fraction between 0.0 and 1.0. The range is
   not enforced, so a value above 1.0 loads fine and simply disables the
   warning, since no document can exceed it.
+
+### `[logging]` -- sync's log file
+
+| Key | Env var | Accepts | Default |
+|---|---|---|---|
+| `level` | `LOGGING_LEVEL` | `"DEBUG"` \| `"INFO"` \| `"WARNING"` \| `"ERROR"` \| `"CRITICAL"` | `"INFO"` |
+
+- **`level`** -- how much `python -m src.sync` writes to `logs/sync.log`
+  (rotated at 5 MB, 5 backups kept -- fixed in code, not configurable).
+  Case-insensitive; any other value is rejected, naming the valid ones.
+  Only affects the file: terminal output is the same regardless of this
+  setting. This is the only `[logging]` key -- rotation size and backup
+  count haven't needed to vary per host. See
+  [CLI.md's "Running sync on a schedule"](CLI.md#running-sync-on-a-schedule).
+
+The log file's own location, `logs/` beside the repo root, has no
+`config.toml` key -- but does still honor a `LOGS_DIR` environment
+variable, the same escape hatch every path in this file gets, for a
+script (or a test) that needs it somewhere else.
 
 ### `[provenance]` -- citation-support bands
 

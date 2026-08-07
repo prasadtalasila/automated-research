@@ -13,6 +13,13 @@ content/retrieval_index.json
 content/rendered/
 content/drafts/
 content/provenance/
+
+# python -m src.sync's rotated log file (see config.toml's [logging]
+# section) -- per-host, and the whole directory rather than *.log below,
+# since a rotated backup (sync.log.1, sync.log.2, ...) doesn't end in
+# .log.
+logs/
+
 __pycache__/
 *.pyc
 .venv/

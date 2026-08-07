@@ -2,6 +2,7 @@
 (the corpus layer -- AGENTS.md). No LLM calls, must be idempotent."""
 
 import contextlib
+import logging
 import multiprocessing
 import subprocess
 import sys
@@ -100,7 +101,31 @@ class TestRun:
         assert rows["noauthor_page_nodate"]["status"] == "no_pdf"
         assert rows["doe_broken_2023"]["status"] == "parse_failed"
 
-    def test_warns_when_parsed_text_looks_like_fused_words(self, basic_corpus, monkeypatch, capsys):
+    def test_summary_reports_pages_per_second(self, basic_corpus, monkeypatch, capsys):
+        monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
+        sync.run()
+        out = capsys.readouterr().out
+        # The rate itself isn't asserted -- it's real wall-clock time over
+        # a fake parse and has no fixed value -- but backend and worker
+        # count do, since a bare rate has no tuning use without them.
+        assert "page(s) parsed in" in out
+        assert "pages/s, 1 worker(s), pdftotext)." in out
+
+    def test_summary_omits_pages_per_second_on_a_no_op_run(self, basic_corpus, monkeypatch, capsys):
+        """A run that parses nothing (the common case once a corpus is
+        caught up) must not print a meaningless '0 pages/s'."""
+        monkeypatch.setattr(pdf_text, "extract_text", fake_extract_text_factory())
+        sync.run()
+        capsys.readouterr()  # clear
+
+        rc = sync.run()
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "pages/s" not in out
+
+    def test_warns_when_parsed_text_looks_like_fused_words(
+        self, basic_corpus, monkeypatch, capsys, caplog
+    ):
         """The guard has to fire from sync, not just exist in pdf_text:
         a backend losing word boundaries is invisible otherwise until it
         shows up as bad retrieval much later."""
@@ -114,11 +139,11 @@ class TestRun:
         sync.run()
         captured = capsys.readouterr()
 
-        assert "losing spaces" in captured.err
+        assert "losing spaces" in caplog.text
         assert "look like the parser lost word boundaries" in captured.out
         assert "smith_example_2024" in captured.out
 
-    def test_no_quality_warning_for_healthy_text(self, basic_corpus, monkeypatch, capsys):
+    def test_no_quality_warning_for_healthy_text(self, basic_corpus, monkeypatch, capsys, caplog):
         def healthy(pdf_path, citekey):
             out_path = config.PARSED_DIR / f"{citekey}.txt"
             config.PARSED_DIR.mkdir(parents=True, exist_ok=True)
@@ -129,7 +154,7 @@ class TestRun:
         sync.run()
         captured = capsys.readouterr()
 
-        assert "losing spaces" not in captured.err
+        assert "losing spaces" not in caplog.text
         assert "look like the parser lost word boundaries" not in captured.out
 
     def test_warns_about_missing_author_metadata(self, basic_corpus, monkeypatch, capsys):
@@ -540,6 +565,59 @@ class TestCliEntrypoint:
         assert "unrecognized arguments" in result.stderr
 
 
+class TestConfigureLogging:
+    """_configure_logging() is CLI-entrypoint-only (see its own
+    docstring for why), so unlike everything else in this file it isn't
+    exercised through run() -- it has to be called directly, which means
+    the two handlers it attaches to the root logger have to be removed
+    again afterwards, or they'd leak into every other test in the
+    process."""
+
+    @pytest.fixture(autouse=True)
+    def _cleanup_root_handlers(self):
+        root = logging.getLogger()
+        before = list(root.handlers)
+        yield
+        for handler in root.handlers[:]:
+            if handler not in before:
+                root.removeHandler(handler)
+                handler.close()
+        logging.getLogger("src").setLevel(logging.NOTSET)
+
+    def test_creates_the_log_file_and_sets_the_configured_level(
+        self, isolated_config, monkeypatch
+    ):
+        monkeypatch.setattr(config, "LOGGING_LEVEL", "DEBUG")
+        root_level_before = logging.getLogger().level
+        sync._configure_logging()
+        assert (config.LOGS_DIR / "sync.log").exists()
+        assert logging.getLogger("src").level == logging.DEBUG
+        # Root itself is untouched -- only this package's tree follows
+        # LOGGING_LEVEL, so a third party's own INFO chatter isn't
+        # forced onto the console at this project's configured level.
+        assert logging.getLogger().level == root_level_before
+
+    def test_a_file_only_record_reaches_the_file_but_not_the_console(
+        self, isolated_config, monkeypatch, capsys
+    ):
+        """Confirmed against a real `python -m src.sync` run: without
+        this filter, run()'s summary line -- already printed to stdout
+        -- prints a second time via the console handler, once for each
+        handler on the same logger call."""
+        monkeypatch.setattr(config, "LOGGING_LEVEL", "INFO")
+        sync._configure_logging()
+        sync.logger.info("ordinary message")
+        sync.logger.info("file only message", extra={"file_only": True})
+
+        log_text = (config.LOGS_DIR / "sync.log").read_text()
+        assert "ordinary message" in log_text
+        assert "file only message" in log_text
+
+        err = capsys.readouterr().err
+        assert "ordinary message" in err
+        assert "file only message" not in err
+
+
 MANY_BIB = "".join(f"""
 @article{{doc_{i}_2024,
   title = {{Paper {i}}},
@@ -618,7 +696,7 @@ class TestWorkerCount:
         monkeypatch.setattr(sync, "_executor_for", refuse)
         assert sync.run() == 0
 
-    def test_oversized_request_is_clamped_and_warned(self, many_corpus, monkeypatch, capsys):
+    def test_oversized_request_is_clamped_and_warned(self, many_corpus, monkeypatch, caplog):
         monkeypatch.setattr(config, "PARSER", "docling")
         monkeypatch.setattr(config, "PARSER_WORKERS", 64)
         monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 8)
@@ -626,9 +704,8 @@ class TestWorkerCount:
         monkeypatch.setattr(sync, "_executor_for", _thread_executor)
 
         sync.run()
-        err = capsys.readouterr().err
-        assert "[parser].workers=64" in err
-        assert "using 2" in err
+        assert "[parser].workers=64" in caplog.text
+        assert "using 2" in caplog.text
 
 
 class TestParallelParsing:
@@ -746,7 +823,7 @@ class TestParallelParsing:
         assert all(rows[f"doc_{i}_2024"]["status"] == "parsed" for i in range(5))
 
     def test_a_pool_already_broken_at_submit_time_is_handled_too(
-        self, many_corpus, monkeypatch, capsys
+        self, many_corpus, monkeypatch, capsys, caplog
     ):
         """Once a ProcessPoolExecutor knows it is broken, submit() itself
         raises rather than returning a future -- a second path to the same
@@ -766,9 +843,11 @@ class TestParallelParsing:
 
         assert rc == 1
         assert "6 failed" in captured.out
-        assert "worker" in captured.err.lower()
+        assert "worker" in caplog.text.lower()
 
-    def test_a_dead_pool_fails_the_documents_not_the_run(self, many_corpus, monkeypatch, capsys):
+    def test_a_dead_pool_fails_the_documents_not_the_run(
+        self, many_corpus, monkeypatch, capsys, caplog
+    ):
         """A worker killed by the OOM killer breaks the whole pool. That
         has to be reported against the documents that didn't get parsed,
         not raised as an uncaught BrokenProcessPool out of sync."""
@@ -783,7 +862,7 @@ class TestParallelParsing:
 
         assert rc == 1
         assert "6 failed" in captured.out
-        assert "worker" in captured.err.lower()
+        assert "worker" in caplog.text.lower()
 
 
 class TestPoolPrestart:
@@ -934,7 +1013,7 @@ class TestGpuAssignment:
 
         assert captured["initargs"][2] == [1, 2, 3]
 
-    def test_a_skipped_card_is_reported_to_the_user(self, monkeypatch, capsys):
+    def test_a_skipped_card_is_reported_to_the_user(self, monkeypatch, caplog):
         """A run quietly using five cards instead of six looks exactly
         like one using all six, until it is 20% slower for no stated
         reason."""
@@ -946,7 +1025,7 @@ class TestGpuAssignment:
         with sync._executor_for(2):
             pass
 
-        assert "WARNING skipping cuda:0" in capsys.readouterr().err
+        assert "WARNING skipping cuda:0" in caplog.text
 
     def test_the_start_method_is_pdf_texts_to_choose(self, monkeypatch):
         """One decision, in one place: sync and src/enrich/docling_parse
@@ -987,7 +1066,7 @@ class TestGpuAssignment:
 
         assert captured["mp_context"].get_start_method() != "fork"
 
-    def test_a_start_method_complaint_reaches_stderr(self, monkeypatch, capsys):
+    def test_a_start_method_complaint_reaches_stderr(self, monkeypatch, caplog):
         """A pool that quietly fell back to spawn looks exactly like one
         that got what was configured, and is ~1.5s slower to start."""
         monkeypatch.setattr(config, "PARSER", "docling")
@@ -1000,7 +1079,7 @@ class TestGpuAssignment:
         with sync._executor_for(2):
             pass
 
-        assert "NOTE fell back" in capsys.readouterr().err
+        assert "NOTE fell back" in caplog.text
 
     def test_a_cpu_only_host_still_builds_a_working_pool(self, monkeypatch):
         monkeypatch.setattr(config, "PARSER", "docling")
@@ -1069,14 +1148,14 @@ class TestInterrupt:
         assert any(k.get("cancel_futures") for k in recorded), recorded
         assert all(k.get("wait") is False for k in recorded), recorded
 
-    def test_interrupt_says_what_it_did(self, many_corpus, monkeypatch, capsys):
+    def test_interrupt_says_what_it_did(self, many_corpus, monkeypatch, caplog):
         def interrupt_immediately(job):
             raise KeyboardInterrupt
 
         monkeypatch.setattr(pdf_text, "extract_one", interrupt_immediately)
         with pytest.raises(KeyboardInterrupt):
             sync.run()
-        assert "interrupted" in capsys.readouterr().err.lower()
+        assert "interrupted" in caplog.text.lower()
 
 
 class TestProgressReporting:
@@ -1094,12 +1173,12 @@ class TestProgressReporting:
         monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 48)
         monkeypatch.setattr(sync, "_executor_for", _thread_executor)
 
-    def test_each_completion_is_reported_as_it_lands(self, many_corpus, monkeypatch, capsys):
+    def test_each_completion_is_reported_as_it_lands(self, many_corpus, monkeypatch, caplog):
+        caplog.set_level(logging.INFO)
         monkeypatch.setattr(pdf_text, "extract_one", fake_extract_one_factory())
         sync.run()
-        err = capsys.readouterr().err
         # A counter, so the reader can see both rate and remaining work.
-        assert "[1/6]" in err and "[6/6]" in err
+        assert "[1/6]" in caplog.text and "[6/6]" in caplog.text
 
     def test_stdout_stays_in_bibliography_order(self, many_corpus, monkeypatch, capsys):
         """Live progress goes to stderr precisely so stdout can stay
@@ -1129,7 +1208,7 @@ class TestStallWatchdog:
         monkeypatch.setattr(sync, "_executor_for", _thread_executor)
 
     def test_a_stalled_pool_is_abandoned_and_its_documents_reported(
-        self, many_corpus, monkeypatch, capsys
+        self, many_corpus, monkeypatch, capsys, caplog
     ):
         import threading
 
@@ -1146,7 +1225,7 @@ class TestStallWatchdog:
         captured = capsys.readouterr()
         assert rc == 1
         assert "6 failed" in captured.out
-        assert "no document finished" in captured.err.lower()
+        assert "no document finished" in caplog.text.lower()
 
     def test_progress_resets_the_clock(self, many_corpus, monkeypatch, capsys):
         """A slow-but-moving run must never be killed: the timeout is
@@ -1187,7 +1266,7 @@ class TestStallWatchdog:
         assert killed, "workers were left running after the stall"
 
     def test_a_stalled_document_is_not_blamed_on_a_dead_worker(
-        self, many_corpus, monkeypatch, capsys
+        self, many_corpus, monkeypatch, caplog
     ):
         """The two failure modes are different and the message has to
         say which one happened."""
@@ -1200,9 +1279,8 @@ class TestStallWatchdog:
             sync.run()
         finally:
             blocked.set()
-        err = capsys.readouterr().err
-        assert "gave up waiting" in err
-        assert "worker died" not in err
+        assert "gave up waiting" in caplog.text
+        assert "worker died" not in caplog.text
 
 
 class TestReparse:
@@ -1450,7 +1528,7 @@ class TestStallWarning:
         monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 48)
         monkeypatch.setattr(sync, "_executor_for", _thread_executor)
 
-    def test_it_warns_at_half_time_before_killing(self, many_corpus, monkeypatch, capsys):
+    def test_it_warns_at_half_time_before_killing(self, many_corpus, monkeypatch, caplog):
         import threading
 
         blocked = threading.Event()
@@ -1460,11 +1538,11 @@ class TestStallWarning:
             sync.run()
         finally:
             blocked.set()
-        err = capsys.readouterr().err
-        assert "no completions in" in err.lower()
+        text = caplog.text
+        assert "no completions in" in text.lower()
         # The warning has to be actionable, not just early.
-        assert "stall_timeout" in err
-        assert err.index("no completions in") < err.index("giving up on the")
+        assert "stall_timeout" in text
+        assert text.index("no completions in") < text.index("giving up on the")
 
     def test_a_run_that_finishes_between_warning_and_kill_is_not_killed(
         self, many_corpus, monkeypatch, capsys
