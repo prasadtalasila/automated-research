@@ -337,7 +337,7 @@ on, not to accept on.
 | `--k N` | `triage`, `search` | 15 / 5 | How many candidates to rank |
 | `--chars N` | all | 160 / 600 / 500 | Window size (triage / evidence / search) |
 | `--citekey KEY` | `evidence` | required | Which document to read |
-| `--windows N` | `evidence` | 3 | How many passages to return |
+| `--windows N` | `evidence` | 2 | How many passages to return |
 | `--log DRAFT` | all | -- | Record the call and its payload size in DRAFT's dossier |
 
 ```bash

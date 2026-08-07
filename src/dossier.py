@@ -487,13 +487,16 @@ _REVISIONS_TEMPLATE = """# Revisions
 _RETRIEVAL_TEMPLATE = """# Retrieval calls
 
 <!-- Appended by `python3 -m src.retrieval ... --log <draft>`, never by
-     hand. `chars` is the size of the payload that call handed back --
-     the thing that then sits in the caller's context for the rest of the
-     run. Together with evidence.md's and rejected.md's counts, this is
-     what turns "retrieval is where the tokens go" from an estimate into
-     a measurement for a particular draft. -->
+     hand.
 
-| date | mode | query | k | results | chars |
+     `asked` is how much that call requested -- `--k` for triage/search,
+     `--windows` for evidence. `chars` is the size of the payload it
+     handed back: the thing that then sits in the caller's context for
+     the rest of the run. Together with evidence.md's and rejected.md's
+     counts, this is what turns "retrieval is where the tokens go" from
+     an estimate into a measurement for a particular draft. -->
+
+| date | mode | query | asked | results | chars |
 |---|---|---|---|---|---|
 """
 

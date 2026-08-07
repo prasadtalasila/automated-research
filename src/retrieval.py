@@ -292,6 +292,13 @@ TRIAGE_CHARS = 160
 EVIDENCE_CHARS = 600
 EVIDENCE_WINDOWS = 2
 
+# Occurrences of one query term that `_windows` will anchor a candidate
+# window on before it stops looking for more of that term. A ceiling on
+# work for a pathological document, not a quality knob: 500 anchors of one
+# term already spread across the whole text, and the top few windows come
+# out of scoring, not out of how many candidates were offered.
+_MAX_ANCHORS_PER_TERM = 500
+
 
 def triage(query: str, k: int = 15, snippet_chars: int = TRIAGE_CHARS) -> list[SearchResult]:
     """Stage one: rank as `search` does, with a window sized to *reject* on.
@@ -322,11 +329,18 @@ def _windows(text: str, terms: set[str], width: int, count: int) -> list[str]:
     anchors: list[int] = []
     for term in terms:
         start = lower.find(term)
-        while start != -1:
+        found = 0
+        # Bounded per term rather than across all of them, so a book-length
+        # document that says "twin" ten thousand times cannot crowd out
+        # every anchor for "greenhouse". Scoring rewards distinct-term
+        # coverage, so losing a term's anchors entirely would work directly
+        # against what the window is chosen for -- and `terms` is a set,
+        # whose iteration order is arbitrary, so a shared budget would pick
+        # its victim at random.
+        while start != -1 and found < _MAX_ANCHORS_PER_TERM:
             anchors.append(start)
+            found += 1
             start = lower.find(term, start + 1)
-            if len(anchors) > 2000:  # pathological input; the best windows are already in
-                break
     if not anchors:
         return []
 
@@ -493,9 +507,14 @@ def main(argv: "list[str] | None" = None) -> int:
         from src import dossier
 
         try:
+            # The logged `k` is "how much was asked for", which is `--k`
+            # for the ranking modes and `--windows` for `evidence` --
+            # `evidence` has no `--k`, and logging a bare 1 there put a
+            # number in the column that meant nothing.
+            asked_for = args.windows if args.command == "evidence" else args.k
             path = dossier.log_retrieval(
                 Path(args.log), args.command, args.query,
-                getattr(args, "k", 1), results, chars,
+                asked_for, results, chars,
             )
         except dossier.DossierError as exc:
             # A measurement is worth less than the retrieval it measures:

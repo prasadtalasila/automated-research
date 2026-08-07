@@ -429,3 +429,36 @@ class TestTwoStageCost:
 
     def test_a_triage_window_is_well_under_a_search_snippet(self):
         assert retrieval.TRIAGE_CHARS < 500 / 2
+
+    def test_the_docs_quote_the_actual_defaults(self):
+        """docs/CLI.md and docs/RETRIEVAL.md both spell these numbers out
+        in prose, and prose does not fail a build when a constant moves.
+        Review caught exactly this drift on the previous PR (CLI.md still
+        said 700 after the default became 600), so the quoted values are
+        pinned to the constants here rather than trusted."""
+        cli = (config.REPO_ROOT / "docs" / "CLI.md").read_text(encoding="utf-8")
+        chars_row = next(line for line in cli.splitlines() if "`--chars N`" in line)
+        assert f"{retrieval.TRIAGE_CHARS} / {retrieval.EVIDENCE_CHARS} / 500" in chars_row
+
+        k_row = next(line for line in cli.splitlines() if "`--k N`" in line)
+        assert "15 / 5" in k_row
+
+        windows_row = next(line for line in cli.splitlines() if "`--windows N`" in line)
+        assert f"| {retrieval.EVIDENCE_WINDOWS} |" in windows_row
+
+        retr = (config.REPO_ROOT / "docs" / "RETRIEVAL.md").read_text(encoding="utf-8")
+        assert f"{retrieval.TRIAGE_CHARS} chars" in retr
+        assert f"{retrieval.EVIDENCE_WINDOWS} x {retrieval.EVIDENCE_CHARS} chars" in retr
+
+    def test_the_documented_break_even_table_is_arithmetically_right(self):
+        """The RETRIEVAL.md table states four payload figures. They are the
+        argument for the defaults, so they are checked rather than
+        asserted -- the previous defaults (3 x 700) lost to one-stage in
+        every row and the prose had not noticed."""
+        retr = (config.REPO_ROOT / "docs" / "RETRIEVAL.md").read_text(encoding="utf-8")
+        per_survivor = retrieval.EVIDENCE_CHARS * retrieval.EVIDENCE_WINDOWS
+        triage = 15 * retrieval.TRIAGE_CHARS
+        assert f"15 x 500 = **{15 * 500:,}**" in retr
+        for survivors in (3, 5, 8):
+            total = triage + survivors * per_survivor
+            assert f"{triage:,} + {survivors} x {per_survivor:,} = **{total:,}**" in retr
