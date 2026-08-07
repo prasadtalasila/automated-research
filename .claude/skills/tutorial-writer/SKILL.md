@@ -82,19 +82,70 @@ hand -- the learner is typing, not evaluating literature. If corpus material
 shapes the lesson (a real system worth imitating, a dataset worth using), let
 it inform your choices silently and point at it at the end.
 
+## The dossier: write down what produced the draft
+
+The lesson is only half of what this run produces. The other half is the
+design behind it -- who the learner is, what they were assumed to already
+know, the one happy path you chose, **which alternative paths you turned
+down and why**, and the environment the steps were actually verified
+against. A tutorial is single-path by definition, so the branches you
+refused are precisely the judgment the finished prose cannot show.
+Without them on disk, the next revision has to re-derive the whole lesson
+design in order to change one step.
+
+`src/dossier.py` owns that state, in Markdown, one directory per draft at
+`content/dossiers/<the draft's path, minus its suffix>/`. Create it in
+step 1, before you write anything, and fill it in as you go -- not at the
+end, when the alternatives you rejected have already fallen out of your
+context. `docs/DRAFT-ITERATION.md` is the full design.
+
+None of this depends on the draft citing anything. A tutorial with zero
+citations still gets a dossier, and an empty `evidence.md` is honest --
+the lesson design is the part worth keeping either way.
+
 ## Process
 
-1. **Establish the destination artifact.** Decide the one concrete thing the
-   learner will have working at the end -- small, real, and visibly
-   functioning. "A working X that does Y when you run it," not "an
+1. **Establish the destination artifact, and open the dossier.** Decide the
+   one concrete thing the learner will have working at the end -- small, real,
+   and visibly functioning. "A working X that does Y when you run it," not "an
    understanding of X." If you can't name it in a sentence, the tutorial isn't
    scoped yet. Ask the user rather than inventing one, if it wasn't given.
+
+   Then, once the artifact and the draft's path are settled and before any
+   retrieval or drafting, create the dossier:
+   ```
+   python3 -m src.dossier init content/drafts/<slug>.md --genre tutorial
+   ```
+   Fill in `scope.md` now, while you are deciding these things rather than
+   reconstructing them later:
+   - **Reader** -- the learner in one concrete sentence, including what they
+     are assumed to know already. Step 3's prerequisites follow from this.
+   - **Covers** -- the destination artifact, and the capability the lesson
+     leaves the learner with.
+   - **Does not cover** -- the variations, edge cases and alternate
+     environments you are deliberately refusing, so a later session can tell
+     a scope decision from an oversight.
+   - **Glossary** -- each recurring term with the one definition the whole
+     lesson uses.
+
+   `init` also stamps the corpus fingerprint, which is what lets a later
+   revision tell whether the ledger has moved since.
 
 2. **Do a task analysis.** Walk the entire path yourself first, actually
    running it (see step 8), and write down every command, file and decision
    the path requires -- including the ones you'd normally do without noticing.
    The steps you perform automatically are exactly the ones your draft will
    omit and your learner will fail on.
+
+   Record the outcome in the dossier while you have it: the single happy path
+   you settled on, and every alternative you walked away from. Add a
+   `## Rejected paths` section to `rejected.md` with its own two-column table
+   -- `alternative | why not chosen` -- and leave the citekey table above it
+   for retrieved candidates. "Poetry instead of venv: one more install before
+   the lesson starts." "Docker instead of a local interpreter: hides the thing
+   being taught." This is the most valuable entry a tutorial's dossier holds,
+   because the prose can only show the path you kept; a revision without this
+   list re-argues every branch you already decided.
 
 3. **Write the front matter the learner needs before starting:**
    - **What you'll build** -- one or two sentences, ideally with the end
@@ -149,6 +200,11 @@ it inform your choices silently and point at it at the end.
    optional; a tutorial with zero citations is the normal case, not a
    deficiency. Anything you do cite must be a real citekey from a `search()`
    result -- never a fabricated one.
+   If you did search, record both outcomes in the dossier before you draft
+   the section: what you keep into `evidence.md`, one ``## `citekey` `` block
+   with a `relevance:` line and a `support:` line; what you retrieved and
+   turned down into `rejected.md`'s citekey table, with the query that
+   surfaced it and a few words on why.
 
 7. **Budget the length.** A tutorial should be completable in one sitting.
    If the path is outgrowing that, split it into a sequence of tutorials with
@@ -166,12 +222,37 @@ it inform your choices silently and point at it at the end.
    Never present an unrun tutorial as if it were tested; an untested tutorial
    is the exact artifact this genre exists to avoid.
 
+   Then write what you actually ran against into `scope.md`, under a
+   `## Verified environment` heading you add: the exact versions this run
+   used ("verified 2026-08-07 on Python 3.11.9, Docker 24.0.7"), not the
+   range step 3 advertises. The front matter states what the tutorial
+   supports; the dossier states what was executed, which is what a revision
+   months later needs in order to tell a rotted step from a mistyped one.
+   Name the steps you could not verify there too -- that is the durable half
+   of the disclosure you make in chat.
+
 9. **Reread as the beginner.** One pass as someone who has never seen the
    topic. Flag: undefined terms, steps that assume a prior action you never
    instructed, any point where the learner must decide something, any step
    with no way to tell whether it worked.
 
-10. **Gate any citations.** Save the draft as `content/drafts/<slug>.md`. If
+10. **Map the lesson's outline into the dossier.** Save the draft to
+    `content/drafts/<slug>.md` first if you haven't already -- `sections`
+    reads the file and reports `No such draft` if it isn't on disk yet. Then
+    fill in `sections.md` from:
+    ```
+    python3 -m src.dossier sections content/drafts/<slug>.md
+    ```
+    which prints every heading with its line range. The citekey column is
+    thin in this genre by design: citations live only in "Where to go next",
+    so usually that one section carries every key in the file, and often
+    there are none at all. Write "no citations" against a section rather than
+    leaving the table blank -- an empty table can't be told apart from a
+    template nobody filled in. The outline is the real payload here. It is
+    what lets `draft-reviser` repair one step of the lesson, at its recorded
+    line range, without reading the whole thing.
+
+11. **Gate any citations.** Save the draft as `content/drafts/<slug>.md`. If
     it contains any `[@citekey]`, run:
     ```
     python -m src.citation_gate content/drafts/<slug>.md
@@ -183,7 +264,7 @@ it inform your choices silently and point at it at the end.
     similar tokens in your worked code are not false positives. Don't mangle
     real teaching code to appease it.
 
-11. **Build the References section**, only if the draft cites anything:
+12. **Build the References section**, only if the draft cites anything:
     ```
     python -m src.references content/drafts/<slug>.md --heading "Further reading"
     ```
@@ -202,7 +283,7 @@ it inform your choices silently and point at it at the end.
     the tutorial genre cites lightly. Pass the default heading instead if
     a single bibliography matters more for a given tutorial.
 
-12. **Render tex, pdf, and numbered md.**
+13. **Render tex, pdf, and numbered md.**
     ```
     python3 -m src.render_output content/drafts/<slug>.md --format tex
     python3 -m src.render_output content/drafts/<slug>.md --format pdf
@@ -217,9 +298,20 @@ it inform your choices silently and point at it at the end.
     in chat with that message and continue anyway; a rendering failure never
     blocks presenting the `.md` draft.
 
-13. **Present**, reporting: the draft path, the render outcome (or warning),
+14. **Record any steering.** If the user shaped this lesson in chat -- "use
+    FastAPI, not Flask", "no Docker", "keep it under twenty minutes", "assume
+    they've never opened a terminal" -- append it to the dossier's
+    `steering.md`, dated. In this genre it is usually what fixed the single
+    path in the first place, it is invisible in the prose, and it has nowhere
+    else to live; a revision that doesn't know about it will undo it.
+
+15. **Present**, reporting: the draft path, the render outcome (or warning),
     and -- explicitly -- whether step 8 verification passed in full, in part,
-    or not at all.
+    or not at all. Then say where the dossier is, that changes to this
+    tutorial should go through `draft-reviser` rather than another run of
+    this skill, and that `content/drafts/` and `content/dossiers/` are
+    gitignored -- so `python3 -m src.dossier export <slug>` is how a lesson
+    and its working state get backed up.
 
 ## Self-check before presenting
 

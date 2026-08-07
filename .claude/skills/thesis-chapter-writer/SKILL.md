@@ -19,6 +19,27 @@ layer (generative, on-demand, user-reviewed) -- distinct from
 - `content/parsed/<citekey>.txt` -- extracted PDF text
 - `src/retrieval.py` -- `search(query, k)` returns `SearchResult(citekey, title, score, snippet)`
 
+## The dossier: write down what produced the draft
+
+The chapter is only half of what this run produces. The other half is the
+judgment behind it -- the examiner you wrote for, the scope, the
+terminology the chapter settled on, which candidates were kept and
+**which were turned down and why** -- and it belongs on disk, not in this
+conversation. Without it the next revision has to re-retrieve and
+re-score the whole research question to change one paragraph.
+
+`src/dossier.py` owns that state, in Markdown, one directory per draft at
+`content/dossiers/<the draft's path, minus its suffix>/`. Create it before
+you search (step 0) and fill it in as you go -- not at the end, when what
+you rejected has already fallen out of your context. `docs/DRAFT-ITERATION.md`
+is the full design.
+
+This skill writes both a dossier and `content/provenance/<slug>.json`,
+and keeps both: the provenance JSON is the machine-readable
+section-to-citekey record used for audit, while the dossier is the
+human-readable working state a later revision reads (reader, scope,
+glossary, rejected candidates and why, steering).
+
 **Read-only means read-only: never run `python -m src.sync`, and never
 run `scripts/enrich.py` or any `src/enrich/*` stage.** Both belong to the
 corpus layer, both take the pipeline's write lock, and either can run for
@@ -46,6 +67,7 @@ around it, do not sync, do not cite. Tell the user to run
 | User asks for a survey paper / lit review, not chapter-specific | Use `survey-writer` instead |
 | User asks for a textbook chapter / lecture notes | Use `textbook-chapter-writer` instead |
 | User asks for a hands-on tutorial | Use `tutorial-writer` instead |
+| User asks to change a chapter that **already exists** in `content/drafts/` | Use `draft-reviser` instead -- never re-run this skill to make a change |
 | Ledger is empty, or nothing is `parsed` | Say so and stop. **Never** run `src.sync` yourself |
 
 ## Prose standards
@@ -73,9 +95,20 @@ job -- see `docs/WRITING-STANDARDS.md` §5.
 
 ## Process
 
-0. **Name the reader's starting point.** Settle what an examiner in this
-   subfield already knows, so background is recapped where it's genuinely
-   needed and not where it's condescending. Note it before drafting.
+0. **Name the reader's starting point, and open the dossier.** Before
+   searching, settle what an examiner in this subfield already knows, so
+   background is recapped where it's genuinely needed and not where it's
+   condescending. Settle too what the chapter will and won't cover, and
+   the slug it will be saved under. Then create the dossier and record
+   the same decisions there:
+   ```
+   python3 -m src.dossier init content/drafts/<slug>.tex --genre thesis-chapter
+   ```
+   Fill in `scope.md`'s **Reader**, **Covers**, **Does not cover** and
+   **Glossary** now, while you are deciding them -- the glossary is where
+   the chapter's terminology gets pinned, so a revision doesn't drift off
+   it. `init` also stamps the corpus fingerprint, which is what lets a
+   later revision tell whether the ledger has moved since.
 1. **Clarify the research question** the chapter serves, if not already given
    by the user. The chapter's narrative arc should argue toward/around this RQ,
    not just summarize papers in sequence.
@@ -86,7 +119,12 @@ job -- see `docs/WRITING-STANDARDS.md` §5.
    judge relevance yourself; a high score is a proxy, not a verdict. Keep
    only what actually supports part of the argument; write the kept set to
    `content/provenance/<slug>-evidence.json` (citekey + why it's relevant +
-   the supporting quote/paraphrase) before drafting prose.
+   the supporting quote/paraphrase) before drafting prose. Record the same
+   judgment in the dossier while the snippets are still in front of you --
+   the kept citekeys into `evidence.md`, and every candidate you turned
+   down into `rejected.md` with the query that surfaced it and a few words
+   on why ("shares vocabulary only", "wrong domain", "superseded by X"),
+   so the next revision doesn't re-judge the same papers.
 3. **Reformulate and re-search if a concept comes up thin.** Try synonyms
    or adjacent terms and search again before concluding the corpus doesn't
    cover something -- and if it genuinely doesn't after a real attempt, say
@@ -107,55 +145,74 @@ job -- see `docs/WRITING-STANDARDS.md` §5.
 7. **Log provenance.** Write `content/provenance/<slug>.json`:
    `{"section": "...", "citekeys": [...]}` per section, for later audit (in
    addition to the evidence file from step 2).
-8. **Gate before presenting.** Save the fragment as `content/drafts/<slug>.tex`
+8. **Map sections to citekeys in the dossier.** Fill in the dossier's
+   `sections.md` -- one row per section heading with the citekeys cited
+   under it -- so a later revision can tell which section owns a citation
+   without reading the fragment.
+   `python3 -m src.dossier sections content/drafts/<slug>.tex` prints the
+   headings and their line ranges to build it from; it tracks
+   `verbatim`/`lstlisting`/`minted`, so a
+   `\section`-like line inside a code environment won't show up as a
+   heading. This is the same mapping as step 7's provenance JSON, kept in
+   the form a reviser reads.
+9. **Gate before presenting.** Save the fragment as `content/drafts/<slug>.tex`
    (this remains the canonical deliverable -- the one meant to be `\input`-ed),
    then run:
    ```
    python -m src.citation_gate content/drafts/<slug>.tex
    ```
    Fix and re-run until `OK`. Never present a draft that hasn't passed.
-9. **Render md and pdf previews.** The `.tex` fragment stays the canonical
-   deliverable exactly as-is -- don't wrap it in a preamble or change its
-   `\input`-able shape. In addition, render an `.md` and a `.pdf` preview
-   from that same fragment (pandoc's LaTeX reader handles a preamble-less
-   fragment fine):
-   ```
-   python3 -m src.render_output content/drafts/<slug>.tex --format md
-   python3 -m src.render_output content/drafts/<slug>.tex --format pdf
-   ```
-   This needs only bare `python3` plus `pandoc`/`pdflatex` on PATH -- don't
-   assume either is present or absent without checking; probe (or just try
-   the command and read the result) rather than assuming from a prior run
-   on a different host. If either command reports `[missing-binary]` or
-   `[error]`, print a one-line warning in chat with that message and
-   continue anyway -- a rendering failure never blocks presenting the
-   `.tex` fragment.
+10. **Render md and pdf previews.** The `.tex` fragment stays the canonical
+    deliverable exactly as-is -- don't wrap it in a preamble or change its
+    `\input`-able shape. In addition, render an `.md` and a `.pdf` preview
+    from that same fragment (pandoc's LaTeX reader handles a preamble-less
+    fragment fine):
+    ```
+    python3 -m src.render_output content/drafts/<slug>.tex --format md
+    python3 -m src.render_output content/drafts/<slug>.tex --format pdf
+    ```
+    This needs only bare `python3` plus `pandoc`/`pdflatex` on PATH -- don't
+    assume either is present or absent without checking; probe (or just try
+    the command and read the result) rather than assuming from a prior run
+    on a different host. If either command reports `[missing-binary]` or
+    `[error]`, print a one-line warning in chat with that message and
+    continue anyway -- a rendering failure never blocks presenting the
+    `.tex` fragment.
 
-   Unlike the Markdown-native genre skills, don't run `python -m
-   src.references` on this fragment and don't add a manual References
-   section to it -- the fragment is designed to inherit the thesis's own
-   document-wide `\addbibresource`/`\bibliography` (step 1's shared
-   corpus layer), and a per-chapter list would duplicate that. The `.pdf`
-   preview still gets a real bibliography for free: `--citeproc` resolves
-   `\citep`/`\citet` against `bibliography.bib` and appends one
-   automatically, same as before this feature existed.
+    Unlike the Markdown-native genre skills, don't run `python -m
+    src.references` on this fragment and don't add a manual References
+    section to it -- the fragment is designed to inherit the thesis's own
+    document-wide `\addbibresource`/`\bibliography` (the shared corpus
+    layer above), and a per-chapter list would duplicate that. The `.pdf`
+    preview still gets a real bibliography for free: `--citeproc` resolves
+    `\citep`/`\citet` against `bibliography.bib` and appends one
+    automatically, same as before this feature existed.
 
-   Note the preview renders that bibliography in IEEE style, with numeric
-   `[1]` markers, because that is what `render_output` now passes
-   `--csl`. That styles the *preview only* -- the `.tex` fragment is
-   unchanged, and the real thesis renders it in whatever style its own
-   document class and `\bibliographystyle` specify. Don't rewrite
-   `\citep`/`\citet` to match the preview.
-10. **Read it once as the examiner** (`docs/WRITING-STANDARDS.md` §6, in its
+    Note the preview renders that bibliography in IEEE style, with numeric
+    `[1]` markers, because that is what `render_output` now passes
+    `--csl`. That styles the *preview only* -- the `.tex` fragment is
+    unchanged, and the real thesis renders it in whatever style its own
+    document class and `\bibliographystyle` specify. Don't rewrite
+    `\citep`/`\citet` to match the preview.
+11. **Read it once as the examiner** (`docs/WRITING-STANDARDS.md` §6, in its
     adversarial form). Check specifically for: a conclusion stated more
     strongly than its cited evidence supports, a section that summarizes
     rather than argues, notation or terminology that shifts mid-chapter, and
     any claim carrying no citation that isn't genuinely your own contribution.
     Where you find overreach, weaken the claim rather than adding a citation
     that doesn't quite support it.
-11. Present the `.tex` fragment (the deliverable to `\input`) plus, if
+12. **Record any steering.** If the user shaped this chapter in chat --
+    "argue it harder against X", "the RQ is narrower than that", "cut the
+    background recap" -- append it to the dossier's `steering.md`, dated.
+    It is invisible in the prose and has nowhere else to live; a revision
+    that doesn't know about it will undo it.
+13. Present the `.tex` fragment (the deliverable to `\input`) plus, if
     rendering succeeded, the `.md`/`.pdf` preview paths -- or the warning
-    if it didn't.
+    if it didn't. Tell the user where the dossier is, that changes to this
+    chapter should go through `draft-reviser` rather than another run of
+    this skill, and that `content/drafts/` and `content/dossiers/` are
+    gitignored -- so `python3 -m src.dossier export <slug>` is how a draft
+    and its working state get backed up.
 
 ## Sources
 

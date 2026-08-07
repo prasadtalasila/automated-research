@@ -29,6 +29,63 @@ It reads the same shared corpus layer as the other genre skills.
 - `src/enrich/corpus.py` -- builds the enrichment corpus from the ledger and
   nothing else, so every document it yields is citable, keyed by its citekey
 
+## The dossier: write down what produced the draft
+
+The report is only half of what this run produces. The other half is the
+judgment behind it -- the reader, the scope, the glossary, which
+candidates were kept, **which were turned down and why**, and where the
+perspectives found the corpus disagreeing with itself -- and it belongs
+on disk, not in this conversation. Without it, changing one paragraph
+next month means running seven phases and a dozen subagents again.
+
+`src/dossier.py` owns that state, in Markdown, one directory per draft at
+`content/dossiers/<the draft's path, minus its suffix>/`. Create it before
+Phase 1's first retrieval call and fill it in as you go -- not at the end,
+when what you rejected has already fallen out of your context.
+`docs/DRAFT-ITERATION.md` is the full design.
+
+**The main run owns the dossier. A subagent never writes it.** Treat that
+as a rule of this skill, not a preference. `deep-research-interviewer`,
+`deep-research-writer` and `peer-reviewer` each run in their own context,
+hand back a packet, and then that context is gone -- and each of their
+definitions in `.claude/agents/` tells them to return their output rather
+than write a file. So anything of theirs worth keeping is yours to
+transcribe, in the phase that dispatched them, before you move on:
+
+- **After Phase 2**, each interviewer packet's kept claims and their
+  citekeys go into `evidence.md`, and the citekeys the packet lists as
+  *discarded during filtering* go into `rejected.md` -- one row each with
+  the query that surfaced it and a few words on why it was turned down.
+  That discarded list exists nowhere but the packet, and re-retrieving and
+  re-judging those same papers is the single most expensive thing a later
+  session repeats.
+- **After Phase 3**, record the contradictions themselves -- the conflict,
+  both sides, both citekeys -- next to the citekeys they concern in
+  `evidence.md`, so a revision can see the disagreement without rebuilding
+  the map from scratch.
+- **After Phase 5**, every writer's `### Sources added` block goes into
+  `evidence.md`. A citekey found by a writer re-searching a thin subpoint
+  is otherwise cited in the report and recorded nowhere. At `quick` depth
+  you are that writer -- record what you find the same way.
+
+The `peer-reviewer` packets are the one exception, and only because Phase
+7(a)'s reconciled scorecard is already their durable record: it ships in
+the report itself, including the concerns logged but left unaddressed.
+Keep that row honest and the reviewers need no separate transcription;
+drop the below-threshold concerns from it and four reviews die with the
+run.
+
+Do not ask a subagent to write into `content/dossiers/`, and do not treat
+a returned packet as durable because you can still see it. If you haven't
+transcribed it, it is gone when the phase closes.
+
+**The dossier is not the provenance JSON, and neither replaces the
+other -- this skill writes both.** `content/provenance/<slug>.json`
+(Phase 7c) is the machine record of section -> citekey, for tooling. The
+dossier is the human-readable working state: reader, scope, glossary,
+kept evidence, rejected candidates and why, contradictions, and the
+user's steering.
+
 **Read-only means read-only: never run `python -m src.sync`, and never
 run `scripts/enrich.py` or any `src/enrich/*` stage.** Both belong to the
 corpus layer, both take the pipeline's write lock, and either can run for
@@ -57,6 +114,7 @@ around it, do not sync, do not cite. Tell the user to run
 | User asks for a thesis chapter | Use `thesis-chapter-writer` instead |
 | User asks for a textbook chapter / lecture notes | Use `textbook-chapter-writer` instead |
 | User asks for a hands-on tutorial | Use `tutorial-writer` instead |
+| User asks to change a report that **already exists** in `content/drafts/` | Use `draft-reviser` instead -- never re-run this skill to make a change |
 | Ledger is empty, or nothing is `parsed` | Say so and stop. **Never** run `src.sync` yourself |
 
 Tell the user up front that this is a heavy, multi-phase run before
@@ -91,7 +149,25 @@ apart in ways a single-author draft doesn't:
 
 ## Phase 1 -- Perspective discovery
 
-Run 1-2 broad retrieval calls on the topic itself and skim what the corpus
+**Before any retrieval, name the reader and the scope, and open the
+dossier.** Settle who this report is for (a research group? a decision
+the user has to make? a chapter's background?) and what it will and won't
+cover, then create the dossier:
+
+```
+python3 -m src.dossier init content/drafts/deep-research-<slug>.md --genre deep-research
+```
+
+Give it the same path Phase 7(d) will save to -- the dossier mirrors its
+draft's path, and one opened under a different name is found by nothing
+later. Fill in `scope.md`'s **Reader**, **Covers**, **Does not cover** and
+**Glossary** now, while you are deciding them; Phase 4 fixes the final
+reader sentence and glossary and updates that same file. `init` also
+stamps the corpus fingerprint, which is what lets a later revision tell
+whether the ledger has moved since. It only creates files that are
+missing, so re-running it can't overwrite what you've filled in.
+
+Then run 1-2 broad retrieval calls on the topic itself and skim what the corpus
 actually returns -- titles, sub-fields, recurring angles. Derive 1-2
 **corpus-specific** personas from what's actually there, for `standard`/
 `deep` depth (skip for `quick`). Then map the remaining slots onto these
@@ -126,6 +202,12 @@ depth). Each returns: core position, grounded key claims cited by real
 citekey, an only-this-perspective insight, strongest evidence, open
 questions, and the citekeys consulted.
 
+**Transcribe every packet into the dossier before starting Phase 3** --
+kept claims and their citekeys into `evidence.md`, the packet's discarded
+citekeys into `rejected.md` with the query and the reason. The
+interviewers cannot do this for you, and six packets sitting in your
+context are not a record.
+
 No web fallback: if a perspective's searches turn up nothing relevant after
 reasonable reformulation, that's a real "thin coverage" finding to report,
 not something to paper over.
@@ -145,6 +227,11 @@ why a citekey is already the stable, project-wide identifier.
 4. **Universal agreement** -- what every perspective's findings agree on.
 5. **The blind spot** -- what no perspective's searches turned up at all.
 
+Record the contradictions in `evidence.md` beside the citekeys they
+concern, and the blind spot in `scope.md`'s **Does not cover**. Both are
+findings of this run that the report's own prose states only in passing,
+and a revision that doesn't know about them will smooth them over.
+
 ## Phase 4 -- Outline
 
 Sketch a draft outline from general topic knowledge, then refine using the
@@ -156,6 +243,11 @@ parallel: **the reader** (who this report is for, one concrete sentence --
 see `docs/WRITING-STANDARDS.md` §1) and **the glossary** (each recurring term
 with the one definition every section writer must use). Pass both to every
 dispatched writer alongside their section fragment and citekeys.
+
+Update `scope.md`'s **Reader** and **Glossary** with what you settle on
+here, over the provisional versions from Phase 1, and hand the writers the
+glossary from that file. One glossary, in one place: a second copy kept
+only in this conversation is the drift Phase 4 exists to prevent.
 
 ## Phase 5 -- Cited section writing (parallel)
 
@@ -170,6 +262,10 @@ inline. Cap concurrency per `reference.md` §1.
 Inline `[@citekey]` citations, neutral tone, every sentence grounded, no
 per-section reference list. A writer may re-search a thin subpoint -- only
 against this project's corpus, never inventing a citekey.
+
+When the writers return, copy each `### Sources added` block into
+`evidence.md` yourself, with why the writer kept it. These are citekeys
+that never passed through Phase 2, so nothing else in the run has them.
 
 ## Phase 6 -- Polish + synthesis briefing
 
@@ -235,7 +331,10 @@ Synthesis briefing -> article body -> Contradiction map -> Peer-review
 scorecard -> References (citekeys with title/year from the ledger, not URLs).
 
 **(c) Log provenance and gate.** Write `content/provenance/<slug>.json`
-covering every section's citekeys. Then:
+covering every section's citekeys. This is the machine record, and it is
+not the dossier: the JSON maps section -> citekey for tooling, while the
+dossier holds the working state a human or a later revision reads. Write
+both. Then:
 ```
 python -m src.citation_gate <output-file>
 ```
@@ -264,12 +363,34 @@ itself keeps its `[@citekey]` markers.
 This needs only bare `python3` plus `pandoc`/`pdflatex` on PATH — no enrich
 group required. If either command reports `[missing-binary]` or `[error]`,
 print a one-line warning in chat with that message and continue anyway —
-a rendering failure never blocks presenting the `.md` report. Give the
-user: headline finding, the single most important contradiction, the
-actionable insight, the overall grade, any unresolved peer-review concern
-left in the scorecard, the citekey count, the saved path, and the render
-outcome (paths to the `.tex`/`.pdf` if they succeeded, or the warning if
-not).
+a rendering failure never blocks presenting the `.md` report.
+
+**(e) Close the dossier.** Two things are still only in this conversation:
+
+- **The section map.** Fill in `sections.md` -- one row per section
+  heading with the citekeys cited under it -- so a later revision can tell
+  which section owns a citation without reading the report.
+  `python3 -m src.dossier sections content/drafts/deep-research-<slug>.md`
+  prints the headings and their line ranges to build it from. It is the
+  same section -> citekey relation as (c)'s provenance JSON, written for
+  the reviser rather than for tooling.
+- **The steering.** If the user shaped this run in chat -- "drop the
+  adoption perspective", "shorter", "deep depth", "don't lead with
+  tooling" -- append it to `steering.md`, dated. It is invisible in the
+  prose and has nowhere else to live; a revision that doesn't know about
+  it will undo it.
+
+**(f) Present.** Give the user: headline finding, the single most
+important contradiction, the actionable insight, the overall grade, any
+unresolved peer-review concern left in the scorecard, the citekey count,
+the saved path, and the render outcome (paths to the `.tex`/`.pdf` if they
+succeeded, or the warning if not). Then tell them where the dossier is,
+that changes to this report should go through `draft-reviser` rather than
+another run of this skill -- seven phases and a dozen subagents is the
+wrong price for an edit -- and that `content/drafts/` and
+`content/dossiers/` are gitignored, so
+`python3 -m src.dossier export deep-research-<slug>` is how the report and
+its working state get backed up.
 
 ## Guardrails
 

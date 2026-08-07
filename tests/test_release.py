@@ -59,13 +59,15 @@ class TestGetVersion:
 
 
 class TestTrackedFiles:
-    def test_excludes_tests_and_developer_md(self, repo):
+    def test_excludes_tests_but_ships_developer_md(self, repo):
         paths = release.tracked_files()
         assert "README.md" in paths
         assert "src/foo.py" in paths
         assert "pyproject.toml" in paths
         assert not any(p.startswith("tests/") for p in paths)
-        assert "DEVELOPER.md" not in paths
+        # Every prose doc ships. What stays behind is this repo's own
+        # machinery -- tests/, bench/, .github/ and .gitignore.
+        assert "DEVELOPER.md" in paths
 
     def test_excludes_github_and_gitignore(self, repo):
         paths = release.tracked_files()
@@ -103,15 +105,15 @@ class TestBuildRelease:
 
         assert zip_path == repo / "release" / "chitragupta-9.9.9.zip"
         assert zip_path.exists()
-        assert n_files == 6  # README.md, SOUL.md, AGENTS.md, DEVELOPER-AGENTS.md,
-        #                      pyproject.toml, src/foo.py
+        assert n_files == 7  # README.md, SOUL.md, AGENTS.md, DEVELOPER-AGENTS.md,
+        #                      DEVELOPER.md, pyproject.toml, src/foo.py
 
         with zipfile.ZipFile(zip_path) as zf:
             names = set(zf.namelist())
         assert "chitragupta-9.9.9/README.md" in names
         assert "chitragupta-9.9.9/src/foo.py" in names
         assert not any("tests/" in n for n in names)
-        assert not any(n.endswith("DEVELOPER.md") for n in names)
+        assert any(n.endswith("/DEVELOPER.md") for n in names)
 
     def test_zip_excludes_github_and_gitignore(self, repo):
         import zipfile
@@ -158,7 +160,7 @@ class TestBuildRelease:
 
         zip_path, n_files = release.build_release()
 
-        assert n_files == 6
+        assert n_files == 7
         assert not stale_staging.exists()
 
 
