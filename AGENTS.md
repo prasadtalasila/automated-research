@@ -3,10 +3,12 @@
 Guidance for coding agents (and anyone else) **using this pipeline to
 draft content**.
 
-> **Changing code in this repository, rather than drafting with it? Read
-> [DEVELOPER-AGENTS.md](DEVELOPER-AGENTS.md) first -- it governs.** Test
-> policy, the local check suite, commit/PR/release conventions and the
-> environment constraints all live there.
+> **Changing chitragupta's own code, rather than drafting with it?**
+> `DEVELOPER-AGENTS.md` governs: test policy, the local check suite,
+> environment constraints, and commit/PR/release conventions. It lives in
+> the source repository only and is deliberately **not** in the release
+> archive -- if you unzipped a release to use the pipeline, that file is
+> not missing, it just doesn't apply to you.
 
 [SOUL.md](SOUL.md) is the one-page why behind everything below. When this
 file and that one seem to disagree, that one is the tie-breaker.
@@ -73,12 +75,6 @@ does not, and must not, parse `bibliography.bib` itself. The one thing
 that legitimately reads the bib file directly is pandoc's `--citeproc`,
 which is not this codebase.
 
-**Content written before 2026-07-28 may cite keys in an older,
-now-invalid format** (e.g. `talasila2025composable` instead of
-`talasila_composable_2025`). Those citations are stale and will fail the
-gate -- that's expected, not a regression; re-cite using whatever is
-actually in `bibliography.bib`.
-
 To add papers: add them in your reference manager, re-export
 `bibliography.bib`, re-run `python -m src.sync`. There is no
 watch/auto-export step here.
@@ -127,8 +123,8 @@ extreme -- see `src/ledger.py`'s `prune_missing`.
   the *corpus* layer rather than the drafting one -- nothing in it is
   generative, everything it writes is a corpus artefact, and it takes the
   same write lock as `sync` for that reason. Run by a human, never by a
-  skill. Its internals are in
-  [DEVELOPER-AGENTS.md](DEVELOPER-AGENTS.md).
+  skill. Its internals are in `DEVELOPER-AGENTS.md` (source repository
+  only).
 - **Ad-hoc review aids** (`src/citation_provenance.py`,
   `scripts/verbatim_check.py`, `src/citation_coverage.py`): in no layer --
   run by hand when reviewing a draft, never invoked automatically, never
@@ -172,5 +168,5 @@ as hardcoded values in `config.py`.
 
 `python -m src.citation_gate` needs no venv -- it only reads
 `content/ledger.sqlite` through stdlib `sqlite3` and runs with bare
-`python3`. `python -m src.sync` does need the venv; see
-[DEVELOPER-AGENTS.md](DEVELOPER-AGENTS.md).
+`python3`. `python -m src.sync` does need the venv, and must be run
+through the installed one rather than the bare system interpreter.
