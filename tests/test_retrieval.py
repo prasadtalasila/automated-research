@@ -46,10 +46,11 @@ class TestSnippet:
         """`terms` is a set and string hashing is randomised per process,
         so anything that iterates it and stops at the first hit returns a
         different snippet run to run. That was tolerable at a 500-char
-        window and not tolerable once `triage` made a 160-char window the
-        sole basis for rejecting a candidate: it made the rejection
-        irreproducible. Run in subprocesses because PYTHONHASHSEED is read
-        at interpreter start."""
+        window and not tolerable at the short windows an earlier version
+        of this module rejected candidates on -- there it made the
+        rejection itself irreproducible (docs/REJECTION.md). Run in
+        subprocesses because PYTHONHASHSEED is read at interpreter
+        start."""
         program = (
             "from src import retrieval;"
             "text = 'ABSTRACT twin ' + 'x '*400 + ' MIDDLE greenhouse ' "
@@ -321,26 +322,6 @@ class TestWindows:
         assert len(retrieval._windows(text, {"term"}, 30, 3)) == 3
 
 
-class TestTriage:
-    def test_returns_a_shorter_snippet_than_search(self, ledger_con, tmp_path):
-        parsed = tmp_path / "a2024.txt"
-        parsed.write_text("digital twin " + "context " * 500)
-        ledger.upsert_reference(ledger_con, make_reference(citekey="a2024", title="A Twin"))
-        ledger.mark_parsed(ledger_con, "a2024", parsed)
-
-        (triaged,) = retrieval.triage("digital twin", k=5)
-        (searched,) = retrieval.search("digital twin", k=5)
-        assert len(triaged.snippet) < len(searched.snippet)
-        assert len(triaged.snippet) <= retrieval.TRIAGE_CHARS
-
-    def test_ranks_identically_to_search(self, ledger_con):
-        for key, title in [("a2024", "Digital Twin Digital"), ("b2024", "Digital Overview")]:
-            ledger.upsert_reference(ledger_con, make_reference(citekey=key, title=title))
-        assert [r.citekey for r in retrieval.triage("digital twin", k=5)] == [
-            r.citekey for r in retrieval.search("digital twin", k=5)
-        ]
-
-
 class TestEvidence:
     def _seed(self, con, tmp_path, text, citekey="a2024"):
         parsed = tmp_path / f"{citekey}.txt"
@@ -387,14 +368,14 @@ class TestCli:
         ledger.upsert_reference(con, make_reference(citekey="a2024", title="Twin Patterns"))
         ledger.mark_parsed(con, "a2024", parsed)
 
-    def test_triage_prints_candidates_and_the_reject_only_warning(
+    def test_search_prints_candidates_and_points_at_evidence(
         self, ledger_con, tmp_path, capsys
     ):
         self._seed(ledger_con, tmp_path)
-        assert retrieval.main(["triage", "digital twin architecture"]) == 0
+        assert retrieval.main(["search", "digital twin architecture"]) == 0
         out = capsys.readouterr().out
         assert "a2024" in out
-        assert "Do not cite from a triage snippet" in out
+        assert "evidence --citekey" in out
         assert "characters returned" in out
 
     def test_evidence_prints_passages(self, ledger_con, tmp_path, capsys):
@@ -409,12 +390,12 @@ class TestCli:
         assert "not in the ledger" in capsys.readouterr().err
 
     def test_no_ledger_exits_nonzero_with_the_fix(self, isolated_config, capsys):
-        assert retrieval.main(["triage", "anything"]) == 1
+        assert retrieval.main(["search", "anything"]) == 1
         assert "src.sync" in capsys.readouterr().err
 
     def test_no_results_is_not_an_error(self, ledger_con, tmp_path, capsys):
         self._seed(ledger_con, tmp_path)
-        assert retrieval.main(["triage", "quantum chromodynamics"]) == 0
+        assert retrieval.main(["search", "quantum chromodynamics"]) == 0
         assert "No results." in capsys.readouterr().out
 
     def test_log_records_the_call_in_the_dossier(self, ledger_con, tmp_path, capsys):
@@ -426,7 +407,7 @@ class TestCli:
         draft.write_text("# s\n")
 
         assert retrieval.main(
-            ["triage", "digital twin architecture", "--log", str(draft)]) == 0
+            ["search", "digital twin architecture", "--log", str(draft)]) == 0
         calls, chars = dossier.retrieval_cost(dossier.dossier_dir(draft))
         assert calls == 1 and chars > 0
         assert "Logged to" in capsys.readouterr().out
@@ -438,79 +419,34 @@ class TestCli:
         self._seed(ledger_con, tmp_path)
         stray = tmp_path / "stray.md"
         stray.write_text("# s\n")
-        assert retrieval.main(["triage", "digital twin", "--log", str(stray)]) == 0
+        assert retrieval.main(["search", "digital twin", "--log", str(stray)]) == 0
         captured = capsys.readouterr()
         assert "a2024" in captured.out
         assert "[not logged]" in captured.err
 
 
-class TestTwoStageCost:
-    """The claim `docs/RETRIEVAL.md` makes about when two-stage wins.
-
-    An earlier version defaulted to 3 windows of 700 characters, which
-    cost more than one-stage retrieval in every realistic scenario. These
-    pin the defaults to the arithmetic the documentation states, so the
-    claim and the code cannot drift apart silently.
-    """
-
-    def _one_stage(self, k=15):
-        return k * 500
-
-    def _two_stage(self, survivors, k=15):
-        return (k * retrieval.TRIAGE_CHARS
-                + survivors * retrieval.EVIDENCE_CHARS * retrieval.EVIDENCE_WINDOWS)
-
-    def test_wins_when_triage_rejects_most_candidates(self):
-        assert self._two_stage(survivors=3) < self._one_stage()
-
-    def test_loses_when_almost_everything_survives_triage(self):
-        """Documented, not a bug -- and the reason the skills say to
-        reject hard at stage one."""
-        assert self._two_stage(survivors=8) > self._one_stage()
-
-    def test_a_triage_window_is_well_under_a_search_snippet(self):
-        assert retrieval.TRIAGE_CHARS < 500 / 2
+class TestDocsQuoteTheActualDefaults:
+    """docs/CLI.md and docs/RETRIEVAL.md spell these numbers out in prose,
+    and prose does not fail a build when a constant moves. Review caught
+    that drift twice on this work -- CLI.md said 700 after the default
+    became 600, then said 3 windows after the default became 2 -- so the
+    quoted values are pinned to the constants rather than trusted."""
 
     def test_the_docs_quote_the_actual_defaults(self):
-        """docs/CLI.md and docs/RETRIEVAL.md both spell these numbers out
-        in prose, and prose does not fail a build when a constant moves.
-        Review caught exactly this drift on the previous PR (CLI.md still
-        said 700 after the default became 600), so the quoted values are
-        pinned to the constants here rather than trusted."""
         cli = (config.REPO_ROOT / "docs" / "CLI.md").read_text(encoding="utf-8")
         chars_row = next(line for line in cli.splitlines() if "`--chars N`" in line)
-        assert f"{retrieval.TRIAGE_CHARS} / {retrieval.EVIDENCE_CHARS} / 500" in chars_row
-
-        k_row = next(line for line in cli.splitlines() if "`--k N`" in line)
-        assert "15 / 5" in k_row
+        assert f"{retrieval.EVIDENCE_CHARS} / 500" in chars_row
 
         windows_row = next(line for line in cli.splitlines() if "`--windows N`" in line)
         assert f"| {retrieval.EVIDENCE_WINDOWS} |" in windows_row
 
-        # The subcommand table states the same number in prose, and the
-        # first version of this guard checked only the flag row -- review
-        # caught the description still saying "the 3 passages".
         evidence_row = next(
             line for line in cli.splitlines() if '`evidence "<query>" --citekey KEY`' in line
         )
         assert f"{retrieval.EVIDENCE_WINDOWS} by default" in evidence_row
 
         retr = (config.REPO_ROOT / "docs" / "RETRIEVAL.md").read_text(encoding="utf-8")
-        assert f"{retrieval.TRIAGE_CHARS} chars" in retr
-        assert f"{retrieval.EVIDENCE_WINDOWS} x {retrieval.EVIDENCE_CHARS} chars" in retr
-
-    def test_the_documented_break_even_table_is_arithmetically_right(self):
-        """The RETRIEVAL.md table states four payload figures. They are the
-        argument for the defaults, so they are checked rather than
-        asserted -- the previous defaults (3 x 700) lost to one-stage in
-        every row and the prose had not noticed."""
-        retr = (config.REPO_ROOT / "docs" / "RETRIEVAL.md").read_text(encoding="utf-8")
-        per_survivor = retrieval.EVIDENCE_CHARS * retrieval.EVIDENCE_WINDOWS
-        triage = 15 * retrieval.TRIAGE_CHARS
-        assert f"15 x 500 = **{15 * 500:,}**" in retr
-        for survivors in (3, 5, 8):
-            total = triage + survivors * per_survivor
-            assert f"{triage:,} + {survivors} x {per_survivor:,} = **{total:,}**" in retr
+        assert f"{retrieval.EVIDENCE_WINDOWS} x {retrieval.EVIDENCE_CHARS} characters" in retr
 
 
 class TestLogNeverFailsTheSearch:
@@ -540,7 +476,7 @@ class TestLogNeverFailsTheSearch:
 
         monkeypatch.setattr(dossier, "log_retrieval", boom)
 
-        assert retrieval.main(["triage", "digital twin", "--log", str(draft)]) == 0
+        assert retrieval.main(["search", "digital twin", "--log", str(draft)]) == 0
         captured = capsys.readouterr()
         assert "a2024" in captured.out, "the retrieval results must still be printed"
         assert "[not logged]" in captured.err

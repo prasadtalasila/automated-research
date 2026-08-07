@@ -1,6 +1,6 @@
 ---
 name: survey-writer
-description: Drafts a topic-clustered literature survey / background section / "state of the art" from the synced corpus, with a comparison table and a gap analysis. Every claim is grounded in a citekey pulled from content/ledger.sqlite via the two-stage retrieval read (src.retrieval triage, then evidence) -- never a fabricated one. Triggers when the user asks to write, draft, or update a survey paper, literature review, background section, or related-work section for a given topic. Must run `python -m src.citation_gate` on its own output and only present the draft once it passes. Refuses (and tells the user to run `python -m src.sync` first) if the ledger is empty.
+description: Drafts a topic-clustered literature survey / background section / "state of the art" from the synced corpus, with a comparison table and a gap analysis. Every claim is grounded in a citekey pulled from content/ledger.sqlite via src.retrieval -- never a fabricated one. Triggers when the user asks to write, draft, or update a survey paper, literature review, background section, or related-work section for a given topic. Must run `python -m src.citation_gate` on its own output and only present the draft once it passes. Refuses (and tells the user to run `python -m src.sync` first) if the ledger is empty.
 tags: [survey, literature-review, citation]
 ---
 
@@ -17,10 +17,10 @@ layer: deterministic, safe to run unattended).
 - `papers/bibliography.bib` (gitignored, per-host) -- the source of truth for citekeys/metadata;
   `sync` reads it, it is never regenerated
 - `content/parsed/<citekey>.txt` -- extracted PDF text
-- `src/retrieval.py` -- two-stage: `python3 -m src.retrieval triage "<q>" --k 15`
-  to rule candidates out, then `... evidence "<q>" --citekey <key>` on the
-  survivors. `search` (one-stage, 500-char snippets) still exists for a
-  narrow lookup where you expect to keep most of what you get
+- `src/retrieval.py` -- `python3 -m src.retrieval search "<q>" --k 15`, which
+  returns a citekey, title, score and a 500-character snippet per candidate.
+  `... evidence "<q>" --citekey <key>` reads more of one document when a
+  snippet is not enough to judge it
 
 ## The dossier: write down what produced the draft
 
@@ -106,48 +106,37 @@ collapse them for the sake of a cleaner narrative.
    **Glossary** now, while you are deciding them. `init` also stamps the
    corpus fingerprint, which is what lets a later revision tell whether
    the ledger has moved since.
-1. **Triage broadly, on a window sized to reject.** Break the requested topic
+1. **Retrieve broadly, over-fetching on purpose.** Break the requested topic
    into 2-4 sub-themes if it's broad. For each:
    ```
-   python3 -m src.retrieval triage "<sub-theme>" --k 15 --log content/drafts/<slug>.md
+   python3 -m src.retrieval search "<sub-theme>" --k 15 --log content/drafts/<slug>.md
    ```
-   Over-fetch on purpose -- pull more candidates than you expect to use. The
-   snippet is short (160 characters) because **this stage exists to rule
-   candidates out, not to accept them.** A title plus a short window is
-   usually enough to see that a paper merely shares vocabulary with the
-   query; it is never enough to cite from. This is a keyword-overlap ranker,
-   not embeddings (unless `src/enrich/embed_index.py` has been built for this
-   corpus) -- a high score is a proxy for relevance, not a judgment of it.
+   Pull more candidates than you expect to use. This is a keyword-overlap
+   ranker, not embeddings (unless `src/enrich/embed_index.py` has been built
+   for this corpus) -- a high score means the query's words are in the
+   document, not that it supports your claim.
 
    `--log` records the call's size in the dossier's `retrieval.md`, which is
    what makes the cost of a run measurable instead of estimated. Pass it on
    every call.
-2. **Fetch evidence for the survivors only, then score them.** For each
-   candidate you could not rule out:
+2. **Score every candidate yourself before it counts as evidence.** Read the
+   full snippet -- 500 characters, sized so you have enough to judge and not
+   just a title -- and decide: does this actually support a claim about the
+   sub-theme, or did it just share vocabulary with the query? Keep only the
+   ones that pass. This is the discipline PaperQA2 calls "gather evidence"
+   (retrieve, then judge relevance, *then* write); the difference here is you
+   judge inline rather than via a second API call.
+
+   Where a snippet is not enough to decide on a source you are minded to
+   keep, read more of that one document:
    ```
    python3 -m src.retrieval evidence "<sub-theme>" --citekey <key> --log content/drafts/<slug>.md
    ```
-   This returns the passages of that document that actually bear on the
-   query, chosen for the query rather than anchored wherever the first term
-   happened to appear -- so it can reach a passage late in a long paper,
-   which a ranked snippet cannot.
-
-   **Reject hard at stage 1.** The two-stage read only comes out cheaper
-   than the one-stage one if triage does most of the rejecting; if you pass
-   most candidates through to `evidence`, you have paid for both windows on
-   the same document and it costs *more*. `docs/RETRIEVAL.md` has the
-   break-even arithmetic. Passing a candidate to stage 2 is a decision, not
-   a default.
-
-   Now decide, against the real passages: does this source actually support a
-   claim about the sub-theme? Keep only the ones that pass. This is the same
-   discipline PaperQA2 calls "gather evidence" (retrieve, then LLM-judge
-   relevance, *then* write) -- the difference here is you're doing the judging
-   inline as part of drafting, not via a second API call.
-
-   **Never promote a candidate to evidence from a triage snippet.** If you
-   did not run `evidence` on it, it is not evidence. Treat a citekey that
-   didn't pass this filter as unused, however high it ranked.
+   Use it to be **more careful about something you are about to cite** -- not
+   as a routine second pass over everything. `docs/REJECTION.md` explains why
+   the reverse, a cheap screen used to reject faster, was tried and withdrawn:
+   a wrong rejection is invisible, unrecoverable, and then entrenched in
+   `rejected.md`, which later revisions are told to trust.
 
    **Record both outcomes in the dossier before you start drafting prose**,
    while the passages are still in front of you:
@@ -165,11 +154,12 @@ collapse them for the sake of a cleaner narrative.
    piece of repeated work in this pipeline.
 2a. **On a broad topic, put steps 1-2 behind a subagent.** Dispatch one
    `general-purpose` subagent per sub-theme, all in one message, each told to
-   run the triage/evidence loop above and return **only** the kept-evidence
+   run the retrieve-and-score loop above and return **only** the kept-evidence
    packet plus the rejected list -- never the raw candidates.
 
-   The reason is not parallelism, and this -- not the two-stage split -- is
-   where the reliable token saving is. Anything you read yourself stays in
+   The reason is not parallelism. This is where the reliable token saving is:
+   it costs nothing in retrieval quality, unlike trimming what you read.
+   Anything you read yourself stays in
    your context and is re-sent on every later turn of the run; anything a
    subagent reads is paid for once. Four sub-themes retrieved inline is tens
    of thousands of characters you will then carry through clustering,
@@ -180,7 +170,7 @@ collapse them for the sake of a cleaner narrative.
 3. **Reformulate and re-search if a sub-theme comes up thin.** A single
    query wording is not the ceiling -- if scoring leaves you with little or
    nothing for a sub-theme, try synonyms, broader/narrower terms, or an
-   adjacent concept, and triage again. Do this a few times before concluding
+   adjacent concept, and search again. Do this a few times before concluding
    "thin coverage" is real rather than a wording problem. Only after genuine
    reformulation attempts should you report a sub-theme as thin -- and then
    say so explicitly rather than padding it with uncited claims.

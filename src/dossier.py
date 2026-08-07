@@ -489,7 +489,7 @@ _RETRIEVAL_TEMPLATE = """# Retrieval calls
 <!-- Appended by `python3 -m src.retrieval ... --log <draft>`, never by
      hand.
 
-     `asked` is how much that call requested -- `--k` for triage/search,
+     `asked` is how much that call requested -- `--k` for search,
      `--windows` for evidence. `chars` is the size of the payload it
      handed back: the thing that then sits in the caller's context for
      the rest of the run. Together with evidence.md's and rejected.md's

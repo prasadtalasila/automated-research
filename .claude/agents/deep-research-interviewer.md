@@ -27,27 +27,32 @@ synced corpus, simulating one editorial angle on the topic.
 1. Generate one persona-specific question -- never repeat a question asked
    earlier in this interview; go deeper each round.
 2. Formulate up to 3 search-query reformulations of that question.
-3. Run each against this project's corpus, in two stages. First rule
-   candidates out on a short window:
+3. Run each against this project's corpus:
    ```
-   python3 -m src.retrieval triage "<query>" --k 15
+   python3 -m src.retrieval search "<query>" --k 15
    ```
-   Then, for the ones you could *not* rule out, read what actually supports
-   the claim:
-   ```
-   python3 -m src.retrieval evidence "<query>" --citekey <key>
-   ```
-   If `content/chroma/` exists (the embedding stack has been built for this
-   corpus), the semantic ranker replaces stage one:
+   or, if `content/chroma/` exists (the embedding stack has been built for
+   this corpus):
    ```
    python3 -c "from src.enrich import embed_index; [print(r) for r in embed_index.search('<query>', k=15)]"
    ```
-4. **Filter before using anything as evidence.** A triage hit is a
-   candidate, never evidence: it is a 160-character window, chosen so you
-   can reject cheaply, and rejecting is most of what you will do with it.
-   Judge relevance against the `evidence` passages instead, and discard what
-   doesn't genuinely support a claim. Never cite a citekey you only ever saw
-   in a triage snippet.
+   Where a 500-character snippet is not enough to decide on a source you
+   are minded to cite, read more of that one document:
+   `python3 -m src.retrieval evidence "<query>" --citekey <key>`.
+4. **Filter before using anything as evidence.** A hit is a candidate, not
+   evidence: a high score means the query's words are in the document, not
+   that it supports a claim. Judge each snippet yourself and discard what
+   doesn't genuinely support one.
+
+   **Do not economise here.** Your job is breadth -- finding what your
+   perspective sees that others don't, including sources that *disagree*
+   with each other, which is what Phase 3's contradiction map is built
+   from. Disagreement is usually stated in a discussion or limitations
+   section rather than near a keyword hit, so a source ruled out cheaply
+   is exactly the one the map needed. `docs/REJECTION.md` has the
+   reasoning; the short version is that this skill already pays for its
+   token efficiency by running you in a subagent, and should not buy more
+   of it with coverage.
 5. Answer using only what survived filtering, every sentence cited by its
    real citekey. If nothing relevant survives after reformulating, say so:
    "no appropriate answer can be formulated from this corpus" is a valid,

@@ -8,9 +8,11 @@ without re-running the pipeline that produced it.
 Related reading:
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) -- the three layers this sits inside.
-- [RETRIEVAL.md](RETRIEVAL.md) -- how the corpus is ranked, and the
-  two-stage `triage`/`evidence` read that keeps rejected candidates out of
-  the caller's context. That is the other half of this document's problem.
+- [RETRIEVAL.md](RETRIEVAL.md) -- how the corpus is ranked, and what a
+  snippet actually contains.
+- [REJECTION.md](REJECTION.md) -- why turning a source down is the
+  load-bearing judgment here, and the accounting behind a retrieval change
+  that was built and then withdrawn.
 - [CITATION-PROVENANCE.md](CITATION-PROVENANCE.md) -- the review aid that
   answers "does the cited paper actually say this?", which is a different
   question from anything here.
@@ -62,11 +64,10 @@ Nothing here counts tokens: the closest this repository gets is
 `retrieval.md`, which records the *character* payload of each retrieval
 call for one draft. Read the ratios, not the absolute numbers.
 
-This section describes the costs as they stood before the two changes
-documented here -- the dossier, and the two-stage retrieve in
-[RETRIEVAL.md](RETRIEVAL.md#two-stages-reject-cheaply-then-read-properly).
-It is kept in the present tense about the *mechanism* because the
-mechanism is what a reader needs to recognise the same pattern elsewhere.
+This section describes the costs as they stood before the dossier
+existed. It is kept in the present tense about the *mechanism*, because
+the mechanism is what a reader needs in order to recognise the same
+pattern elsewhere.
 
 The useful split is between two pools, because they are billed
 differently:
@@ -305,22 +306,21 @@ The reviser rebuilds the section map from the draft rather than trusting
 the file, and `src/citation_provenance.py` already reconciles a draft
 against its sources independently.
 
-**It does not itself cut what enters the orchestrator's context.** That
-is the other half of the problem, and it is handled by the two-stage
-retrieve in [RETRIEVAL.md](RETRIEVAL.md#two-stages-reject-cheaply-then-read-properly)
-rather than here: `triage` rules candidates out on a 160-character window,
-`evidence` reads the real supporting passages for the survivors only, and
-the genre skills put both behind a subagent boundary on a broad topic so
-the rejected four-fifths are paid for once instead of resident for the
-whole run. The dossier's job is the *structural* cost -- not re-running
-the pipeline at all -- and the two are complementary: the cheapest
-retrieval pass is still more expensive than the one you didn't have to
-make.
+**It does not itself cut what enters the orchestrator's context.** That is
+the other half of the problem, and the answer turned out not to be
+trimming what retrieval returns -- see [REJECTION.md](REJECTION.md) for
+why a cheaper first read was built and then withdrawn. What does work is
+the subagent boundary: a genre skill on a broad topic dispatches one
+subagent per sub-theme and keeps only the kept-evidence packet, so the
+candidates it discarded are paid for once instead of sitting resident for
+the whole run. The dossier's job is the *structural* cost -- not
+re-running the pipeline at all -- and the two are complementary: the
+cheapest retrieval pass is still more expensive than the one you didn't
+have to make.
 
 **It does not measure token counts directly.** `retrieval.md` records the
 character payload of each retrieval call, not tokens, and nothing records
 what the drafting turns themselves cost. That is enough to compare one
-run against another and to check whether two-stage retrieval actually
-paid off on a real corpus; it is not enough to put a number on a whole
-draft. The estimates in [Where the tokens go](#where-the-tokens-go)
+run against another on a real corpus; it is not enough to put a number on
+a whole draft. The estimates in [Where the tokens go](#where-the-tokens-go)
 remain estimates, and are labelled as such.

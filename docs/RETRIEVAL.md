@@ -92,98 +92,53 @@ keyed by a cheap per-document fingerprint (the parsed file's size and
 mtime, not its content), so a call only re-tokenizes documents whose text
 changed.
 
-### Two stages: reject cheaply, then read properly
+### One window chooser, shared and deterministic
 
-`search` answers "which documents, and roughly why" in one call, with a
-snippet long enough to accept a candidate on. That is the right shape when
-a caller keeps most of what it retrieves, and the wrong one when it keeps
-a fifth -- which is what the genre skills do. They over-fetch on purpose
-(`k=15`) and keep about three, so four out of five snippets are paid for
-in full, read once, rejected, and then carried in the caller's context for
-the rest of the run.
+A snippet used to be the window around the *first* occurrence of
+whichever query term came out of the term set first. Two things were
+wrong with that. A document mentioning a word in its abstract and
+discussing it forty thousand characters later was judged on the abstract.
+And because the term set is a Python `set`, whose iteration order depends
+on per-process string hashing, **the same query on the same document
+returned a different snippet run to run.**
 
-So the drafting path splits that into the two questions a caller actually
-asks in sequence:
-
-| Stage | Command | Window | What it is for |
-|---|---|---|---|
-| 1 | `python3 -m src.retrieval triage "<q>" --k 15` | 160 chars | **Ruling candidates out.** Never accept from this |
-| 2 | `python3 -m src.retrieval evidence "<q>" --citekey <key>` | 2 x 600 chars | What actually supports the claim, for survivors only |
-
-This argues against a rationale the genre skills used to state
-explicitly -- that 500 characters is deliberate, "enough to judge, not
-just a title". That rationale is right about *accepting* and wrong about
-*rejecting*. A title plus a short window is usually enough to see that a
-paper merely shares vocabulary with the query; it is never enough to cite
-from. Hence the asymmetry: stage one is documented as reject-only, and
-nothing may be promoted to evidence from a triage snippet.
-
-### Both stages read the same way, and that is the point
-
-`_snippet` used to anchor on the *first* occurrence of whichever query
-term came out of the term set first. Two things were wrong with that. A
-document mentioning a word in its abstract and discussing it forty
-thousand characters later was judged on the abstract. And because the
-term set is a Python `set`, whose iteration order depends on per-process
-string hashing, **the same query on the same document returned a
-different snippet run to run.**
-
-At a 500-character window that was a quality wobble. Once `triage` cut
-the window to 160 characters and made it the sole basis for *rejecting* a
-candidate, it meant the rejection itself was irreproducible: run the same
-triage twice, discard a different set of papers.
-
-So both stages now share one window chooser (`_windows`): candidate
+Both `search` and `evidence` now go through one chooser. Candidate
 windows are anchored on every occurrence of every term, scored by how
 many *distinct* query terms fall inside, de-overlapped, and returned in
-document order. A snippet is the best-covering passage rather than an
-arbitrary one, and the same passage every run.
+document order. Ties break on position. Nothing reads the set's order, so
+the result is deterministic by construction -- and it is the
+best-covering passage rather than an arbitrary one, so a passage late in
+a long paper is reachable.
 
-Splitting the read is what forced this. It puts the irreversible decision
-on the *smaller* window, so that window has to be the best one available
--- an earlier version of this had it exactly backwards, scoring windows
-properly for `evidence`, which only ever runs on candidates already
-accepted, while `triage` kept the arbitrary snippet.
+This mattered enough to fix on its own, and it mattered more than it
+looked: [REJECTION.md](REJECTION.md) describes an arrangement, since
+removed, in which a short window was the sole basis for *rejecting* a
+source. An irreproducible snippet there meant an irreproducible
+rejection.
 
-### What this saves, and what it doesn't
+### `evidence` -- zooming in on one document
 
-The arithmetic is easy to get backwards, so here it is. Per sub-theme at
-`k=15`, counting characters of payload reaching the caller:
+```bash
+python3 -m src.retrieval evidence "<query>" --citekey <key>
+```
 
-| | Payload | vs one-stage |
-|---|---|---|
-| One-stage `search` | 15 x 500 = **7,500** | -- |
-| Two-stage, 3 survive triage | 2,400 + 3 x 1,200 = **6,000** | -20% |
-| Two-stage, 5 survive | 2,400 + 5 x 1,200 = **8,400** | +12% |
-| Two-stage, 8 survive | 2,400 + 8 x 1,200 = **12,000** | +60% |
+Returns the passages of that one document which bear on the query --
+2 x 600 characters by default, more text than a snippet and chosen for
+the query rather than for where a term first appeared.
 
-**The saving is conditional on triage doing most of the rejecting.** If
-almost everything survives stage one, two-stage costs more than one-stage,
-because you have paid the triage window *and* the evidence read for the
-same document. That is why the genre skills are told to reject hard at
-triage rather than deferring the decision. (An earlier draft of this
-defaulted to three windows of 700 characters, which lost to one-stage in
-every scenario above; the defaults are 2 x 600 for that reason.)
+**It is a lookup, not a stage.** Nothing is obliged to call it; a caller
+satisfied by a `search` snippet is done. Use it when a snippet is not
+enough to judge a source you are minded to cite -- that is, to make an
+*acceptance* more careful. Being more careful about a source you are
+about to cite cannot lose you one you never saw, which is the direction
+that makes this safe. [REJECTION.md](REJECTION.md) has the argument for
+why the reverse -- using a cheap read to reject more -- was tried and
+withdrawn.
 
-What is unconditional is the reallocation. A candidate you turn down costs
-160 characters instead of 500. A candidate you keep is read with passages
-selected for the query instead of one window anchored wherever the first
-term hit. Spend moves off the material you discard and onto the material
-the draft is actually built from.
-
-The reliable *token* reduction is a level up from this module: putting
-both stages behind a subagent boundary, so none of it is resident in the
-orchestrator's context for the rest of the run. See
-[DRAFT-ITERATION.md](DRAFT-ITERATION.md#where-the-tokens-go) on the two
-pools, and `survey-writer` step 2a.
-
-Both stages take `--log <draft>`, which appends the call and the size of
-its payload to that draft's dossier (`retrieval.md` -- see
+Both subcommands take `--log <draft>`, which appends the call and the
+size of its payload to that draft's dossier (`retrieval.md` -- see
 [DRAFT-ITERATION.md](DRAFT-ITERATION.md)). That is what makes the cost of
 retrieval for a given draft a measurement rather than an estimate.
-
-`search` itself is unchanged and still exported: use it for a narrow
-lookup where you expect to keep most of what comes back.
 
 ## Embeddings -- a replacement for BM25, not an addition
 

@@ -146,14 +146,14 @@ def _snippet(text: str, terms: set[str], window: int = 500) -> str:
     whichever term came out of the `terms` set first -- and since string
     hashing is randomised per process, that made the same query on the
     same document return a different snippet run to run. Harmless-ish at
-    a 500-character window, where you get enough context either way. Not
-    harmless at all once `triage` shrank the window to 160 characters and
-    made it the sole basis for rejecting a candidate: it made the
-    rejection itself irreproducible.
+    a 500-character window, where you get enough context either way, and
+    not harmless at all at the short windows an earlier version of this
+    module rejected candidates on -- an irreproducible snippet there meant
+    an irreproducible rejection (docs/REJECTION.md).
 
-    So both stages now share `_windows`. A snippet is the best-covering
-    passage rather than an arbitrary one, and it is the same passage every
-    run.
+    Shared with `evidence` through `_windows`, so a snippet is the
+    best-covering passage rather than an arbitrary one, and the same
+    passage every run.
     """
     best = _windows(text, terms, width=window, count=1)
     if best:
@@ -315,77 +315,34 @@ def search(query: str, k: int = 5, snippet_chars: int = 500) -> list[SearchResul
     return results
 
 
-# The two-stage read
-# ------------------
+# Zooming in on one document
+# --------------------------
 #
-# `search` above answers "which documents, and roughly why" in one call,
-# with a snippet long enough to accept a candidate on. That is the right
-# shape when a caller keeps most of what it retrieves, and the wrong one
-# when it keeps a fifth: the genre skills over-fetch on purpose (k=15)
-# and keep about three, so four out of five snippets are paid for in
-# full, read once, rejected, and then carried in the caller's context for
-# the rest of the run.
+# `search` above answers "which documents, and roughly why", with a
+# snippet long enough to judge a candidate on. `evidence` answers the
+# question that comes after it for a document you have already decided is
+# worth the attention: "what in *this* paper actually bears on my query?"
 #
-# `triage` and `evidence` split that into the two questions a caller
-# actually asks in sequence. Triage answers "can I rule this out?" on a
-# short window; `evidence` answers "what exactly supports the claim?" on
-# the survivors only, and reads more of the document than `search` ever
-# did rather than less.
+# It is a lookup, not a stage. Nothing has to call it, and a caller that
+# is satisfied by a `search` snippet is done. That framing is deliberate
+# and was arrived at the hard way -- an earlier version of this module
+# made a short-window `triage` pass the mandatory first stage of drafting,
+# with `evidence` reserved for whatever survived it. docs/REJECTION.md is
+# the full reckoning; the short version is that it put an irreversible
+# decision (rejecting a source, which `rejected.md` then makes permanent)
+# on a third of the evidence, in exchange for a saving that was
+# conditional, unmeasured, and real for one genre out of five.
 #
-# Both stages read through `_windows`, which is the point rather than an
-# implementation detail. Splitting the read puts the irreversible
-# decision -- rejection -- on the *smaller* window, so that window has to
-# be the best-covering passage in the document and the same one every
-# run. An earlier version of this had it backwards: `evidence` scored
-# windows properly while triage inherited the old "first occurrence of an
-# arbitrary term" snippet, which is to say the stage that could not be
-# undone was the one reading the worse evidence.
-#
-# This does argue against a rationale the genre skills state explicitly
-# -- that 500 characters is deliberate, "enough to judge, not just a
-# title". That rationale is right about accepting and wrong about
-# rejecting. A title plus a short window is usually enough to see that a
-# paper merely shares vocabulary with the query; it is never enough to
-# accept one. So triage is documented as reject-only, and nothing may be
-# promoted to evidence from a triage snippet.
+# What survived that reckoning is here, because none of it needed the
+# split: the window chooser `_windows` (now shared with `_snippet`, and
+# the reason a snippet is deterministic at all), this CLI, `evidence`
+# itself, and `--log`. Used this way `evidence` deepens an *acceptance*
+# rather than cheapening a rejection, which is the safer direction: being
+# more careful about a source you are about to cite cannot lose you one
+# you never saw.
 
-#
-# What this does and does not save, since the arithmetic is easy to get
-# backwards. Per sub-theme at k=15, payload characters reaching the
-# caller: one-stage is a flat 15 x 500 = 7,500. Two-stage is
-# 15 x 160 = 2,400 plus the evidence read for however many candidates
-# survive triage. At the defaults below that is break-even at about five
-# survivors, roughly -20% at three, and *worse* than one-stage above
-# eight. An earlier version of this defaulted to 3 windows of 700, which
-# lost to one-stage in every case.
-#
-# So the saving is conditional on triage doing most of the rejecting,
-# which is why the genre skills are told to reject hard there. What is
-# unconditional is the reallocation: a candidate you turn down costs 160
-# characters instead of 500, and a candidate you keep is read with
-# passages chosen for the query rather than one window anchored on the
-# first term hit. The reliable *token* reduction comes from putting both
-# stages behind a subagent boundary, which is a skill-level change --
-# see docs/DRAFT-ITERATION.md's two pools.
-
-TRIAGE_CHARS = 160
 EVIDENCE_CHARS = 600
 EVIDENCE_WINDOWS = 2
-
-
-def triage(query: str, k: int = 15, snippet_chars: int = TRIAGE_CHARS) -> list[SearchResult]:
-    """Stage one: rank as `search` does, with a window sized to *reject* on.
-
-    **You may rule a candidate out from this. You may not cite from it.**
-    Anything that survives goes to `evidence()`, which reads the real
-    supporting text out of the document.
-
-    A triage snippet costs a little under a third of a `search` snippet,
-    so the more of your candidates you can reject here, the better the
-    two-stage read does against the one-stage one -- see the note above
-    for where the break-even sits.
-    """
-    return search(query, k=k, snippet_chars=snippet_chars)
 
 
 def evidence(
@@ -393,10 +350,10 @@ def evidence(
 ) -> list[str]:
     """Stage two: the passages of one document that bear on `query`.
 
-    Called only for candidates that survived `triage`. Returns rather
-    more text per document than a `search` snippet, and -- more to the
-    point -- text chosen for the query rather than one window anchored on
-    wherever the first term happened to appear. Returns `[]` for a
+    A lookup for one document you already care about, not a stage
+    anything is obliged to run: use it when a `search` snippet is not
+    enough to judge a source you are minded to cite. Returns more text
+    per document than a snippet, chosen for the query. Returns `[]` for a
     citekey with no parsed text: a source the corpus layer could not read
     is a real answer, not an error.
 
@@ -443,8 +400,8 @@ def evidence(
 # ---------------------------------------------------------------------
 
 
-def _print_triage(results: list[SearchResult]) -> int:
-    """One line per candidate. Returns the payload size in characters."""
+def _print_results(results: list[SearchResult]) -> int:
+    """One block per result. Returns the payload size in characters."""
     chars = 0
     for result in results:
         chars += len(result.snippet)
@@ -461,21 +418,20 @@ def main(argv: "list[str] | None" = None) -> int:
         prog="python3 -m src.retrieval",
         description="BM25 retrieval over the synced corpus. Read-only, takes no "
                     "lock, and runs with the bare system python3.",
-        epilog="Two-stage by default: `triage` to rule candidates out on a short "
-               "window, then `evidence` on the survivors only. Never cite from a "
-               "triage snippet.",
+        epilog="`search` ranks the corpus and hands back a snippet to judge each "
+               "candidate on. `evidence` zooms in on one document you already care "
+               "about. Neither is a stage: nothing has to call evidence.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_triage = sub.add_parser(
-        "triage", help="Stage one: rank candidates on a window sized to reject on")
-    p_triage.add_argument("query")
-    p_triage.add_argument("--k", type=int, default=15, help="Candidates to return (default 15)")
-    p_triage.add_argument("--chars", type=int, default=TRIAGE_CHARS,
-                          help=f"Snippet size (default {TRIAGE_CHARS})")
+    p_search = sub.add_parser(
+        "search", help="Rank the corpus and return a snippet per candidate")
+    p_search.add_argument("query")
+    p_search.add_argument("--k", type=int, default=5, help="Results to return (default 5)")
+    p_search.add_argument("--chars", type=int, default=500, help="Snippet size (default 500)")
 
     p_evidence = sub.add_parser(
-        "evidence", help="Stage two: the passages of one document that bear on the query")
+        "evidence", help="The passages of one document that bear on the query")
     p_evidence.add_argument("query")
     p_evidence.add_argument("--citekey", required=True)
     p_evidence.add_argument("--chars", type=int, default=EVIDENCE_CHARS,
@@ -483,13 +439,7 @@ def main(argv: "list[str] | None" = None) -> int:
     p_evidence.add_argument("--windows", type=int, default=EVIDENCE_WINDOWS,
                             help=f"Passages to return (default {EVIDENCE_WINDOWS})")
 
-    p_search = sub.add_parser(
-        "search", help="One-stage: rank and return an accept-sized snippet")
-    p_search.add_argument("query")
-    p_search.add_argument("--k", type=int, default=5, help="Results to return (default 5)")
-    p_search.add_argument("--chars", type=int, default=500, help="Snippet size (default 500)")
-
-    for each in (p_triage, p_evidence, p_search):
+    for each in (p_search, p_evidence):
         each.add_argument(
             "--log", metavar="DRAFT",
             help="Record this call in DRAFT's dossier (content/dossiers/...), so the "
@@ -515,17 +465,15 @@ def main(argv: "list[str] | None" = None) -> int:
             print(f"\n  {passage}")
         results, chars = len(passages), sum(len(p) for p in passages)
     else:
-        found = (triage if args.command == "triage" else search)(
-            args.query, k=args.k, snippet_chars=args.chars
-        )
+        found = search(args.query, k=args.k, snippet_chars=args.chars)
         if not found:
             print("No results.")
-        chars = _print_triage(found)
+        chars = _print_results(found)
         results = len(found)
-        if args.command == "triage" and found:
-            print("\n  Reject-only: rule candidates out from these, then run "
-                  "`evidence --citekey <key>` on the survivors. Do not cite from a "
-                  "triage snippet.")
+        if found:
+            print("\n  Judge each snippet yourself -- a high score means the query's "
+                  "words are in the document, not that it supports your claim. Run "
+                  "`evidence --citekey <key>` where a snippet is not enough to decide.")
 
     print(f"\n  {results} result(s), {chars:,} characters returned.")
     if args.log:

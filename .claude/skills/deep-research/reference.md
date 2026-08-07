@@ -17,9 +17,8 @@ deliberate, load-bearing deviation" note before reading further.
 | Generated perspectives | 5 + Basic fact writer | adapt names to the topic; drop one if it genuinely doesn't fit an academic corpus |
 | Interview rounds / persona | 2 / **3** / 4 (quick/standard/deep) | |
 | Search queries / question | up to 3 | reformulations, not parallel identical calls |
-| Candidates triaged / query | 15 (`retrieval triage`) | a 160-char window, for **ruling out** -- never cite from one |
-| Survivors read / query | ~top 3-5 (`retrieval evidence`) | reject hard at triage: two-stage only beats one-stage below ~5 survivors (docs/RETRIEVAL.md) |
-| Results kept / query | ~top 3 after relevance filtering | judged against `evidence` passages, not triage snippets, and not raw top-k |
+| Candidates retrieved / query | 15 (`retrieval search`) | 500-char snippets -- enough to judge, not just a title |
+| Results kept / query | ~top 3 after relevance filtering | filter like `survey-writer` step 2, not raw top-k |
 | Concurrency cap | ~8-10 subagents in flight at once | batch the rest sequentially |
 | Lead/summary length | <=4 paragraphs | |
 
