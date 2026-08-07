@@ -279,9 +279,23 @@ def gpu_state() -> "list[dict] | None":
     cards = []
     for line in out.strip().splitlines():
         index, used, util = (part.strip() for part in line.split(","))
-        cards.append({"index": int(index), "memory_used_mib": int(used),
-                      "utilisation_pct": int(util)})
+        # nvidia-smi reports "[N/A]" for a field it cannot read -- MIG
+        # devices and some driver/VM combinations do this routinely. An
+        # int() straight onto that raises ValueError, which this
+        # function's except clause does not catch, so a card in that
+        # state would take down the whole benchmark from inside an
+        # advisory metadata call.
+        cards.append({"index": _as_int(index), "memory_used_mib": _as_int(used),
+                      "utilisation_pct": _as_int(util)})
     return cards
+
+
+def _as_int(value: str) -> "int | None":
+    """int(value), or None for anything nvidia-smi could not report."""
+    try:
+        return int(value)
+    except ValueError:
+        return None
 
 
 def run_once(bib: Path, workers: int, gpus: int, cpus: "str | None",
@@ -394,11 +408,12 @@ def fingerprint(content_dir: Path) -> dict:
 
 
 def compare(left: dict, right: dict) -> dict:
-    """Which citekeys differ, at each of the two levels.
+    """Which citekeys differ, at each of the three levels.
 
     Only citekeys present in both are compared; a missing one is a failed
-    parse, which is a different problem and is reported separately rather
-    than counted as a difference.
+    parse, which is a different problem. It is recorded in `only_in_*`
+    and surfaced by `integrity_complaints`, because a comparison over a
+    partial corpus otherwise prints exactly what a clean one prints.
     """
     shared = sorted(set(left) & set(right))
     txt_diff, sidecar_diff, spans_diff, texts_diff = [], [], [], []
@@ -474,6 +489,63 @@ def self_check() -> None:
     assert require_sidecars([{"name": "t", "fingerprint": present}]) is None
 
 
+def integrity_complaints(runs: "list[dict]", comparisons: "list[dict]",
+                         expected_docs: int, repeat: int,
+                         gpu_counts: "list[int]") -> "list[str]":
+    """Everything that would make the table below a lie, in one place.
+
+    Each item here is the same failure shape as the missing-sidecar case
+    that `self_check` guards: a value recorded in the JSON, never looked
+    at, and capable of producing a row of zeros that reads exactly like a
+    clean result. `compared: 100` with three zeros is indistinguishable
+    from `compared: 100` where one arm crashed at document 40 -- unless
+    something says so.
+
+    Returned as a list rather than raised. The run's data is still worth
+    keeping when one of these fires; what must not happen is a reader
+    taking the summary at face value.
+    """
+    complaints = []
+    for run in runs:
+        if run["exit_code"] != 0:
+            complaints.append(
+                f"{run['name']}: sync exited {run['exit_code']} -- some documents "
+                f"failed to parse, so this arm's corpus is incomplete")
+        if run["parsed"] is None:
+            complaints.append(
+                f"{run['name']}: could not read a parsed count from sync's output "
+                f"(its summary wording may have changed)")
+        elif run["parsed"] != expected_docs:
+            complaints.append(
+                f"{run['name']}: parsed {run['parsed']} of {expected_docs} "
+                f"document(s) -- the comparison below covers only what both arms got")
+        missing = [k for k, v in run["fingerprint"].items() if not v["n_spans"]]
+        if missing:
+            complaints.append(
+                f"{run['name']}: {len(missing)} of {len(run['fingerprint'])} "
+                f"document(s) have no passage records (e.g. {', '.join(missing[:3])}) "
+                f"-- the sidecar/spans/texts columns are not evidence for those")
+    for c in comparisons:
+        if c["only_in_left"] or c["only_in_right"]:
+            complaints.append(
+                f"{c['left']}~{c['right']}: {len(c['only_in_left'])} document(s) only "
+                f"in the first and {len(c['only_in_right'])} only in the second; "
+                f"{c['compared']} compared. The arms parsed different corpora")
+    # Not data problems, but the two ways to run this and learn nothing.
+    # The docstring says --repeat 1 makes a result uninterpretable; better
+    # to say it at the point of use than to trust anyone read that far.
+    if repeat < 2:
+        complaints.append(
+            "--repeat 1: no same-configuration control, so a difference between "
+            "arms cannot be attributed to the varied axis rather than to the "
+            "parser being unstable run to run")
+    if len(gpu_counts) < 2:
+        complaints.append(
+            "one --gpus value: nothing varies between arms, so this measures "
+            "same-configuration stability only")
+    return complaints
+
+
 def require_sidecars(runs: "list[dict]") -> "str | None":
     """Complain if any run produced a document without passage records.
 
@@ -512,7 +584,9 @@ def main() -> int:
                     help="runs per configuration; >1 gives the same-config control")
     ap.add_argument("--cpus", default=None,
                     help="taskset CPU list, e.g. 0-23,48-71 -- pins allowed_cpus()")
-    ap.add_argument("--tag", required=True, help="names the output file")
+    ap.add_argument("--tag", required=True,
+                    help="names the output directory, bench/results/<tag>/, "
+                         "whose record is always repro.json")
     ap.add_argument("--python", default=".venv-full/bin/python")
     ap.add_argument("--keep", action="store_true",
                     help="keep every run's CONTENT_DIR (default: delete after fingerprinting)")
@@ -520,6 +594,14 @@ def main() -> int:
     args = ap.parse_args()
 
     self_check()
+    # Probed up front, not discovered on the first subprocess: without
+    # this the failure lands after an arm or two has already run, and the
+    # partial matrix is useless anyway.
+    if args.cpus and shutil.which("taskset") is None:
+        raise SystemExit(
+            "--cpus needs `taskset` (util-linux), which is not on PATH. Drop "
+            "--cpus to run on the ambient CPU mask -- but note the arms are "
+            "then only comparable if nothing else changes that mask mid-matrix.")
 
     gpu_counts = [int(g) for g in args.gpus.split(",")]
     out_dir = Path(args.out) if args.out else BENCH_DIR / "results" / args.tag
@@ -583,23 +665,24 @@ def main() -> int:
                                           by_name[right]["fingerprint"])})
 
     # Computed before the record is written, and stored in it: a reader
-    # coming back to repro.json months later needs to know the sidecar
-    # columns were evidence, without re-deriving it from the fingerprints.
-    complaint = require_sidecars(runs)
+    # coming back to repro.json months later needs to know the columns
+    # below were evidence, without re-deriving it from the fingerprints.
+    complaints = integrity_complaints(runs, comparisons, sample["documents"],
+                                      args.repeat, gpu_counts)
     payload = {
         "sample": sample,
         "workers": args.workers,
         "cpus_pinned": args.cpus,
         "gpu_counts": gpu_counts,
         "repeat": args.repeat,
-        "sidecar_complaint": complaint,
+        "integrity_complaints": complaints,
         "runs": runs,
         "comparisons": comparisons,
     }
     record_path = out_dir / "repro.json"
     record_path.write_text(json.dumps(payload, indent=1))
 
-    if complaint:
+    for complaint in complaints:
         print(f"\n  WARNING {complaint}")
 
     print(f"\n{'comparison':<28} {'docs':>5} {'.txt':>6} {'sidecar':>8} "

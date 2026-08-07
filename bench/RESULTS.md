@@ -596,36 +596,72 @@ the n=50 and n=100 samples, then measured *separately* as their own arm:
 they are the documents with the largest reference lists, so excluding
 them without checking would have let the exclusion decide the result.
 
-| Arm | Docs | Pages | same-config `.txt` | across-config `.txt` | across-config spans |
+Each pair is compared at three levels -- file bytes, passage *spans*
+(text, label, page) and passage *texts* alone -- because they do not
+agree, and only the last one is a changed quotation.
+
+| Arm | Docs | Pages | across `.txt` | across spans | across **texts** |
 |---|---|---|---|---|---|
 | n=50 trimmed | 50 | 848 | 0 | 0 | 0 |
-| n=100 trimmed | 100 | 1683 | 1 | 2 | 2 |
-| n=100 trimmed (repeat) | 100 | 1683 | 2 | 3 | 2 |
-| outliers only | 36 | 5590 | 0 | 1 | 1 |
+| n=100 trimmed | 100 | 1683 | 1 | 1 | 1 |
+| n=100 trimmed (independent repeat) | 100 | 1683 | 2 | 2 | 2 |
+| outliers only | 36 | 5590 | 1 | 1 | **0** |
 
-**Across-config: 6 of 286 documents differ (2.1%)**, 5 of 286 (1.7%) in
-their passage records -- consistent with the 6-of-501 (1.2%) above, so
-this replicates the phenomenon rather than contradicting it. Both
-populations show it: trimming was safe here, but only because the
-outlier arm was run.
+**Across-config, over 286 document comparisons: 4 differ in bytes
+(1.4%), 4 in passage spans (1.4%), and 3 in passage *text* (1.0%).**
+Consistent with the 6-of-501 (1.2%) above, so this replicates the
+phenomenon rather than contradicting it. Both populations show it:
+trimming was safe here, but only because the outlier arm was run.
+
+The gap between spans and texts is the whole reason for measuring both.
+Every difference in the outliers arm is a label or bounding-box change on
+byte-identical text -- real instability in Docling's classification, but
+**not** a changed quotation. Reporting the spans number as though it were
+the text number would have overstated the finding by a third.
+
+An earlier session on 2026-08-07, before the texts level existed, saw
+6/286 bytes and 5/286 spans -- roughly twice this session's byte rate.
+Two independent sessions differing about twofold at a ~1-2% base rate is
+what a low-rate stochastic effect looks like, and is the same caveat as
+["Power, stated plainly"](#power-stated-plainly) below. Only this
+session's records are committed, because the earlier ones predate the
+spans/texts split and cannot answer the question the table now asks.
 
 ### Correction: same-configuration runs do **not** reproduce exactly
 
 The section above states that "repeating a run at the same worker count
 reproduces exactly". That is false, and this is the measurement that
-falsifies it: **3 of 572 same-configuration document-comparisons differ
-(0.5%)**, in both n=100 runs independently. Every instance was at 4 GPUs;
-the single-GPU arm was clean in all four samples, over 286 comparisons.
+falsifies it: **5 of 572 same-configuration document-comparisons differ
+in bytes (0.9%), 4 in passage spans (0.7%), and 2 in passage text
+(0.3%)**. Every instance was at 4 GPUs; the single-GPU arm was clean in
+all four samples, over 286 comparisons. A same-configuration run
+therefore changes a quotable passage about once in every 300 documents --
+rarer than the across-config case, and not zero.
 
 So the axis is contention, not the *change* in contention -- a
 multi-GPU run disagrees with itself. Across-config is still ~4x more
-likely (2.1% vs 0.5%), so widening the concurrency delta does raise the
-rate; it does not create the effect.
+likely on text (1.0% vs 0.3%), so widening the concurrency delta does
+raise the rate; it does not create the effect.
 
 ### Three mechanisms, and only one of them matters
 
 Inspecting the kept bytes (`--keep`) separates cases that a byte-diff
-would have reported identically:
+would have reported identically. The excerpts below were captured from a
+kept parse in the earlier session; **the committed records reproduce all
+four documents independently, in the same three classes** -- which is
+checkable without the bytes, since each record names the differing
+citekeys at each of the three levels:
+
+| Document | Mechanism | In the records |
+|---|---|---|
+| `frasheri_addressing_2023` | reference entry splits | in `texts_differ` |
+| `noauthor_compilation_nodate` | two entries merge | in `texts_differ` |
+| `delhibabu_synthesis_2023` | label flip, text identical | in `spans_differ`, **not** `texts_differ` |
+| `zhang_digital-triplet_2024` | table regroups | in `txt_differ` only |
+
+A fifth, `noauthor_mqtt_2018`, appeared in this session's outliers arm as
+another label-only flip -- the same class, a document the earlier session
+did not surface, which is what a ~1% rate over a small sample looks like.
 
 **1. A reference entry splits or merges -- the quotation changes.** In
 `frasheri_addressing_2023`, between two runs of an *identical*
@@ -661,9 +697,10 @@ is the one case where the older "cosmetic" reading is exactly right.
 
 `content/parsed/<citekey>.passages.json` is **not** reproducible under
 docling, and not merely across configurations -- a multi-GPU run
-disagrees with itself at roughly 0.5% of documents, and with a
-differently-configured run at roughly 1.7%. Neither `--reparse` nor a
-fresh clone is guaranteed to reproduce a previously quoted span.
+disagrees with itself on the *text* of a passage at roughly 0.3% of
+documents, and with a differently-configured run at roughly 1.0% (1.4%
+if a label change counts). Neither `--reparse` nor a fresh clone is
+guaranteed to reproduce a previously quoted span.
 
 Unchanged by this: `pdftotext` output is byte-identical across runs, and
 the ledger rows are stable except `last_synced`. See
@@ -672,7 +709,7 @@ table this feeds.
 
 ### Power, stated plainly
 
-286 across-config comparisons at a ~2% rate is enough to establish that
+286 across-config comparisons at a ~1% rate is enough to establish that
 the effect exists and reaches the passage layer. It is **not** enough to
 put a tight interval on the rate, and a 0-of-50 arm is fully consistent
 with a 2% rate rather than evidence of stability. The three mechanisms

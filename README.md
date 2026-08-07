@@ -88,11 +88,12 @@ different input: `pdf_mtime_ns` legitimately changes, even for a
 byte-identical file.
 
 With the opt-in `docling` backend and a worker pool, it is not. Docling
-groups dense reference blocks slightly differently under load, so roughly
-2% of documents come back with different text, and about 1.7% with
-different *passage boundaries* -- which means the exact span quoted from
-a source can change between runs. Serial parsing (`[parser].workers = 1`,
-the default) has not been observed to vary.
+groups dense reference blocks slightly differently under load, so around
+1.4% of documents come back with different text and about 1% with a
+different *quotable passage* -- which means the exact span quoted from a
+source can change between runs. Two runs of the *same* configuration are
+not exempt, at roughly a third of that rate. Serial parsing
+(`[parser].workers = 1`, the default) has not been observed to vary.
 
 That is Docling's behaviour, not something this pipeline adds, and it
 cannot be switched off. If it matters to you, keep `workers = 1` or use

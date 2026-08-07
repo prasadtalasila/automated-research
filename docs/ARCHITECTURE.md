@@ -279,7 +279,7 @@ a specific span of a specific source.
 | `content/ledger.sqlite` rows | **Yes, except `last_synced`**, which is wall-clock and changes every run. `pdf_hash`, `status`, `parsed_path`, `failure_kind` and the bib columns are byte-stable |
 | `pdf_size`, `pdf_mtime_ns` | Stable only while the file is untouched. A re-export producing byte-identical PDFs with fresh mtimes changes `pdf_mtime_ns` -- which is what the stat-before-hash skip reads, so those documents are re-hashed (not re-parsed: the hash still matches) |
 | `content/parsed/<citekey>.txt`, `pdftotext` | **Yes** -- byte-identical, measured |
-| `content/parsed/<citekey>.txt`, `docling` | **No.** ~2% of documents differ between differently-configured runs, ~0.5% between two runs of the *same* configuration on multiple GPUs |
+| `content/parsed/<citekey>.txt`, `docling` | **No.** ~1.4% of documents differ between differently-configured runs, ~0.9% between two runs of the *same* configuration on multiple GPUs |
 | `content/parsed/<citekey>.passages.json` | **No**, and this is the one that matters -- see below |
 | `content/rendered/*.md`, `*.tex` | **Yes** -- byte-identical, measured |
 | `content/rendered/*.pdf` | **No.** pdflatex embeds a creation timestamp and a trailer `/ID`; two renders of identical input differ. `SOURCE_DATE_EPOCH`/`FORCE_SOURCE_DATE` does *not* make them identical |
@@ -292,10 +292,14 @@ a specific span of a specific source.
 Docling groups dense reference blocks into elements slightly differently
 under contention, and `src/passages.py` writes **one passage record per
 element**. So the instability does not stop at byte offsets: measured
-over 286 across-configuration document comparisons, **5 (1.7%)** differed
-in their passage records, and the observed mechanisms include a
-bibliography entry splitting in two (leaving a reference truncated before
-its publisher and pages) and two entries merging into one.
+over 286 across-configuration document comparisons, **4 (1.4%)** differed
+in their passage records and **3 (1.0%)** in the passage *text* itself --
+the gap being label changes on byte-identical text, which are real
+instability but not a changed quotation. The observed text-level
+mechanisms are a bibliography entry splitting in two (leaving a reference
+truncated before its publisher and pages) and two entries merging into
+one. Same-configuration runs are not exempt: 2 of 572 comparisons (0.3%)
+changed a passage's text.
 
 Two consequences worth stating plainly:
 
