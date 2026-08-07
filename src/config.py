@@ -293,6 +293,41 @@ PARSE_LONG_WORD_RATIO = _get_float("PARSE_LONG_WORD_RATIO", "parser", "long_word
 # cover page, or a scan that yielded almost no text).
 PARSE_MIN_TOKENS = int(_get_float("PARSE_MIN_TOKENS", "parser", "min_tokens", default=200))
 
+
+def _get_log_level(env_var: str, *toml_path: str, default: str) -> str:
+    """One of LOG_LEVELS, case-insensitive on input, canonical on output.
+
+    Own loader rather than a bare _get, same reasoning as
+    _get_start_method: a typo ("WARN" instead of "WARNING") is reported
+    here, naming the alternatives, instead of surfacing later as a
+    logging module error once a handler is already being configured.
+    """
+    raw = _get(env_var, *toml_path, default=default).strip().upper()
+    if raw not in LOG_LEVELS:
+        raise ValueError(
+            f"{'/'.join(toml_path)} (or {env_var}) must be one of "
+            f"{', '.join(LOG_LEVELS)}, not {raw!r}."
+        )
+    return raw
+
+
+# How much python -m src.sync writes to logs/sync.log (see LOGS_DIR
+# below) -- one of the standard library's own level names. Deliberately
+# the only [logging] setting: rotation size/backup count are fixed in
+# sync.py rather than exposed here, since nothing so far has needed them
+# to vary per host.
+LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+LOGGING_LEVEL = _get_log_level("LOGGING_LEVEL", "logging", "level", default="INFO")
+# No config.toml key, unlike the paths above -- a fixed, predictable
+# location alongside the source tree rather than another per-host
+# setting to document. Still an env-var override though, same mechanism
+# CONFIG_PATH above uses (plain os.environ.get, not _get, since there's
+# no [logging].dir to also check) -- every other path constant in this
+# file gets one, and a real subprocess CLI test needs to point this
+# somewhere other than this checkout's own logs/. Gitignored; see
+# src/sync.py for what lands here.
+LOGS_DIR = Path(os.environ.get("LOGS_DIR", str(REPO_ROOT / "logs")))
+
 # src/citation_provenance.py band thresholds: the fraction of a citing
 # sentence's distinctive words that must appear in the best-matching
 # source passage. Round numbers on purpose -- they set reading order for

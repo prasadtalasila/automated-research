@@ -211,6 +211,38 @@ class TestGetStartMethod:
             config._get_start_method("M", "parser", "start_method", default="auto")
 
 
+class TestGetLogLevel:
+    """[logging].level decides how much python -m src.sync writes to
+    logs/sync.log. A typo has to be rejected at load, naming the
+    alternatives, same reasoning as _get_start_method above."""
+
+    @pytest.fixture(autouse=True)
+    def _toml(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"logging": {}})
+
+    def test_missing_key_uses_default(self):
+        assert config._get_log_level("M", "logging", "level", default="INFO") == "INFO"
+
+    def test_value_from_toml(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"logging": {"level": "DEBUG"}})
+        assert config._get_log_level("M", "logging", "level", default="INFO") == "DEBUG"
+
+    @pytest.mark.parametrize("raw", ["warning", " WARNING "])
+    def test_case_and_space_insensitive(self, monkeypatch, raw):
+        monkeypatch.setenv("M", raw)
+        assert config._get_log_level("M", "logging", "level", default="INFO") == "WARNING"
+
+    def test_env_override_wins(self, monkeypatch):
+        monkeypatch.setattr(config, "_toml", {"logging": {"level": "DEBUG"}})
+        monkeypatch.setenv("M", "ERROR")
+        assert config._get_log_level("M", "logging", "level", default="INFO") == "ERROR"
+
+    def test_a_typo_is_rejected_with_the_alternatives(self, monkeypatch):
+        monkeypatch.setenv("M", "WARN")
+        with pytest.raises(ValueError, match="DEBUG, INFO, WARNING, ERROR, CRITICAL"):
+            config._get_log_level("M", "logging", "level", default="INFO")
+
+
 class TestModuleReloadWithEnvOverrides:
     """Full module-level reload, to cover the constant-computation lines
     themselves (BIB_FILE_PATH = REPO_ROOT / _get(...), etc.) under a real

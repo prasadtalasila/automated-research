@@ -67,18 +67,20 @@ collapse_citations = true
 # content/parsed/<citekey>.txt.
 #
 #   "pdftotext"  default -- fast, needs poppler-utils on PATH, no Python
-#                dependency, and the only backend whose output keeps page
-#                boundaries (form feeds between pages).
+#                dependency, native page boundaries (form feeds between
+#                pages).
 #   "docling"    best structural fidelity (reading order, sections,
-#                tables), needs the "enrich" dependency group.
+#                tables), needs the "enrich" dependency group. Its own
+#                output has no page boundaries, but src/pdf_text.py
+#                inserts the same form feeds explicitly, so
+#                scripts/verbatim_check.py's page locating and sync's
+#                pages/s summary line both work the same way regardless
+#                of backend.
 #
-# Two things to know before switching:
-#   - docling is roughly 42x slower than pdftotext, so a first sync over
-#     a large unparsed corpus is measured in tens of minutes, not
-#     seconds. Raise `workers` below to spread that across cores.
-#   - docling produces one continuous document with no page markers, so
-#     scripts/verbatim_check.py's page locating reports everything as
-#     page 1 for citekeys parsed with it.
+# One thing to know before switching: docling is roughly 42x slower than
+# pdftotext, so a first sync over a large unparsed corpus is measured in
+# tens of minutes, not seconds. Raise `workers` below to spread that
+# across cores.
 #
 # docs/PDF-PARSER.md compares them properly; docs/PERFORMANCE.md has the
 # timings.                                              Default: pdftotext
@@ -229,6 +231,17 @@ stall_timeout = 1800
 long_word_chars = 20
 long_word_ratio = 0.01
 min_tokens = 200
+
+[logging]
+# How much `python -m src.sync` writes to logs/sync.log (rotated,
+# gitignored -- created on first run). One of Python's own level names:
+# DEBUG, INFO, WARNING, ERROR, CRITICAL. Case-insensitive.
+#
+# Only affects the file. Terminal output (stdout/stderr) is unchanged by
+# this setting -- the per-document progress and summary lines print
+# exactly as they always have, regardless of level.
+#                                                            Default: INFO
+level = "INFO"
 
 [provenance]
 # src/citation_provenance.py bands the fraction of a citing sentence's

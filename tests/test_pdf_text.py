@@ -657,6 +657,31 @@ class TestParseQualityGuard:
         assert pdf_text.quality_warning(fused) is not None
 
 
+class TestPageCount:
+    """Both backends' output in content/parsed/ carries the same `\\f`
+    page-break markers -- pdftotext natively, docling via
+    _extract_docling's page_break_placeholder (see that function's own
+    docstring for the one way the two aren't quite identical)."""
+
+    def test_single_page_has_no_form_feed(self):
+        assert pdf_text.page_count("no page breaks here") == 1
+
+    def test_counts_one_more_than_form_feeds_between_pages(self):
+        """Docling's shape: a break between pages, none before the
+        first and none after the last."""
+        assert pdf_text.page_count("page one\fpage two\fpage three") == 3
+
+    def test_a_trailing_form_feed_does_not_inflate_the_count(self):
+        """pdftotext's shape: a break after *every* page, including the
+        last -- confirmed against real `pdftotext -layout` output, not
+        assumed. Naively doing count() + 1 on this would over-count a
+        3-page document as 4."""
+        assert pdf_text.page_count("page one\fpage two\fpage three\f") == 3
+
+    def test_empty_text_counts_as_one_page(self):
+        assert pdf_text.page_count("") == 1
+
+
 class TestAllowedCpus:
     def test_uses_affinity_when_available(self, monkeypatch):
         """os.cpu_count() reports the machine's CPUs; sched_getaffinity

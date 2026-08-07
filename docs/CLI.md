@@ -22,6 +22,7 @@ short path; this is the full set.
   - [`scripts/verbatim_check.py`](#scriptsverbatim_checkpy)
   - [`scripts/install_full_pipeline.sh`](#scriptsinstall_full_pipelinesh)
   - [`scripts/release.py`](#scriptsreleasepy)
+- [Running sync on a schedule](#running-sync-on-a-schedule)
 - [Environment variables](#environment-variables)
 
 ## Upgrading a corpus parsed by an earlier version
@@ -458,6 +459,93 @@ it ignores while building the archive anyway. Run it bare:
 
 `tests/`, `bench/`, `DEVELOPER.md`, `AGENTS.md`, `.github/` and
 `.gitignore` are excluded from the archive; `docs/` ships.
+
+## Running sync on a schedule
+
+`python -m src.sync` is deterministic, idempotent, and takes its own
+write lock (`src.runlock`) -- it was already safe to run unattended.
+What makes it worth *actually* putting on a schedule is the other two
+things: exit codes an unattended caller can branch on without parsing
+any text, and `logs/sync.log` (rotated; see `[logging]` in
+`config.toml.example`) as a persistent transcript to check afterwards.
+
+**Don't hand-roll a log redirect for most of this.** `logs/sync.log`
+carries almost every warning, per-document progress line, and the run
+summary, at the level `[logging].level` sets -- a cron or systemd
+wrapper around this command doesn't need its own `>> some.log 2>&1` to
+get a durable record of those. Two messages are the exception and stay
+terminal-only by design: a docling worker's GPU-OOM fallback (runs in a
+child process with no route back to the file) and the Ctrl+C interrupt
+notice (runs in a signal handler, deliberately kept to a bare `print`).
+Both are rare and neither is the kind of thing a schedule needs to
+recover from unattended.
+
+**Exit codes are the API**, not the printed text:
+
+| Exit code | Meaning | What an unattended caller should do |
+|---|---|---|
+| `0` | Clean -- everything that needed parsing, parsed | Nothing |
+| `1` | At least one document failed, or a prior deterministic failure is still unresolved | Alert; `logs/sync.log`'s FAILED/WARNING lines name which citekey and why |
+| `2` | Another run already holds the write lock | Nothing -- expected under any schedule tight enough to overlap a slow run. The skipped cycle costs nothing; the next one picks up whatever this one would have |
+
+### cron
+
+```bash
+# crontab -e -- runs hourly, on the hour. cd into the repo first: sync
+# resolves config.toml and papers/bibliography.bib relative to it.
+0 * * * * cd /path/to/chitragupta && .venv-full/bin/python -m src.sync
+```
+
+cron's own default, with no `MAILTO` set, is to mail stdout/stderr to
+the crontab's owner -- which needs a working local MTA to go anywhere,
+and most hosts don't have one configured. `logs/sync.log` doesn't depend
+on any of that: it's a plain file, written every run regardless of mail
+setup.
+
+### systemd (service + timer)
+
+Two unit files, not one -- systemd's usual split between "what" and
+"when":
+
+```ini
+# /etc/systemd/system/chitragupta-sync.service
+[Unit]
+Description=Chitragupta corpus sync
+
+[Service]
+Type=oneshot
+WorkingDirectory=/path/to/chitragupta
+ExecStart=/path/to/chitragupta/.venv-full/bin/python -m src.sync
+# Exit 2 (another run still holds the lock) is an expected, harmless
+# outcome under this schedule, not a service failure -- don't let
+# systemd treat it as one.
+SuccessExitStatus=2
+```
+
+```ini
+# /etc/systemd/system/chitragupta-sync.timer
+[Unit]
+Description=Run chitragupta-sync.service hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now chitragupta-sync.timer
+journalctl -u chitragupta-sync.service   # systemd's own transcript,
+                                          # alongside logs/sync.log
+```
+
+Both assume a host where `.venv-full/` is already built (see
+[`scripts/install_full_pipeline.sh`](#scriptsinstall_full_pipelinesh)
+above) -- scheduling only runs what's already installed, it doesn't
+install anything itself.
 
 ## Environment variables
 

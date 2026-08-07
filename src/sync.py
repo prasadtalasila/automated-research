@@ -22,8 +22,11 @@ runs with the bare system interpreter.
 """
 
 import argparse
+import logging
+import logging.handlers
 import os
 import sys
+import time
 from collections import Counter
 from concurrent.futures import (FIRST_COMPLETED, ProcessPoolExecutor,
                                 ThreadPoolExecutor, wait)
@@ -31,6 +34,17 @@ from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 
 from src import bib_reader, config, dedup, ledger, pdf_text, runlock
+
+# A fixed name, not __name__: this module is also the CLI entrypoint
+# (python -m src.sync), and Python sets __name__ to "__main__" for
+# whichever module is run that way -- not "src.sync". A logger named
+# "__main__" would sit outside the "src" tree entirely, so
+# _configure_logging()'s logging.getLogger("src").setLevel(...) below
+# would silently never apply to it. Confirmed against a real `python -m
+# src.sync` run, not assumed: every test in this suite imports sync as a
+# plain submodule, where __name__ is already "src.sync" and this
+# distinction is invisible.
+logger = logging.getLogger("src.sync")
 
 # How many timed-out citekeys the summary names before falling back to
 # "(+N more)". Enough that the case worth naming -- a handful of long
@@ -72,7 +86,7 @@ def _executor_for(workers: int):
     if config.PARSER == "docling":
         ctx, complaint = pdf_text.process_pool_context()
         if complaint:
-            print(complaint, file=sys.stderr)
+            logger.warning(complaint)
         # Asked here rather than passed in because this is the one place
         # a docling pool is built, and because the answer is only true
         # for as long as it takes to start the workers -- another process
@@ -80,7 +94,7 @@ def _executor_for(workers: int):
         # for.
         devices, gpu_complaint = pdf_text.usable_devices()
         if gpu_complaint:
-            print(gpu_complaint, file=sys.stderr)
+            logger.warning(gpu_complaint)
         return ProcessPoolExecutor(
             max_workers=workers,
             mp_context=ctx,
@@ -142,23 +156,26 @@ def _as_they_land(futures, executor, stalled):
         done, pending = wait(pending, timeout=half, return_when=FIRST_COMPLETED)
         if not done and not warned and half is not None:
             warned = True
-            print(f"  WARNING no completions in {half:.0f}s; giving up at "
-                  f"{config.PARSER_STALL_TIMEOUT:.0f}s ([parser].stall_timeout). "
-                  f"{len(pending)} document(s) still running -- if this host is "
-                  "simply slow (CPU-only, OCR on, large scans), raise or disable "
-                  "that setting rather than letting the run be abandoned.",
-                  file=sys.stderr)
+            logger.warning(
+                "WARNING no completions in %.0fs; giving up at %.0fs "
+                "([parser].stall_timeout). %d document(s) still running -- if "
+                "this host is simply slow (CPU-only, OCR on, large scans), "
+                "raise or disable that setting rather than letting the run be "
+                "abandoned.",
+                half, config.PARSER_STALL_TIMEOUT, len(pending),
+            )
             continue
         if done:
             warned = False
         if not done:
             stalled.append(True)
             pdf_text.terminate_workers(executor)
-            print(f"  WARNING no document finished in "
-                  f"{config.PARSER_STALL_TIMEOUT}s ([parser].stall_timeout) -- "
-                  f"giving up on the {len(pending)} still outstanding. They are "
-                  "reported as failures below and retried on the next run.",
-                  file=sys.stderr)
+            logger.warning(
+                "WARNING no document finished in %ss ([parser].stall_timeout) -- "
+                "giving up on the %d still outstanding. They are reported as "
+                "failures below and retried on the next run.",
+                config.PARSER_STALL_TIMEOUT, len(pending),
+            )
             return
         yield from done
 
@@ -225,7 +242,7 @@ def _parse_parallel(refs, workers: int, threads: int | None):
                 # it a parallel run over a real corpus prints nothing for
                 # tens of minutes, which is indistinguishable from being
                 # stuck -- especially under docling's own OCR chatter.
-                print(f"  [{done}/{len(jobs)}] {citekey}", file=sys.stderr)
+                logger.info("[%d/%d] %s", done, len(jobs), citekey)
     except BrokenProcessPool as pool_exc:
         # submit() itself raises once the pool is already known-broken.
         broken = pool_exc
@@ -236,9 +253,11 @@ def _parse_parallel(refs, workers: int, threads: int | None):
         # keeps its work rather than discarding it.
         executor.shutdown(wait=False, cancel_futures=True)
         pdf_text.terminate_workers(executor)
-        print(f"\n  interrupted after {done}/{len(jobs)} document(s) -- "
-              "work already finished is kept; re-run to continue.",
-              file=sys.stderr)
+        logger.warning(
+            "interrupted after %d/%d document(s) -- work already finished "
+            "is kept; re-run to continue.",
+            done, len(jobs),
+        )
         raise
     finally:
         executor.shutdown(wait=False)
@@ -248,9 +267,12 @@ def _parse_parallel(refs, workers: int, threads: int | None):
         # flight. Reported against the documents that didn't get parsed
         # rather than raised, so the run still writes its ledger updates,
         # its summary, and a nonzero exit code.
-        print(f"  WARNING a parse worker died ({broken}) -- the documents it "
-              "had not finished are reported as failures below. A lower "
-              "[parser].workers is the usual fix.", file=sys.stderr)
+        logger.warning(
+            "WARNING a parse worker died (%s) -- the documents it had not "
+            "finished are reported as failures below. A lower "
+            "[parser].workers is the usual fix.",
+            broken,
+        )
     # Marked transient: these documents were never given a fair attempt,
     # so they must come back next run. A failure the *backend* returned
     # for a specific PDF is deterministic and stays that way.
@@ -307,6 +329,8 @@ def run(remove_stale: bool = False, reparse: bool = False) -> int:
 
     con = ledger.connect()
     parsed, failed, skipped, no_pdf, backend_unavailable = 0, 0, 0, 0, 0
+    total_pages = 0
+    parse_elapsed = 0.0
     low_quality: list[str] = []
     timed_out: list[str] = []
     no_pdf_reasons: Counter[str] = Counter()
@@ -345,7 +369,13 @@ def run(remove_stale: bool = False, reparse: bool = False) -> int:
 
         workers, complaint = pdf_text.resolve_workers(len(to_parse))
         if complaint:
-            print(complaint, file=sys.stderr)
+            logger.warning(complaint)
+        # Brackets dispatch plus the result loop below, not just the pool
+        # itself: the ledger writes and prints in that loop are
+        # microseconds against a parse that is (for docling) minutes, so
+        # including them costs nothing and avoids pushing timing into
+        # _parse_serial/_parse_parallel for a difference that's noise.
+        parse_started = time.monotonic()
         if workers > 1:
             print(f"  parsing {len(to_parse)} document(s) with {workers} workers")
             results = _parse_parallel(to_parse, workers, pdf_text.docling_threads(workers))
@@ -362,16 +392,20 @@ def run(remove_stale: bool = False, reparse: bool = False) -> int:
                 ledger.mark_parsed(con, citekey, out_path)
                 parsed += 1
                 print(f"  parsed  {citekey}")
+                # Read once, used twice: the quality guard below and the
+                # page count feeding the summary's pages/s figure both
+                # want this document's full text, and it's already being
+                # read off disk regardless -- no reason to do it twice.
+                text = out_path.read_text(encoding="utf-8", errors="replace")
+                total_pages += pdf_text.page_count(text)
                 # Reported per document rather than only in the summary:
                 # the fix is usually per document (a scan, an unusual
                 # font) or global (the wrong backend), and seeing which
                 # citekeys trip it is what tells the two apart.
-                warning = pdf_text.quality_warning(
-                    out_path.read_text(encoding="utf-8", errors="replace")
-                )
+                warning = pdf_text.quality_warning(text)
                 if warning:
                     low_quality.append(citekey)
-                    print(f"  WARNING {citekey}: {warning}", file=sys.stderr)
+                    logger.warning("WARNING %s: %s", citekey, warning)
             elif isinstance(exc, pdf_text.BackendUnavailable):
                 # The up-front probe passed, but the backend vanished
                 # (pdftotext dropped from PATH, or the docling
@@ -383,7 +417,7 @@ def run(remove_stale: bool = False, reparse: bool = False) -> int:
                 # install hint as the up-front WARNING (both come from
                 # pdf_text.unavailable_reason()), not just "unavailable".
                 backend_unavailable += 1
-                print(f"  no-{config.PARSER}  {citekey}: {exc}", file=sys.stderr)
+                logger.warning("no-%s  %s: %s", config.PARSER, citekey, exc)
             else:
                 # getattr, not isinstance: the marker rides on the
                 # exception instance because it is set by whoever knows
@@ -401,7 +435,8 @@ def run(remove_stale: bool = False, reparse: bool = False) -> int:
                 # instead -- see the report after the summary.
                 if getattr(exc, "timed_out", False):
                     timed_out.append(citekey)
-                print(f"  FAILED  {citekey}: {exc}", file=sys.stderr)
+                logger.error("FAILED  %s: %s", citekey, exc)
+        parse_elapsed = time.monotonic() - parse_started
         # Only the ledger row is removed -- see prune_missing's own
         # docstring for why the corresponding content/parsed/<citekey>.txt
         # is deliberately left in place. Deletion only happens with
@@ -477,7 +512,44 @@ def run(remove_stale: bool = False, reparse: bool = False) -> int:
         summary += f" {kinds['transient']} will be retried next run."
     if backend_unavailable:
         summary += f" {backend_unavailable} skipped ({config.PARSER} unavailable)."
+    # Skipped on a no-op run (parsed == 0, the common case once a corpus
+    # is caught up) rather than reporting a meaningless "0 pages/s" --
+    # and only after `parsed` is known to be nonzero is `parse_elapsed`
+    # guaranteed to reflect real work rather than a dispatch that found
+    # nothing to do. `workers` is the resolved count pdf_text.resolve_workers
+    # returned (see its own docstring on why that -- not the requested
+    # value -- is the number worth reporting), and both it and the
+    # backend ride along because a bare rate has no tuning value without
+    # them. bench/sweep_sync.py doesn't parse this figure yet -- today it
+    # only regexes the [n/N] progress lines and a raw document count --
+    # but could pick it up the same way, to normalize by document size
+    # rather than compare corpora on raw counts alone.
+    if parsed and parse_elapsed > 0:
+        summary += (
+            f" {total_pages} page(s) parsed in {parse_elapsed:.1f}s "
+            f"({total_pages / parse_elapsed:.2f} pages/s, {workers} worker(s), "
+            f"{config.PARSER})."
+        )
     print(summary)
+    # Also emitted through the logger -- landing in logs/sync.log even
+    # though it's already on stdout -- so a rotated log file is a
+    # self-contained run history without needing stdout alongside it.
+    # Built from the same counters the return code below uses, not a
+    # second independent tally, so the log and the exit status can never
+    # disagree about whether this run had trouble.
+    #
+    # extra={"file_only": True} keeps this out of _configure_logging()'s
+    # console handler specifically -- without it, a real `python -m
+    # src.sync` run prints this line twice (once from the print() above,
+    # once from the console handler catching this same record), which is
+    # exactly the double-printing "stdout stays untouched" was meant to
+    # avoid. Confirmed against a real run, not assumed.
+    logger.log(
+        logging.WARNING if (failed or backend_unavailable or kinds["deterministic"])
+        else logging.INFO,
+        "%s", summary,
+        extra={"file_only": True},
+    )
     if timed_out:
         # Reported on its own line because the "needs attention" advice
         # above is wrong for this one failure: the fix is a config value,
@@ -540,6 +612,69 @@ def run(remove_stale: bool = False, reparse: bool = False) -> int:
     return 1 if failed or backend_unavailable or kinds["deterministic"] else 0
 
 
+def _not_file_only(record: logging.LogRecord) -> bool:
+    """False for a record logged with extra={"file_only": True} -- the
+    summary line, which is already printed to stdout and would otherwise
+    print a second time via the console handler below."""
+    return not getattr(record, "file_only", False)
+
+
+def _this_project_only(record: logging.LogRecord) -> bool:
+    """False for a record from outside the "src" logger tree -- a third
+    party already using stdlib logging (docling, torch; see the [n/N]
+    progress comment above about their own chatter). Their WARNING+
+    still reaches logs/sync.log via file_handler below, "for free" --
+    this filter only keeps their chatter off the console, which is the
+    one thing this project's own output was never supposed to include."""
+    return record.name == "src" or record.name.startswith("src.")
+
+
+def _configure_logging() -> None:
+    """Attach a rotating file handler (logs/sync.log) and a stderr handler.
+
+    CLI-entrypoint-only, deliberately not called from run() itself --
+    same split as runlock.pipeline_lock() just below, and for the same
+    reason: run() stays callable in-process (the tests do that) without
+    a handler side effect or a logs/ directory appearing as an
+    import-time surprise.
+
+    5 MB x 5 backups is fixed rather than configurable -- see
+    config.LOGGING_LEVEL's own comment for why only the level is a
+    setting here.
+
+    config.LOGGING_LEVEL is applied to file_handler alone (via
+    setLevel), not to any logger. Setting it on the "src" logger tree
+    instead -- an earlier version of this function did -- silently
+    gated the console too: a logger only creates a record at all if the
+    *logger's* effective level allows it, before any handler is even
+    reached, so a level of WARNING would have suppressed the [n/N]
+    progress line (INFO) everywhere, not just in the file, contradicting
+    the "only affects the file" this project documents for this
+    setting. The "src" logger below is instead pinned permissive
+    (DEBUG) so every record this project's own code logs always reaches
+    both handlers; each handler then decides for itself what it keeps.
+    """
+    config.LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    file_handler = logging.handlers.RotatingFileHandler(
+        config.LOGS_DIR / "sync.log", maxBytes=5_000_000, backupCount=5,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    ))
+    file_handler.setLevel(config.LOGGING_LEVEL)
+
+    console_handler = logging.StreamHandler(sys.stderr)
+    console_handler.setFormatter(logging.Formatter("%(message)s"))
+    console_handler.addFilter(_not_file_only)
+    console_handler.addFilter(_this_project_only)
+
+    root = logging.getLogger()
+    root.addHandler(file_handler)
+    root.addHandler(console_handler)
+    logging.getLogger("src").setLevel(logging.DEBUG)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Sync content/ledger.sqlite from the bib file "
@@ -560,7 +695,23 @@ if __name__ == "__main__":
     # lock, and only an actual invocation contends for it.
     try:
         with runlock.pipeline_lock():
+            # Inside the lock, not before it: two overlapping scheduled
+            # invocations would otherwise both attach a
+            # RotatingFileHandler to the same logs/sync.log before
+            # either acquires the lock -- and RotatingFileHandler isn't
+            # safe for two processes to hold open on the same file at
+            # once (a rotation from one can land mid-write from the
+            # other). The lock already serializes actual sync work; this
+            # makes it serialize handler creation too, so at most one
+            # process ever has a live handler on the file.
+            _configure_logging()
             raise SystemExit(run(remove_stale=args.remove_stale, reparse=args.reparse))
     except runlock.AlreadyRunning as exc:
+        # Deliberately still a bare print, not the logger: this is the
+        # losing side of the race above and must not touch
+        # logs/sync.log itself, which the winner may already be
+        # writing to. Losing the lock is an expected, harmless outcome
+        # under any real schedule (see docs/CLI.md's "Running sync on a
+        # schedule"), not a failure worth persisting.
         print(f"  {exc}", file=sys.stderr)
         raise SystemExit(runlock.EXIT_ALREADY_RUNNING) from None
