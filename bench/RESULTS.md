@@ -566,3 +566,152 @@ Timing each run's phases separates the three candidates:
 Neither cost alone explains the plateau. Together they account for it,
 and both worsen with every worker added — which is why past ~32 there is
 nothing left to win by adding more.
+
+## 2026-08-07: does the *quotable passage* survive a re-parse?
+
+Measured with `bench/repro_check.py` on the same host as the sections
+above, but with **48 CPUs pinned via `taskset -c 0-23,48-71`** to match
+the `Cpus_allowed_list` those sections ran under -- the container now
+permits 96, which would move `worker_ceiling()` from 12 to 24 and change
+`docling_threads()` underneath the comparison. Workers held at 12
+throughout; GPU count is the only varied axis, 1 against 4, the same pair
+that produced ["Output is not bit-reproducible under
+concurrency"](#output-is-not-bit-reproducible-under-concurrency) above.
+Raw records: `results/2026-08-07-passage-repro/*.json`.
+
+### The question that section left open
+
+That finding compared `content/parsed/<citekey>.txt` and concluded the
+differences were cosmetic, on the grounds that retrieval tokenises on
+whitespace. True for BM25 -- but `src/passages.py` writes **one passage
+record per `dl_doc.texts` item**, and `PASSAGE_LABELS` contains
+`list_item`, the element type that finding names. So the same variance
+could be changing the exact span this pipeline would quote to a reviewer,
+which is not cosmetic on a citation-grounding tool. Nobody had looked.
+
+### What was run
+
+Page-count outliers (Tukey, `Q3 + 1.5*IQR` = 49 pages) were excluded from
+the n=50 and n=100 samples, then measured *separately* as their own arm:
+they are the documents with the largest reference lists, so excluding
+them without checking would have let the exclusion decide the result.
+
+Each pair is compared at three levels -- file bytes, passage *spans*
+(text, label, page) and passage *texts* alone -- because they do not
+agree, and only the last one is a changed quotation.
+
+| Arm | Docs | Pages | across `.txt` | across spans | across **texts** |
+|---|---|---|---|---|---|
+| n=50 trimmed | 50 | 848 | 0 | 0 | 0 |
+| n=100 trimmed | 100 | 1683 | 1 | 1 | 1 |
+| n=100 trimmed (independent repeat) | 100 | 1683 | 2 | 2 | 2 |
+| outliers only | 36 | 5590 | 1 | 1 | **0** |
+
+**Across-config, over 286 document comparisons: 4 differ in bytes
+(1.4%), 4 in passage spans (1.4%), and 3 in passage *text* (1.0%).**
+Consistent with the 6-of-501 (1.2%) above, so this replicates the
+phenomenon rather than contradicting it. Both populations show it:
+trimming was safe here, but only because the outlier arm was run.
+
+The gap between spans and texts is the whole reason for measuring both.
+Every difference in the outliers arm is a label or bounding-box change on
+byte-identical text -- real instability in Docling's classification, but
+**not** a changed quotation. Reporting the spans number as though it were
+the text number would have overstated the finding by a third.
+
+An earlier session on 2026-08-07, before the texts level existed, saw
+6/286 bytes and 5/286 spans -- roughly twice this session's byte rate.
+Two independent sessions differing about twofold at a ~1-2% base rate is
+what a low-rate stochastic effect looks like, and is the same caveat as
+["Power, stated plainly"](#power-stated-plainly) below. Only this
+session's records are committed, because the earlier ones predate the
+spans/texts split and cannot answer the question the table now asks.
+
+### Correction: same-configuration runs do **not** reproduce exactly
+
+The section above states that "repeating a run at the same worker count
+reproduces exactly". That is false, and this is the measurement that
+falsifies it: **5 of 572 same-configuration document-comparisons differ
+in bytes (0.9%), 4 in passage spans (0.7%), and 2 in passage text
+(0.3%)**. Every instance was at 4 GPUs; the single-GPU arm was clean in
+all four samples, over 286 comparisons. A same-configuration run
+therefore changes a quotable passage about once in every 300 documents --
+rarer than the across-config case, and not zero.
+
+So the axis is contention, not the *change* in contention -- a
+multi-GPU run disagrees with itself. Across-config is still ~4x more
+likely on text (1.0% vs 0.3%), so widening the concurrency delta does
+raise the rate; it does not create the effect.
+
+### Three mechanisms, and only one of them matters
+
+Inspecting the kept bytes (`--keep`) separates cases that a byte-diff
+would have reported identically. The excerpts below were captured from a
+kept parse in the earlier session; **the committed records reproduce all
+four documents independently, in the same three classes** -- which is
+checkable without the bytes, since each record names the differing
+citekeys at each of the three levels:
+
+| Document | Mechanism | In the records |
+|---|---|---|
+| `frasheri_addressing_2023` | reference entry splits | in `texts_differ` |
+| `noauthor_compilation_nodate` | two entries merge | in `texts_differ` |
+| `delhibabu_synthesis_2023` | label flip, text identical | in `spans_differ`, **not** `texts_differ` |
+| `zhang_digital-triplet_2024` | table regroups | in `txt_differ` only |
+
+A fifth, `noauthor_mqtt_2018`, appeared in this session's outliers arm as
+another label-only flip -- the same class, a document the earlier session
+did not surface, which is what a ~1% rate over a small sample looks like.
+
+**1. A reference entry splits or merges -- the quotation changes.** In
+`frasheri_addressing_2023`, between two runs of an *identical*
+configuration, one 279-character record became two:
+
+```
+- 'M. Grieves, J. Vickers, Digital twin: ... Transdisciplinary Perspectives on Co'   (279c)
++ 'M. Grieves, J. Vickers, Digital twin: ... Transdisciplinary Perspectives on Co'   (223c)
++ 'International Publishing Switzerland, 2017, pp. 85-113.'                           (55c)
+```
+
+Quoting the second version returns a reference truncated before its
+publisher and page range. In `noauthor_compilation_nodate` the reverse
+happened -- two records merged into one, splicing reference numbers 57
+and 60 into a single passage. **This is the failure mode that matters:**
+the text of a quotable passage genuinely differs between runs.
+
+**2. A label flips inside `PASSAGE_LABELS` -- harmless, but only by
+luck.** `delhibabu_synthesis_2023` kept all 540 records and identical
+text; one line was classified `list_item` in the 1-GPU run and `text` in
+the 4-GPU run. Both are in `PASSAGE_LABELS`, so the passage survives. A
+flip *out* of that set -- to `footnote`, `caption`, `page_header` --
+would delete a quotable passage outright. What makes this instance benign
+is the membership of the set, not the flip.
+
+**3. A table regroups -- the `.txt` moves, the sidecar does not.**
+`zhang_digital-triplet_2024` differed in its markdown table's cell
+wrapping across runs while its 184 passage records stayed byte-identical
+in both text and label, because tables are not in `PASSAGE_LABELS`. This
+is the one case where the older "cosmetic" reading is exactly right.
+
+### What this means for the contract
+
+`content/parsed/<citekey>.passages.json` is **not** reproducible under
+docling, and not merely across configurations -- a multi-GPU run
+disagrees with itself on the *text* of a passage at roughly 0.3% of
+documents, and with a differently-configured run at roughly 1.0% (1.4%
+if a label change counts). Neither `--reparse` nor a fresh clone is
+guaranteed to reproduce a previously quoted span.
+
+Unchanged by this: `pdftotext` output is byte-identical across runs, and
+the ledger rows are stable except `last_synced`. See
+[docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) for the full artifact
+table this feeds.
+
+### Power, stated plainly
+
+286 across-config comparisons at a ~1% rate is enough to establish that
+the effect exists and reaches the passage layer. It is **not** enough to
+put a tight interval on the rate, and a 0-of-50 arm is fully consistent
+with a 2% rate rather than evidence of stability. The three mechanisms
+are each observed once or twice; treat them as existence proofs of
+distinct failure modes, not as a frequency distribution over them.

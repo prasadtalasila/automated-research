@@ -73,6 +73,33 @@ The figure is `docs/diagrams/svg/v1-overview.svg`, rendered from
 [docs/DIAGRAMS.md](docs/DIAGRAMS.md), which draws this workflow eleven
 ways -- by depth, by genre, and in time order.
 
+### One thing the corpus layer does not promise
+
+The corpus layer is deterministic in the sense that matters most -- no
+LLM, no judgement calls, same bibliography in, same citekeys out -- but
+it is **not** bit-reproducible with every parser. Re-running it over
+**unchanged inputs** with the default `pdftotext` backend, parsed text
+comes back byte-identical and every ledger column is stable except the
+`last_synced` timestamp.
+
+"Unchanged inputs" is doing real work in that sentence. Re-exporting
+`bibliography.bib` gives its PDFs fresh modification times, and that is a
+different input: `pdf_mtime_ns` legitimately changes, even for a
+byte-identical file.
+
+With the opt-in `docling` backend and a worker pool, it is not. Docling
+groups dense reference blocks slightly differently under load, so around
+1.4% of documents come back with different text and about 1% with a
+different *quotable passage* -- which means the exact span quoted from a
+source can change between runs. Two runs of the *same* configuration are
+not exempt, at roughly a third of that rate. Serial parsing
+(`[parser].workers = 1`, the default) has not been observed to vary.
+
+That is Docling's behaviour, not something this pipeline adds, and it
+cannot be switched off. If it matters to you, keep `workers = 1` or use
+`pdftotext`. The full artifact-by-artifact contract is in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#what-is-reproducible-and-what-is-not).
+
 ## Quickstart
 
 ```bash

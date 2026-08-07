@@ -155,3 +155,74 @@ class TestRealBibliographySmoke:
         result = citation_gate.check_document(draft, known)
         assert result.ok, result.unknown[:10]
         assert result.total_citations == len(refs)
+
+
+@pytest.mark.skipif(
+    not (pandoc_available and pdflatex_available and pdftotext_available),
+    reason="pandoc/pdflatex/pdftotext not installed",
+)
+class TestReparseReproducibility:
+    """The ledger half of the reproducibility contract, pinned.
+
+    docs/ARCHITECTURE.md's "What is reproducible, and what is not" makes
+    two claims about a re-parse of unchanged input: every ledger column
+    comes back byte-identical *except* `last_synced`, and `pdftotext`
+    output is byte-identical. Both are the kind of promise that rots
+    silently -- a new column defaulting to a timestamp, or a backend flag
+    that reorders output, would break it with nothing failing.
+
+    Real `pdftotext` on a real PDF rather than a mocked extractor,
+    because a fake that returns a constant string would pass this test
+    while proving nothing about the backend the claim is actually about.
+
+    `last_synced` is asserted to **change** rather than quietly excluded.
+    Excluding it would leave a test that passes whatever the contract
+    says; asserting it encodes the exception as part of the promise.
+    """
+
+    def _rows(self):
+        con = ledger.connect()
+        try:
+            return {r["citekey"]: dict(r) for r in ledger.all_items(con)}
+        finally:
+            con.close()
+
+    def test_reparse_changes_only_last_synced(self, isolated_config, tmp_path):
+        pdf_md = tmp_path / "source.md"
+        pdf_path = tmp_path / "stable.pdf"
+        make_real_pdf(pdf_md, pdf_path, "# Stable\n\nText that must survive a re-parse unchanged.\n")
+        isolated_config.BIB_FILE_PATH.write_text(
+            "@article{roe_stable_2024,\n"
+            "  title = {A Stable Paper},\n"
+            "  author = {Roe, Jan},\n"
+            "  year = {2024},\n"
+            f"  file = {{stable.pdf:{pdf_path}:application/pdf}},\n"
+            "}\n"
+        )
+
+        assert sync.run() == 0
+        first = self._rows()
+        first_text = (config.PARSED_DIR / "roe_stable_2024.txt").read_bytes()
+
+        # --reparse, not a plain re-run: a second sync would skip the
+        # document on its unchanged hash and compare the parse against
+        # itself, which tests the skip logic rather than the parser.
+        assert sync.run(reparse=True) == 0
+        second = self._rows()
+        second_text = (config.PARSED_DIR / "roe_stable_2024.txt").read_bytes()
+
+        assert first_text == second_text, "pdftotext output is not byte-identical"
+        assert set(first) == set(second)
+        row_a, row_b = first["roe_stable_2024"], second["roe_stable_2024"]
+        assert row_a["last_synced"] != row_b["last_synced"], (
+            "last_synced must change -- it is wall-clock, and the contract "
+            "names it as the one column that does"
+        )
+        # Every other column, whatever the schema grows to. Written as a
+        # difference rather than a fixed list so a column added later is
+        # covered by this test on the day it lands, not the day someone
+        # remembers to add it here.
+        unstable = {k for k in row_a if row_a[k] != row_b[k]}
+        assert unstable == {"last_synced"}, (
+            f"columns changed across a re-parse of unchanged input: {sorted(unstable)}"
+        )
