@@ -116,7 +116,19 @@ being tested.
 | `estimate.py` | Extrapolates a sample's timings to the full corpus, two ways |
 | `run_parallel.py` | Runs N worker processes over G GPUs, reports aggregate throughput |
 | `sweep_sync.py` | Sweeps the **real** `src.sync` over worker/GPU/OCR settings -- the pool-level numbers |
+| `repro_check.py` | Asks whether two runs *agree*, not what they cost: parses one subset under two GPU counts and compares text, passage spans and passage texts |
 | `results/` | Committed raw timings -- the evidence behind `RESULTS.md` |
+
+`repro_check.py` is the odd one out here, and deliberately so: every other
+script measures **cost**, it measures **agreement**. That is why it keeps
+each run's output instead of discarding it, pins the CPU affinity mask
+with `taskset` so `worker_ceiling()` cannot drift between arms, and runs
+every configuration twice -- the same-configuration pair is the control
+that says whether a difference belongs to the varied axis or to the
+parser simply being unstable. It also self-checks its own detector on
+every invocation, because `bench/` sits outside CI's coverage targets and
+a comparison that silently compares nothing looks exactly like a clean
+result.
 
 ## The two switches that matter
 

@@ -21,6 +21,7 @@ work on the repository itself ([DEVELOPER.md](../DEVELOPER.md)).
 - [The enrichment layer](#the-enrichment-layer)
 - [Review aids: in no layer](#review-aids-in-no-layer)
 - [Incremental by default, honest about failure](#incremental-by-default-honest-about-failure)
+- [What is reproducible, and what is not](#what-is-reproducible-and-what-is-not)
 - [What this architecture does not do](#what-this-architecture-does-not-do)
 - [What each capability requires](#what-each-capability-requires)
 - [Which interpreter, and why](#which-interpreter-and-why)
@@ -259,6 +260,62 @@ and packages it needs and reports `missing-binary` or `skipped` rather
 than crashing or silently succeeding. The parse path adds a quality guard
 on top: it warns when a backend starts fusing words together, which is
 invisible in a spot check but quietly wrecks keyword retrieval.
+
+## What is reproducible, and what is not
+
+Run the pipeline twice over an unchanged bibliography and some artifacts
+come back byte-identical, some come back equivalent-but-not-identical,
+and one comes back genuinely different. This is the contract, artifact by
+artifact, so that "is this stable?" is answered here rather than inferred
+from four documents that each describe one corner of it.
+
+The distinction matters most for **quotation**. A pipeline whose purpose
+is grounded citation cannot treat "the same words, arranged differently"
+as equivalent to "the same": a passage shown to a reviewer as evidence is
+a specific span of a specific source.
+
+| Artifact | Stable across a re-run on unchanged input? |
+|---|---|
+| `content/ledger.sqlite` rows | **Yes, except `last_synced`**, which is wall-clock and changes every run. `pdf_hash`, `status`, `parsed_path`, `failure_kind` and the bib columns are byte-stable |
+| `pdf_size`, `pdf_mtime_ns` | Stable only while the file is untouched. A re-export producing byte-identical PDFs with fresh mtimes changes `pdf_mtime_ns` -- which is what the stat-before-hash skip reads, so those documents are re-hashed (not re-parsed: the hash still matches) |
+| `content/parsed/<citekey>.txt`, `pdftotext` | **Yes** -- byte-identical, measured |
+| `content/parsed/<citekey>.txt`, `docling` | **No.** ~2% of documents differ between differently-configured runs, ~0.5% between two runs of the *same* configuration on multiple GPUs |
+| `content/parsed/<citekey>.passages.json` | **No**, and this is the one that matters -- see below |
+| `content/rendered/*.md`, `*.tex` | **Yes** -- byte-identical, measured |
+| `content/rendered/*.pdf` | **No.** pdflatex embeds a creation timestamp and a trailer `/ID`; two renders of identical input differ. `SOURCE_DATE_EPOCH`/`FORCE_SOURCE_DATE` does *not* make them identical |
+| `content/topics.json` | **No.** UMAP is seeded (`random_state=42`), but HDBSCAN clusters the whole corpus, so assignments move when the corpus does -- a document's topic id is not a stable identifier |
+| `content/chroma/`, the retrieval index cache | Derived caches, rebuilt from their inputs and keyed by fingerprint. Not artifacts to compare |
+
+### The passage sidecar, specifically
+
+Docling groups dense reference blocks into elements slightly differently
+under contention, and `src/passages.py` writes **one passage record per
+element**. So the instability does not stop at byte offsets: measured
+over 286 across-configuration document comparisons, **5 (1.7%)** differed
+in their passage records, and the observed mechanisms include a
+bibliography entry splitting in two (leaving a reference truncated before
+its publisher and pages) and two entries merging into one.
+
+Two consequences worth stating plainly:
+
+- **A previously quoted span is not guaranteed to survive a re-parse.**
+  Neither `--reparse` nor a fresh clone reproduces it reliably. If a
+  quotation has been reviewed and matters, the reviewed text is the
+  artifact -- not the offset it came from.
+- **Serial parsing is the stable configuration.** Every observed
+  difference required a worker pool, and the single-GPU arm was clean
+  across all 286 comparisons. `[parser].workers = 1` (the default) has
+  not been observed to vary.
+
+This is Docling's behaviour under load, not something this repository's
+parallelism introduced, and it cannot be switched off: Docling exposes no
+determinism setting, and the only lever below it -- torch's
+`use_deterministic_algorithms` -- *raises* rather than degrades on an op
+with no deterministic implementation, which would turn a cosmetic
+difference into a hard failure. `bench/RESULTS.md`'s
+"2026-08-07: does the *quotable passage* survive a re-parse?" has the
+measurement, the three mechanisms it separates, and its own statement of
+how little 286 comparisons can pin down.
 
 ## What this architecture does not do
 
