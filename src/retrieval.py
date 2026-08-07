@@ -348,7 +348,7 @@ EVIDENCE_WINDOWS = 2
 def evidence(
     citekey: str, query: str, chars: int = EVIDENCE_CHARS, windows: int = EVIDENCE_WINDOWS
 ) -> list[str]:
-    """Stage two: the passages of one document that bear on `query`.
+    """The passages of one document that bear on `query`.
 
     A lookup for one document you already care about, not a stage
     anything is obliged to run: use it when a `search` snippet is not
