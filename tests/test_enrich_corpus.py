@@ -1,7 +1,7 @@
 """src/enrich/corpus.py: the enrichment layer's corpus is the ledger, so
-every document it yields is citable and `doc_id == citekey`."""
+every document it yields is citable, keyed by its citekey and nothing else."""
 
-from src import ledger
+from src import bib_reader, ledger
 from src.enrich import corpus
 
 from tests.conftest import make_reference
@@ -16,7 +16,7 @@ class TestBuildCorpus:
 
         docs = corpus.build_corpus()
 
-        assert sorted(d.doc_id for d in docs) == ["jones2023", "smith2024"]
+        assert sorted(d.citekey for d in docs) == ["jones2023", "smith2024"]
 
     def test_carries_the_ledger_row_through(self, isolated_config):
         pdf = isolated_config.CONTENT_DIR.parent / "smith2024.pdf"
@@ -32,21 +32,24 @@ class TestBuildCorpus:
 
         doc = corpus.build_corpus()[0]
 
-        assert doc.doc_id == "smith2024"
+        assert doc.citekey == "smith2024"
         assert doc.citekey == "smith2024"
         assert doc.title == "Bib Paper"
         assert doc.pdf_path == str(pdf)
         assert doc.text_path.endswith("smith2024.txt")
 
-    def test_doc_id_always_equals_citekey(self, isolated_config):
-        """The invariant the rest of the enrichment layer writes files
-        under -- Docling's <stem>.md and Chroma's <stem>::<n> chunk ids are
-        both keyed off doc_id, and a draft cites the citekey."""
+    def test_every_citekey_is_usable_as_a_filename(self, isolated_config):
+        """The citekey is the stem every on-disk artefact is written under
+        -- Docling's <citekey>.md, Chroma's <citekey>::<n> chunk ids -- so
+        one that cannot be a filename must never reach this layer.
+        `src/bib_reader.py` is what keeps it out; this pins the contract
+        from the consuming end, where the breakage would actually happen."""
         con = ledger.connect()
         ledger.upsert_reference(con, make_reference(citekey="smith2024"))
         con.close()
 
-        assert all(d.doc_id == d.citekey for d in corpus.build_corpus())
+        for doc in corpus.build_corpus():
+            assert bib_reader.citekey_problem(doc.citekey) is None
 
     def test_an_empty_ledger_is_an_empty_corpus(self, isolated_config):
         ledger.connect().close()
@@ -72,5 +75,5 @@ class TestBuildCorpus:
 
         doc = corpus.build_corpus()[0]
 
-        assert doc.doc_id == "nopdf2024"
+        assert doc.citekey == "nopdf2024"
         assert doc.pdf_path is None

@@ -199,7 +199,7 @@ attached at all.
 
 That the bibliography is the *only* source is a guarantee the rest of the
 layer is built on, not an accident of the current implementation: every
-document carries a real citekey, `doc_id == citekey`, and so every Chroma
+document carries a real citekey, which is its whole identity, and so every Chroma
 hit, every topic member and every figure record names something a draft
 is allowed to cite. An earlier version also swept a hand-filled directory
 of raw PDFs into the corpus under ids the citation gate would always
@@ -288,7 +288,7 @@ this document?
 
 | # | Rung | Note |
 |---|---|---|
-| 1 | `content/docling/<doc_id>.md` | the enrichment layer's own parse; image references are stripped before embedding |
+| 1 | `content/docling/<citekey>.md` | the enrichment layer's own parse; image references are stripped before embedding |
 | 2 | the ledger's `parsed_path` `.txt` | whatever the corpus layer produced, verbatim |
 | 3 | `pdftotext -layout` into a temp file | for a bib item the corpus layer has not parsed -- a parse that failed, or one not re-run since the PDF was attached |
 

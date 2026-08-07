@@ -196,7 +196,7 @@ src/                      the corpus and drafting layers (sync needs bibtexparse
                           plain numbered copy instead
 src/enrich/                the enrichment layer (pyproject.toml's "enrich" Poetry group), optional
   corpus.py                 the enrichment layer's view of the ledger -- one CorpusDoc per bib item,
-                          so every enriched document is citable (doc_id == citekey)
+                          so every enriched document is citable, keyed by its citekey
   docling_parse.py, embed_index.py, topic_model.py
 scripts/
   install_full_pipeline.sh  single staged install path (os-deps/python-deps/dev-deps/all) for host + Docker

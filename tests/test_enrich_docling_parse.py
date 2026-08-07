@@ -167,14 +167,14 @@ def fake_docling(monkeypatch):
 
 class TestParseDoc:
     def test_no_pdf_path_raises(self, isolated_config):
-        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=None)
+        doc = CorpusDoc(citekey="a2024", title="t", pdf_path=None)
         with pytest.raises(ValueError, match="no PDF to parse"):
             docling_parse.parse_doc(doc)
 
     def test_writes_markdown_output(self, isolated_config, fake_docling, tmp_path):
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-1.4")
-        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=str(pdf))
+        doc = CorpusDoc(citekey="a2024", title="t", pdf_path=str(pdf))
 
         out_path = docling_parse.parse_doc(doc)
 
@@ -192,7 +192,7 @@ class TestImageExtraction:
     def _doc(self, tmp_path, citekey="richstein_characterizing_2024"):
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-1.4")
-        return CorpusDoc(doc_id=citekey, citekey=citekey, title="t", pdf_path=str(pdf))
+        return CorpusDoc(citekey=citekey, title="t", pdf_path=str(pdf))
 
     def test_images_off_uses_export_and_writes_no_figure_index(
         self, isolated_config, fake_docling, tmp_path
@@ -376,7 +376,7 @@ class TestReusingTheCorpusLayersParse:
             text_path = config.PARSED_DIR / f"{citekey}.txt"
             text_path.write_text(parsed_text, encoding="utf-8")
             text_path = str(text_path)
-        return CorpusDoc(doc_id=citekey, citekey=citekey, title="t",
+        return CorpusDoc(citekey=citekey, title="t",
                          pdf_path=str(pdf), text_path=text_path)
 
     def _corpus_parsed(self, tmp_path, citekey="a2024", pages=("page one", "page two")):
@@ -427,7 +427,7 @@ class TestReusingTheCorpusLayersParse:
         doc = self._corpus_parsed(tmp_path)
         docling_parse.parse_doc(doc)
         cache = json.loads(config.DOCLING_CACHE_PATH.read_text())
-        assert doc.doc_id in cache["items"]
+        assert doc.citekey in cache["items"]
 
     def test_a_pdftotext_corpus_parse_is_not_reused(self, isolated_config, fake_docling, tmp_path):
         """No sidecar means the corpus text is column-spliced flat text,
@@ -511,8 +511,8 @@ class TestReusingTheCorpusLayersParse:
         dispatched = []
 
         def fake_map(jobs_fn, jobs):
-            dispatched.extend(d.doc_id for d, _threads in jobs)
-            return [(d.doc_id, "ok: parsed", [1, 2]) for d, _threads in jobs]
+            dispatched.extend(d.citekey for d, _threads in jobs)
+            return [(d.citekey, "ok: parsed", [1, 2]) for d, _threads in jobs]
 
         monkeypatch.setattr(docling_parse, "_executor_for", lambda workers: types.SimpleNamespace(
             map=fake_map, shutdown=lambda **kw: None))
@@ -523,21 +523,21 @@ class TestReusingTheCorpusLayersParse:
         for i in range(3):
             pdf = tmp_path / f"other{i}.pdf"
             pdf.write_bytes(b"%PDF-1.4")
-            others.append(CorpusDoc(doc_id=f"other{i}", citekey=f"other{i}",
+            others.append(CorpusDoc(citekey=f"other{i}",
                                     title="t", pdf_path=str(pdf)))
 
         status = docling_parse.parse_corpus([reusable, *others])
 
-        assert reusable.doc_id not in dispatched
+        assert reusable.citekey not in dispatched
         assert sorted(dispatched) == ["other0", "other1", "other2"]
-        assert status[reusable.doc_id].startswith("ok:")
+        assert status[reusable.citekey].startswith("ok:")
 
 
 class TestPassageSidecar:
     def _doc(self, tmp_path):
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-1.4")
-        return CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=str(pdf))
+        return CorpusDoc(citekey="a2024", title="t", pdf_path=str(pdf))
 
     def test_written_for_every_doc_with_page_and_bbox(self, isolated_config, fake_docling, tmp_path):
         FakeDocumentConverter.texts = [
@@ -583,7 +583,7 @@ class TestIncrementalSkip:
     def test_second_call_with_unchanged_pdf_skips_docling(self, isolated_config, fake_docling, tmp_path):
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-1.4 v1")
-        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=str(pdf))
+        doc = CorpusDoc(citekey="a2024", title="t", pdf_path=str(pdf))
 
         first = docling_parse.parse_doc(doc)
         assert FakeDocumentConverter.call_count == 1
@@ -595,7 +595,7 @@ class TestIncrementalSkip:
     def test_changed_pdf_content_triggers_reparse(self, isolated_config, fake_docling, tmp_path):
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-1.4 v1")
-        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=str(pdf))
+        doc = CorpusDoc(citekey="a2024", title="t", pdf_path=str(pdf))
 
         docling_parse.parse_doc(doc)
         assert FakeDocumentConverter.call_count == 1
@@ -609,7 +609,7 @@ class TestIncrementalSkip:
     def test_deleted_output_forces_reparse_even_if_cache_matches(self, isolated_config, fake_docling, tmp_path):
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-1.4 v1")
-        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=str(pdf))
+        doc = CorpusDoc(citekey="a2024", title="t", pdf_path=str(pdf))
 
         out_path = docling_parse.parse_doc(doc)
         out_path.unlink()
@@ -625,7 +625,7 @@ class TestIncrementalSkip:
         FakeDocumentConverter.texts = [FakeTextItem("Prose.", label="text", page=1)]
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-1.4")
-        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=str(pdf))
+        doc = CorpusDoc(citekey="a2024", title="t", pdf_path=str(pdf))
 
         docling_parse.parse_doc(doc)
         assert FakeDocumentConverter.call_count == 1
@@ -645,7 +645,7 @@ class TestIncrementalSkip:
         FakeDocumentConverter.texts = [FakeTextItem("Prose.", label="text", page=1)]
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-1.4")
-        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=str(pdf))
+        doc = CorpusDoc(citekey="a2024", title="t", pdf_path=str(pdf))
 
         docling_parse.parse_doc(doc)
         assert FakeDocumentConverter.call_count == 1
@@ -661,7 +661,7 @@ class TestIncrementalSkip:
         FakeDocumentConverter.texts = [FakeTextItem("Prose.", label="text", page=1)]
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-1.4")
-        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=str(pdf))
+        doc = CorpusDoc(citekey="a2024", title="t", pdf_path=str(pdf))
 
         docling_parse.parse_doc(doc)
         docling_parse.parse_doc(doc)
@@ -671,7 +671,7 @@ class TestIncrementalSkip:
     def test_failed_parse_does_not_poison_the_cache(self, isolated_config, fake_docling, tmp_path):
         pdf = tmp_path / "explode.pdf"
         pdf.write_bytes(b"%PDF-1.4 broken")
-        doc = CorpusDoc(doc_id="b2024", citekey="b2024", title="t", pdf_path=str(pdf))
+        doc = CorpusDoc(citekey="b2024", title="t", pdf_path=str(pdf))
 
         with pytest.raises(RuntimeError, match="simulated docling failure"):
             docling_parse.parse_doc(doc)
@@ -689,8 +689,8 @@ class TestIncrementalSkip:
         pdf_b = tmp_path / "b.pdf"
         pdf_b.write_bytes(b"%PDF b")
         docs = [
-            CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=str(pdf_a)),
-            CorpusDoc(doc_id="b2024", citekey="b2024", title="t", pdf_path=str(pdf_b)),
+            CorpusDoc(citekey="a2024", title="t", pdf_path=str(pdf_a)),
+            CorpusDoc(citekey="b2024", title="t", pdf_path=str(pdf_b)),
         ]
 
         docling_parse.parse_corpus(docs)
@@ -760,7 +760,7 @@ class TestCacheLoading:
         assert docling_parse._load_cache() == {}
 
     def test_unversioned_legacy_cache_is_invalidated(self, isolated_config):
-        """Pre-versioning caches were a bare {doc_id: fingerprint} dict."""
+        """Pre-versioning caches were a bare {citekey: fingerprint} dict."""
         isolated_config.CONTENT_DIR.mkdir(parents=True, exist_ok=True)
         isolated_config.DOCLING_CACHE_PATH.write_text(json.dumps({"good2024": [123, 456]}))
         assert docling_parse._load_cache() == {}
@@ -797,7 +797,7 @@ class TestCacheLoading:
         isolated_config.DOCLING_CACHE_PATH.write_text("{not valid json")
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-1.4")
-        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=str(pdf))
+        doc = CorpusDoc(citekey="a2024", title="t", pdf_path=str(pdf))
 
         status = docling_parse.parse_corpus([doc])
 
@@ -825,7 +825,7 @@ class TestSaveCacheFailureIsNonFatal:
 
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-1.4")
-        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=str(pdf))
+        doc = CorpusDoc(citekey="a2024", title="t", pdf_path=str(pdf))
 
         out_path = docling_parse.parse_doc(doc)
 
@@ -837,9 +837,9 @@ class TestParseCorpus:
     def test_reports_per_doc_status_without_aborting_batch(self, isolated_config, fake_docling, tmp_path):
         (tmp_path / "a.pdf").write_bytes(b"%PDF a")
         (tmp_path / "explode.pdf").write_bytes(b"%PDF explode")
-        good = CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=str(tmp_path / "a.pdf"))
-        bad = CorpusDoc(doc_id="b2024", citekey="b2024", title="t", pdf_path=str(tmp_path / "explode.pdf"))
-        no_pdf = CorpusDoc(doc_id="c2024", citekey="c2024", title="t", pdf_path=None)
+        good = CorpusDoc(citekey="a2024", title="t", pdf_path=str(tmp_path / "a.pdf"))
+        bad = CorpusDoc(citekey="b2024", title="t", pdf_path=str(tmp_path / "explode.pdf"))
+        no_pdf = CorpusDoc(citekey="c2024", title="t", pdf_path=None)
 
         status = docling_parse.parse_corpus([good, bad, no_pdf])
 
@@ -872,7 +872,7 @@ class TestParseCorpusParallel:
         for i in range(n):
             pdf = tmp_path / f"p{i}.pdf"
             pdf.write_bytes(b"%PDF" + b"x" * (50 * i))
-            docs.append(CorpusDoc(doc_id=f"d{i}", citekey=f"d{i}",
+            docs.append(CorpusDoc(citekey=f"d{i}",
                                   title="t", pdf_path=str(pdf)))
         return docs
 
@@ -890,7 +890,7 @@ class TestParseCorpusParallel:
         docling_parse.parse_corpus(docs)
 
         cache = json.loads(isolated_config.DOCLING_CACHE_PATH.read_text())
-        assert set(cache["items"]) == {d.doc_id for d in docs}
+        assert set(cache["items"]) == {d.citekey for d in docs}
 
         # ...and a second run therefore skips all of them.
         FakeDocumentConverter.call_count = 0
@@ -907,7 +907,7 @@ class TestParseCorpusParallel:
 
         submitted = []
         real_parse_one = docling_parse.parse_one
-        docling_parse.parse_one = lambda job: submitted.append(job[0].doc_id) or real_parse_one(job)
+        docling_parse.parse_one = lambda job: submitted.append(job[0].citekey) or real_parse_one(job)
         try:
             status = docling_parse.parse_corpus(docs)
         finally:
@@ -919,7 +919,7 @@ class TestParseCorpusParallel:
         docs = self._docs(tmp_path)
         bad = tmp_path / "explode.pdf"
         bad.write_bytes(b"%PDF")
-        docs.append(CorpusDoc(doc_id="bad", citekey="bad",
+        docs.append(CorpusDoc(citekey="bad",
                               title="t", pdf_path=str(bad)))
 
         status = docling_parse.parse_corpus(docs)
@@ -938,7 +938,7 @@ class TestParseCorpusParallel:
     def test_biggest_document_is_submitted_first(self, isolated_config, fake_docling, tmp_path):
         submitted = []
         real_parse_one = docling_parse.parse_one
-        docling_parse.parse_one = lambda job: submitted.append(job[0].doc_id) or real_parse_one(job)
+        docling_parse.parse_one = lambda job: submitted.append(job[0].citekey) or real_parse_one(job)
         try:
             docling_parse.parse_corpus(self._docs(tmp_path))
         finally:
@@ -951,7 +951,7 @@ class TestParallelHelpers:
         """A PDF that vanished can't be fingerprinted. Treat it as
         not-cached so the parse runs and reports the real error, rather
         than crashing the dispatch loop."""
-        doc = CorpusDoc(doc_id="gone", citekey="gone", title="t",
+        doc = CorpusDoc(citekey="gone", title="t",
                         pdf_path=str(tmp_path / "gone.pdf"))
         assert docling_parse._is_cached(doc, {"gone": [1, 2]}) is False
 
@@ -1054,7 +1054,7 @@ class TestParallelHelpers:
         """A single-worker run must reach Docling with its own defaults."""
         pdf = tmp_path / "a.pdf"
         pdf.write_bytes(b"%PDF")
-        docling_parse.parse_doc(CorpusDoc(doc_id="a", citekey="a",
+        docling_parse.parse_doc(CorpusDoc(citekey="a",
                                           title="t", pdf_path=str(pdf)))
         opts = FakeDocumentConverter.last_format_options["pdf"].pipeline_options
         assert opts.accelerator_options is None
@@ -1065,7 +1065,7 @@ class TestParallelHelpers:
         monkeypatch.setattr(pdf_text, "_WORKER_DEVICE", "cuda:3")
         pdf = tmp_path / "a.pdf"
         pdf.write_bytes(b"%PDF")
-        docling_parse.parse_doc(CorpusDoc(doc_id="a", citekey="a",
+        docling_parse.parse_doc(CorpusDoc(citekey="a",
                                           title="t", pdf_path=str(pdf)))
         opts = FakeDocumentConverter.last_format_options["pdf"].pipeline_options
         assert opts.accelerator_options.device == "cuda:3"
@@ -1088,7 +1088,7 @@ class TestParseCorpusParallelEdges:
         for i in range(5):
             pdf = tmp_path / f"p{i}.pdf"
             pdf.write_bytes(b"%PDF" + b"x" * i)
-            docs.append(CorpusDoc(doc_id=f"d{i}", citekey=f"d{i}",
+            docs.append(CorpusDoc(citekey=f"d{i}",
                                   title="t", pdf_path=str(pdf)))
         docling_parse.parse_corpus(docs[:2])  # warm the cache for d0, d1
 
@@ -1111,8 +1111,8 @@ class TestParseCorpusParallelEdges:
         pdf = tmp_path / "a.pdf"
         pdf.write_bytes(b"%PDF")
         docling_parse.parse_corpus([
-            CorpusDoc(doc_id="a", citekey="a", title="t", pdf_path=str(pdf)),
-            CorpusDoc(doc_id="b", citekey="b", title="t", pdf_path=str(pdf)),
+            CorpusDoc(citekey="a", title="t", pdf_path=str(pdf)),
+            CorpusDoc(citekey="b", title="t", pdf_path=str(pdf)),
         ])
         assert "[parser].workers=64" in capsys.readouterr().out
 
@@ -1124,12 +1124,12 @@ class TestParseCorpusParallelEdges:
         must be reported there rather than taking down the batch."""
         monkeypatch.setattr(config, "PARSER_WORKERS", 4)
         monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 48)
-        docs = [CorpusDoc(doc_id="nopdf", citekey="nopdf",
+        docs = [CorpusDoc(citekey="nopdf",
                           title="t", pdf_path=None)]
         for i in range(3):
             pdf = tmp_path / f"p{i}.pdf"
             pdf.write_bytes(b"%PDF" + b"x" * i)
-            docs.append(CorpusDoc(doc_id=f"d{i}", citekey=f"d{i}",
+            docs.append(CorpusDoc(citekey=f"d{i}",
                                   title="t", pdf_path=str(pdf)))
 
         status = docling_parse.parse_corpus(docs)
@@ -1155,7 +1155,7 @@ class TestWorkerConverterReuse:
     def _doc(self, tmp_path, name):
         pdf = tmp_path / f"{name}.pdf"
         pdf.write_bytes(b"%PDF")
-        return CorpusDoc(doc_id=name, citekey=name, title="t",
+        return CorpusDoc(citekey=name, title="t",
                          pdf_path=str(pdf))
 
     def test_one_converter_serves_every_document_a_worker_handles(
@@ -1207,7 +1207,7 @@ class TestParseCorpusInterrupt:
         for i in range(n):
             pdf = tmp_path / f"p{i}.pdf"
             pdf.write_bytes(b"%PDF" + b"x" * (50 * i))
-            docs.append(CorpusDoc(doc_id=f"d{i}", citekey=f"d{i}",
+            docs.append(CorpusDoc(citekey=f"d{i}",
                                   title="t", pdf_path=str(pdf)))
         return docs
 
@@ -1218,7 +1218,7 @@ class TestParseCorpusInterrupt:
         real = docling_parse.parse_one
 
         def interrupt_after_two(job):
-            seen.append(job[0].doc_id)
+            seen.append(job[0].citekey)
             if len(seen) == 3:
                 raise KeyboardInterrupt
             return real(job)
@@ -1256,7 +1256,7 @@ class TestEnrichPartialSuccess:
     def _doc(self, tmp_path):
         pdf = tmp_path / "a.pdf"
         pdf.write_bytes(b"%PDF")
-        return CorpusDoc(doc_id="a", citekey="a", title="t",
+        return CorpusDoc(citekey="a", title="t",
                          pdf_path=str(pdf))
 
     def test_partial_success_is_rejected(self, isolated_config, fake_docling, monkeypatch, tmp_path):

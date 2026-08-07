@@ -367,7 +367,7 @@ flowchart TB
   PDF -- "src/pdf_text.py" --> TXT
   PDF -- "src/pdf_text.py<br/><small>docling backend only</small>" --> CPS
   LED -- "which PDFs need a parse" --> TXT
-  LED -- "src/enrich/corpus.py<br/><small>every row, <code>doc_id == citekey</code></small>" --> DOC
+  LED -- "src/enrich/corpus.py<br/><small>every row, keyed by <code>citekey</code></small>" --> DOC
   TXT -- "src/enrich/embed_index.py" --> CHR
   PDF -- "src/enrich/docling_parse.py" --> DOC
   CPS -. "<b>src/enrich/docling_parse.py</b><br/><small>adopts the corpus layer's parse<br/>instead of repeating it</small>" .-> DOC

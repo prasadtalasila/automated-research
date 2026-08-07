@@ -1,10 +1,10 @@
 """The enrichment layer's view of the corpus: the bibliography, nothing else.
 
 Every document here comes from the ledger that `python -m src.sync`
-populates from the bib file, so every document is citable and
-`doc_id == citekey` -- whatever citekey the exported bib file assigned
-(src/bib_reader.py; the bib file is the source of truth, this project
-doesn't generate its own).
+populates from the bib file, so every document is citable, and its
+citekey is its whole identity -- whatever citekey the exported bib file
+assigned (src/bib_reader.py; the bib file is the source of truth, this
+project doesn't generate its own).
 
 That is the whole contract, and it is deliberately narrower than it once
 was. An earlier version also swept a directory of raw PDFs gathered
@@ -28,12 +28,15 @@ from src import ledger
 
 @dataclass
 class CorpusDoc:
-    # doc_id is the stem for this document's on-disk artefacts (Docling's
-    # .md/.passages.json, Chroma's chunk ids) and equals citekey. It stays
-    # a separate field because those two roles are separate -- one is an
-    # identity this layer writes files under, the other is a bibliographic
-    # reference a draft cites -- but nothing may make them diverge.
-    doc_id: str
+    # The citekey is this document's whole identity: the stem its on-disk
+    # artefacts are written under (Docling's .md/.passages.json, Chroma's
+    # chunk ids) as well as the reference a draft cites. Those were two
+    # fields while a second, uncitable source existed and they could
+    # differ; with one source they never can, and carrying both invited
+    # code that treated them as if they might (issue #57).
+    #
+    # src/bib_reader.py guarantees this is usable as a filename -- see
+    # citekey_problem() there, which rejects an entry whose citekey is not.
     citekey: str
     title: str
     pdf_path: str | None
@@ -50,7 +53,6 @@ def build_corpus() -> list[CorpusDoc]:
 
     return [
         CorpusDoc(
-            doc_id=item["citekey"],
             citekey=item["citekey"],
             title=item["title"] or "Untitled",
             pdf_path=item["pdf_path"],
