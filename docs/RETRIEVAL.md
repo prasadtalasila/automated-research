@@ -118,12 +118,32 @@ paper merely shares vocabulary with the query; it is never enough to cite
 from. Hence the asymmetry: stage one is documented as reject-only, and
 nothing may be promoted to evidence from a triage snippet.
 
-Stage two also fixes a real limitation of the ranked snippet: `_snippet`
-anchors on the *first* occurrence of any query term, so a document that
-mentions a word early and discusses it forty thousand characters later
-reports the early mention. `evidence` scores candidate windows by how many
-*distinct* query terms fall inside and returns the best few in document
-order, so a passage late in a long paper is reachable.
+### Both stages read the same way, and that is the point
+
+`_snippet` used to anchor on the *first* occurrence of whichever query
+term came out of the term set first. Two things were wrong with that. A
+document mentioning a word in its abstract and discussing it forty
+thousand characters later was judged on the abstract. And because the
+term set is a Python `set`, whose iteration order depends on per-process
+string hashing, **the same query on the same document returned a
+different snippet run to run.**
+
+At a 500-character window that was a quality wobble. Once `triage` cut
+the window to 160 characters and made it the sole basis for *rejecting* a
+candidate, it meant the rejection itself was irreproducible: run the same
+triage twice, discard a different set of papers.
+
+So both stages now share one window chooser (`_windows`): candidate
+windows are anchored on every occurrence of every term, scored by how
+many *distinct* query terms fall inside, de-overlapped, and returned in
+document order. A snippet is the best-covering passage rather than an
+arbitrary one, and the same passage every run.
+
+Splitting the read is what forced this. It puts the irreversible decision
+on the *smaller* window, so that window has to be the best one available
+-- an earlier version of this had it exactly backwards, scoring windows
+properly for `evidence`, which only ever runs on candidates already
+accepted, while `triage` kept the arbitrary snippet.
 
 ### What this saves, and what it doesn't
 

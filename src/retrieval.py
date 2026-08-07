@@ -79,14 +79,85 @@ def _tokenize(text: str) -> list[str]:
     ]
 
 
-def _snippet(text: str, terms: set[str], window: int = 500) -> str:
+# Occurrences of one query term that `_windows` will anchor a candidate
+# window on before it stops looking for more of that term. A ceiling on
+# work for a pathological document, not a quality knob: 500 anchors of one
+# term already spread across the whole text, and the top few windows come
+# out of scoring, not out of how many candidates were offered.
+_MAX_ANCHORS_PER_TERM = 500
+
+
+def _windows(text: str, terms: set[str], width: int, count: int) -> list[str]:
+    """The `count` best-matching windows of `text`, in document order.
+
+    Scored by how many *distinct* query terms fall inside, not by raw hit
+    count, so a passage repeating one word doesn't outrank one that
+    actually covers the query. Candidate windows are anchored on every
+    occurrence of every term and then de-overlapped, so a passage from
+    late in a long document is reachable.
+
+    Deterministic, which matters more than it looks. `terms` is a set, and
+    string hashing is randomised per process, so anything that depends on
+    the order those terms come out in gives a different answer run to run.
+    Nothing here does: anchors are sorted before scoring, the score is a
+    count over the whole term set, and ties break on position.
+    """
     lower = text.lower()
+    anchors: list[int] = []
     for term in terms:
-        idx = lower.find(term)
-        if idx != -1:
-            start = max(0, idx - window // 2)
-            end = min(len(text), idx + window // 2)
-            return " ".join(text[start:end].split())
+        start = lower.find(term)
+        found = 0
+        # Bounded per term rather than across all of them, so a book-length
+        # document that says "twin" ten thousand times cannot crowd out
+        # every anchor for "greenhouse". Scoring rewards distinct-term
+        # coverage, so losing a term's anchors entirely would work directly
+        # against what the window is chosen for -- and a shared budget
+        # would pick its victim by set order, i.e. at random.
+        while start != -1 and found < _MAX_ANCHORS_PER_TERM:
+            anchors.append(start)
+            found += 1
+            start = lower.find(term, start + 1)
+    if not anchors:
+        return []
+
+    scored: list[tuple[int, int, int]] = []
+    half = width // 2
+    for anchor in sorted(set(anchors)):
+        begin = max(0, anchor - half)
+        end = min(len(text), begin + width)
+        window = lower[begin:end]
+        hits = sum(1 for term in terms if term in window)
+        scored.append((hits, begin, end))
+
+    chosen: list[tuple[int, int]] = []
+    for _, begin, end in sorted(scored, key=lambda item: (-item[0], item[1])):
+        if any(begin < other_end and end > other_begin for other_begin, other_end in chosen):
+            continue
+        chosen.append((begin, end))
+        if len(chosen) == count:
+            break
+    return [" ".join(text[begin:end].split()) for begin, end in sorted(chosen)]
+
+
+def _snippet(text: str, terms: set[str], window: int = 500) -> str:
+    """The single best `window` characters of `text` for `terms`.
+
+    This used to return the window around the *first* occurrence of
+    whichever term came out of the `terms` set first -- and since string
+    hashing is randomised per process, that made the same query on the
+    same document return a different snippet run to run. Harmless-ish at
+    a 500-character window, where you get enough context either way. Not
+    harmless at all once `triage` shrank the window to 160 characters and
+    made it the sole basis for rejecting a candidate: it made the
+    rejection itself irreproducible.
+
+    So both stages now share `_windows`. A snippet is the best-covering
+    passage rather than an arbitrary one, and it is the same passage every
+    run.
+    """
+    best = _windows(text, terms, width=window, count=1)
+    if best:
+        return best[0]
     return " ".join(text[:window].split())
 
 
@@ -261,6 +332,15 @@ def search(query: str, k: int = 5, snippet_chars: int = 500) -> list[SearchResul
 # the survivors only, and reads more of the document than `search` ever
 # did rather than less.
 #
+# Both stages read through `_windows`, which is the point rather than an
+# implementation detail. Splitting the read puts the irreversible
+# decision -- rejection -- on the *smaller* window, so that window has to
+# be the best-covering passage in the document and the same one every
+# run. An earlier version of this had it backwards: `evidence` scored
+# windows properly while triage inherited the old "first occurrence of an
+# arbitrary term" snippet, which is to say the stage that could not be
+# undone was the one reading the worse evidence.
+#
 # This does argue against a rationale the genre skills state explicitly
 # -- that 500 characters is deliberate, "enough to judge, not just a
 # title". That rationale is right about accepting and wrong about
@@ -292,13 +372,6 @@ TRIAGE_CHARS = 160
 EVIDENCE_CHARS = 600
 EVIDENCE_WINDOWS = 2
 
-# Occurrences of one query term that `_windows` will anchor a candidate
-# window on before it stops looking for more of that term. A ceiling on
-# work for a pathological document, not a quality knob: 500 anchors of one
-# term already spread across the whole text, and the top few windows come
-# out of scoring, not out of how many candidates were offered.
-_MAX_ANCHORS_PER_TERM = 500
-
 
 def triage(query: str, k: int = 15, snippet_chars: int = TRIAGE_CHARS) -> list[SearchResult]:
     """Stage one: rank as `search` does, with a window sized to *reject* on.
@@ -313,54 +386,6 @@ def triage(query: str, k: int = 15, snippet_chars: int = TRIAGE_CHARS) -> list[S
     for where the break-even sits.
     """
     return search(query, k=k, snippet_chars=snippet_chars)
-
-
-def _windows(text: str, terms: set[str], width: int, count: int) -> list[str]:
-    """The `count` best-matching windows of `text`, in document order.
-
-    Scored by how many *distinct* query terms fall inside, not by raw hit
-    count, so a passage repeating one word doesn't outrank one that
-    actually covers the query. Candidate windows are anchored on each
-    term occurrence and then de-overlapped, which is what lets this
-    return a passage from late in a long document -- `_snippet` above
-    anchors on the first occurrence of any term and so cannot.
-    """
-    lower = text.lower()
-    anchors: list[int] = []
-    for term in terms:
-        start = lower.find(term)
-        found = 0
-        # Bounded per term rather than across all of them, so a book-length
-        # document that says "twin" ten thousand times cannot crowd out
-        # every anchor for "greenhouse". Scoring rewards distinct-term
-        # coverage, so losing a term's anchors entirely would work directly
-        # against what the window is chosen for -- and `terms` is a set,
-        # whose iteration order is arbitrary, so a shared budget would pick
-        # its victim at random.
-        while start != -1 and found < _MAX_ANCHORS_PER_TERM:
-            anchors.append(start)
-            found += 1
-            start = lower.find(term, start + 1)
-    if not anchors:
-        return []
-
-    scored: list[tuple[int, int, int]] = []
-    half = width // 2
-    for anchor in sorted(set(anchors)):
-        begin = max(0, anchor - half)
-        end = min(len(text), begin + width)
-        window = lower[begin:end]
-        hits = sum(1 for term in terms if term in window)
-        scored.append((hits, begin, end))
-
-    chosen: list[tuple[int, int]] = []
-    for _, begin, end in sorted(scored, key=lambda item: (-item[0], item[1])):
-        if any(begin < other_end and end > other_begin for other_begin, other_end in chosen):
-            continue
-        chosen.append((begin, end))
-        if len(chosen) == count:
-            break
-    return [" ".join(text[begin:end].split()) for begin, end in sorted(chosen)]
 
 
 def evidence(

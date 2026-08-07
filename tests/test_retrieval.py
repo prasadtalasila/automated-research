@@ -3,6 +3,9 @@ index, the retrieval contract genre skills call before the
 embeddings-based upgrade (src/enrich/embed_index.py)."""
 
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from src import config, ledger, retrieval
@@ -22,10 +25,48 @@ class TestTokenize:
 
 
 class TestSnippet:
-    def test_centers_window_on_first_matching_term(self):
+    def test_centers_the_window_on_a_matching_term(self):
         text = "x" * 100 + " digital twin simulation " + "y" * 100
         snippet = retrieval._snippet(text, {"digital"}, window=20)
         assert "digital" in snippet
+
+    def test_picks_the_window_covering_the_most_query_terms(self):
+        """Not the first match -- the best one. A paper that mentions one
+        query term in its front matter and discusses the actual subject
+        forty thousand characters later used to be judged on the front
+        matter."""
+        text = (
+            "ABSTRACT twin " + "x " * 400
+            + " soil moisture twin controller " + "y " * 400
+        )
+        snippet = retrieval._snippet(text, {"twin", "soil", "moisture"}, window=60)
+        assert "soil" in snippet and "moisture" in snippet
+
+    def test_is_the_same_snippet_whatever_the_hash_seed(self):
+        """`terms` is a set and string hashing is randomised per process,
+        so anything that iterates it and stops at the first hit returns a
+        different snippet run to run. That was tolerable at a 500-char
+        window and not tolerable once `triage` made a 160-char window the
+        sole basis for rejecting a candidate: it made the rejection
+        irreproducible. Run in subprocesses because PYTHONHASHSEED is read
+        at interpreter start."""
+        program = (
+            "from src import retrieval;"
+            "text = 'ABSTRACT twin ' + 'x '*400 + ' MIDDLE greenhouse ' "
+            "+ 'y '*400 + ' END actuator ';"
+            "terms = set(retrieval._tokenize('twin greenhouse actuator'));"
+            "print(retrieval._snippet(text, terms, window=60))"
+        )
+        outputs = set()
+        for seed in ("0", "1", "2", "3", "4"):
+            env = {**os.environ, "PYTHONHASHSEED": seed,
+                   "PYTHONPATH": str(config.REPO_ROOT)}
+            result = subprocess.run(
+                [sys.executable, "-c", program], capture_output=True, text=True,
+                env=env, cwd=config.REPO_ROOT, check=True,
+            )
+            outputs.add(result.stdout.strip())
+        assert len(outputs) == 1, f"snippet varied with hash seed: {outputs}"
 
     def test_falls_back_to_start_of_text_when_no_term_found(self):
         text = "no matching terms here at all"
