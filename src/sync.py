@@ -690,13 +690,28 @@ if __name__ == "__main__":
         help="Delete ledger rows for citekeys no longer in the bib file (default: report only, don't delete)",
     )
     args = parser.parse_args()
-    _configure_logging()
     # Held for the whole run, and only at the entrypoint: run() itself
     # stays callable in-process (the tests do that) without fighting a
     # lock, and only an actual invocation contends for it.
     try:
         with runlock.pipeline_lock():
+            # Inside the lock, not before it: two overlapping scheduled
+            # invocations would otherwise both attach a
+            # RotatingFileHandler to the same logs/sync.log before
+            # either acquires the lock -- and RotatingFileHandler isn't
+            # safe for two processes to hold open on the same file at
+            # once (a rotation from one can land mid-write from the
+            # other). The lock already serializes actual sync work; this
+            # makes it serialize handler creation too, so at most one
+            # process ever has a live handler on the file.
+            _configure_logging()
             raise SystemExit(run(remove_stale=args.remove_stale, reparse=args.reparse))
     except runlock.AlreadyRunning as exc:
-        logger.error("%s", exc)
+        # Deliberately still a bare print, not the logger: this is the
+        # losing side of the race above and must not touch
+        # logs/sync.log itself, which the winner may already be
+        # writing to. Losing the lock is an expected, harmless outcome
+        # under any real schedule (see docs/CLI.md's "Running sync on a
+        # schedule"), not a failure worth persisting.
+        print(f"  {exc}", file=sys.stderr)
         raise SystemExit(runlock.EXIT_ALREADY_RUNNING) from None

@@ -469,11 +469,16 @@ things: exit codes an unattended caller can branch on without parsing
 any text, and `logs/sync.log` (rotated; see `[logging]` in
 `config.toml.example`) as a persistent transcript to check afterwards.
 
-**Don't hand-roll a log redirect.** `logs/sync.log` already carries
-every warning, per-document progress line, and the run summary, at the
-level `[logging].level` sets. A cron or systemd wrapper around this
-command doesn't need its own `>> some.log 2>&1` to get a durable
-record -- that file already is one.
+**Don't hand-roll a log redirect for most of this.** `logs/sync.log`
+carries almost every warning, per-document progress line, and the run
+summary, at the level `[logging].level` sets -- a cron or systemd
+wrapper around this command doesn't need its own `>> some.log 2>&1` to
+get a durable record of those. Two messages are the exception and stay
+terminal-only by design: a docling worker's GPU-OOM fallback (runs in a
+child process with no route back to the file) and the Ctrl+C interrupt
+notice (runs in a signal handler, deliberately kept to a bare `print`).
+Both are rare and neither is the kind of thing a schedule needs to
+recover from unattended.
 
 **Exit codes are the API**, not the printed text:
 
