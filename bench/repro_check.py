@@ -110,6 +110,7 @@ on the same host.
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -147,14 +148,33 @@ def _portable(path: Path) -> str:
         return str(path)
 
 
+# Below this many documents, quartiles describe nothing: Tukey's rule
+# over three points is arithmetic, not statistics. It is also the range
+# where `statistics.quantiles` is version-dependent -- 3.13 special-cases
+# a single data point, 3.12 (still supported per pyproject.toml) raises
+# below two, and an empty sequence raises on both. One guard covers the
+# meaningless and the unsupported cases together.
+_MIN_DOCS_FOR_OUTLIERS = 4
+
+
 def outlier_fence(rows: "list[dict]") -> float:
     """Tukey's upper fence over page counts: Q3 + 1.5 * IQR.
 
     A named, standard rule rather than a hand-picked page cap, so the
     exclusion is something a reader can re-derive and disagree with
     rather than a judgement they have to take on trust.
+
+    Returns infinity -- "nothing is an outlier" -- on a corpus too small
+    for the rule to mean anything, rather than raising. A three-PDF
+    corpus is a legitimate thing to point this at while trying the
+    harness out, and refusing to trim it is the right answer; crashing
+    inside a quartile is not. `--outliers-only` against such a corpus
+    then selects nothing and is caught by build_sample's own guard, which
+    can say something useful about it.
     """
     pages = [r["pages"] for r in rows]
+    if len(pages) < _MIN_DOCS_FOR_OUTLIERS:
+        return float("inf")
     q1, q3 = statistics.quantiles(pages, n=4)[0], statistics.quantiles(pages, n=4)[2]
     return q3 + 1.5 * (q3 - q1)
 
@@ -222,7 +242,13 @@ def build_sample(n: int, keep_outliers: bool, outliers_only: bool, out_bib: Path
         "max_pages": max(r["pages"] for r in sample),
         "sample_mode": mode,
         "outlier_rule": None if keep_outliers else "tukey_q3_plus_1.5_iqr",
-        "outlier_fence_pages": round(fence, 1) if fence is not None else None,
+        # None for both "no rule applied" and "rule applied but the
+        # corpus was too small for a finite fence". json.dumps would
+        # otherwise emit bare `Infinity`, which is not valid JSON and
+        # which a strict reader of this record would reject outright --
+        # `outliers_excluded: 0` already says nothing was trimmed.
+        "outlier_fence_pages": (round(fence, 1)
+                                if fence is not None and math.isfinite(fence) else None),
         "outliers_excluded": excluded,
         # The citekeys themselves, not just a path to a generated bib.
         # rank_sample is deterministic, so a reader could in principle
