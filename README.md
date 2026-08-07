@@ -306,7 +306,7 @@ split by who is asking.
 | Document | Answers |
 |---|---|
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | What does each setting *cost*? Every measured figure in one place, organised by setting |
-| [docs/PDF-PARSER.md](docs/PDF-PARSER.md) | Which PDF backend should I use, and why were two others dropped? |
+| [docs/PDF-PARSER.md](docs/PDF-PARSER.md) | Which PDF backend should I use, why were two dropped, and why was each newer candidate not adopted? |
 
 **Reading the output**
 
@@ -321,6 +321,7 @@ split by who is asking.
 |---|---|
 | [docs/DESIGN.md](docs/DESIGN.md) | Why does this refuse what it refuses? The hard constraints, the conflict policy when two runs collide, and the failure analysis behind both |
 | [docs/PARALLELISM.md](docs/PARALLELISM.md) | How does the parallel parse actually work, what is each component for, and what is planned next? |
+| [docs/GROBID-CITATION-GRAPH.md](docs/GROBID-CITATION-GRAPH.md) | **A proposal, not a plan.** What would it take to build a corpus-internal citation graph, and is it worth a JDK and a long-running service? |
 | [DEVELOPER.md](DEVELOPER.md) | How do I run the tests, where does everything live, and what is unbuilt? |
 | [DOCKER.md](DOCKER.md) | How do I run this in a container? |
 | [AGENTS.md](AGENTS.md) | The rules a coding agent working here must follow -- above all, never fabricate a citekey |

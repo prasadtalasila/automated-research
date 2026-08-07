@@ -148,7 +148,10 @@ docs/                     reference docs that ship in the release zip -- everyth
   ZOTERO.md                 getting a bib file and its PDFs into the shape this pipeline expects
   CLI.md                    every command, and which interpreter each one needs
   CONFIG.md                 every setting, with config.toml.example reproduced in full
-  PDF-PARSER.md             parser backend tradeoffs, and why grobid/markitdown were removed
+  PDF-PARSER.md             parser backend tradeoffs, why grobid/markitdown were removed, and why
+                            marker/surya/xberg/unstructured were surveyed and not adopted
+  GROBID-CITATION-GRAPH.md  a proposal, not a plan: what a GROBID stage alongside docling would
+                            buy (a corpus-internal citation graph) and what it would cost
   ARCHITECTURE.md           what runs, what each part writes, what is optional, and which interpreter
                             each command needs -- the user-facing companion to DESIGN.md
   RETRIEVAL.md              BM25 vs embeddings vs topic model: which answers what, and what to build
@@ -230,6 +233,8 @@ tests/                    pytest suite -- unit tests per module + end-to-end fea
 content/                  generated, gitignored (regenerate with sync)
   ledger.sqlite, parsed/<citekey>.txt, provenance/,
   docling/, chroma/, topics.json, topic_embed_cache.json, rendered/  (src/enrich/ outputs)
+logs/                     gitignored -- sync.log, rotated at 5MB x 5 backups. Level from
+                          config.toml's [logging]; relocate with the LOGS_DIR env var
 .claude/skills/           drafting layer: survey-writer, thesis-chapter-writer,
                           textbook-chapter-writer, tutorial-writer, deep-research
 .claude/agents/           deep-research's subagents: deep-research-interviewer, deep-research-writer, peer-reviewer
@@ -314,25 +319,22 @@ Full design rationale, including the measurements behind those choices:
 
 ## Open questions and unbuilt features
 
-Run this pipeline as a cron job monitoring the bib file. To do so,
-the following tasks need to be completed in priority order:
+Running this pipeline on a schedule was the long-standing goal here.
+**Most of it now exists**, as of 3.4.0: `logs/sync.log` with rotation,
+a pages/s throughput figure, exit codes an unattended caller can branch
+on, and worked cron and systemd units in
+[docs/CLI.md](docs/CLI.md#running-sync-on-a-schedule) -- including the
+absolute-interpreter-path detail that cron's minimal environment
+requires.
 
-1. **Bib-file freshness is the blocker, not an afterthought.** With no
-   continuous auto-export, `bibliography.bib` is a manual, point-in-time
-   snapshot -- a cron job watching only its mtime does nothing until a
-   human re-exports it.
-2. **No scheduling mechanism exists yet** -- no crontab entry, no systemd
-   timer. Given `sync` is already cheap and idempotent, a stateless cron
-   entry polling every N minutes is the right shape (survives reboots
-   without supervision) rather than a long-running watchdog daemon.
-3. **No log file / failure surfacing.** `sync` prints to stdout/stderr;
-   unattended it needs redirecting to a log (with rotation) and a way to
-   notice repeated failures, since cron's default "mail root" often goes
-   unread.
-4. **Cron's minimal environment.** A crontab entry needs the venv's
-   Python invoked by absolute path
-   (`/workspace/git/chitragupta/.venv-full/bin/python`) -- cron
-   doesn't source your shell profile or activate venvs.
+**One blocker is left, and it is not a coding task.** With no continuous
+auto-export, `bibliography.bib` is a manual, point-in-time snapshot: a
+scheduled `sync` re-reads whatever was last exported, so it keeps the
+corpus consistent with the bib file but cannot keep the bib file
+consistent with your reference manager. A schedule watching only its
+mtime does nothing until a human re-exports. Closing that properly means
+either a Zotero auto-export plugin (outside this repo) or accepting that
+the export stays a deliberate human step.
 
 ### `content/topics.json` has no consumer
 

@@ -265,11 +265,16 @@ Three, each learned from a bug rather than chosen:
   concurrency policy requires a serial section to be observably making
   progress, and an unreported one is indistinguishable from a hang -- a
   correct run was read as stuck and killed at 399 of 501 documents
-  (#50). `sync`, `docling_parse` and `embed_index` all print
-  `[done/total] <citekey>`, opened *before* the slow call so the terminal
-  names the document currently under way. Flush every line: stdout is
-  block-buffered when it isn't a terminal, and the tail of an interrupted
-  run is the part worth keeping.
+  (#50). `sync`, `docling_parse` and `embed_index` all emit
+  `[done/total] <citekey>`, opened *before* the slow call so the reader
+  sees the document currently under way rather than the last one that
+  finished. Where it goes differs, and the split is deliberate (3.4.0):
+  `sync`'s stdout is a documented contract -- bibliography order,
+  diffable between runs, pinned by tests -- so progress and warnings go
+  through `logging` to `logs/sync.log` instead, while the enrichment
+  stages still `print(..., flush=True)`. Flush anything printed: stdout
+  is block-buffered when it isn't a terminal, and the tail of an
+  interrupted run is the part worth keeping.
 - **Classify a failure by cause on the exception, not by matching its
   message.** `pdf_text.py` sets `transient` and `timed_out` marks that
   survive the pool's pickling; `sync` reports each cause separately
