@@ -79,7 +79,7 @@ Three tiers. Commands below are written with the interpreter they need.
 
 | Tier | Interpreter | Commands |
 |---|---|---|
-| 1 | **`python3`** -- stdlib only, no venv | `src.citation_gate`, `src.references`, `src.render_output`, `src.ledger`, `src.citation_provenance`, `src.citation_coverage`, `src.dossier`, `scripts/verbatim_check.py` |
+| 1 | **`python3`** -- stdlib only, no venv | `src.citation_gate`, `src.references`, `src.render_output`, `src.ledger`, `src.citation_provenance`, `src.citation_coverage`, `src.dossier`, `src.retrieval`, `scripts/verbatim_check.py` |
 | 2 | **`.venv-full/bin/python`** -- venv, for `bibtexparser` | `src.sync` |
 | 3 | **`.venv-full/bin/python`** -- venv with the `enrich` group | `scripts/enrich.py` |
 
