@@ -86,7 +86,6 @@ def isolated_config(tmp_path, monkeypatch):
     wouldn't move an already-computed child.
     """
     content_dir = tmp_path / "content"
-    source_pdfs_dir = tmp_path / "source-pdfs"
 
     monkeypatch.setattr(config, "BIB_FILE_PATH", tmp_path / "bibliography.bib")
     monkeypatch.setattr(config, "CONTENT_DIR", content_dir)
@@ -95,8 +94,6 @@ def isolated_config(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "PROVENANCE_DIR", content_dir / "provenance")
     monkeypatch.setattr(config, "RETRIEVAL_INDEX_PATH", content_dir / "retrieval_index.json")
     monkeypatch.setattr(config, "PIPELINE_LOCK_PATH", content_dir / "pipeline.lock.db")
-    monkeypatch.setattr(config, "SOURCE_PDFS_DIR", source_pdfs_dir)
-    monkeypatch.setattr(config, "SOURCE_PDFS_MANIFEST", source_pdfs_dir / "manifest.json")
     monkeypatch.setattr(config, "DOCLING_DIR", content_dir / "docling")
     monkeypatch.setattr(config, "DOCLING_CACHE_PATH", content_dir / "docling_cache.json")
     # Pinned rather than inherited from config.toml: DOCLING_IMAGES

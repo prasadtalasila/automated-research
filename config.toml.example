@@ -29,14 +29,6 @@ path = "papers/bibliography.bib"
 # Relative to the repo root, or absolute.  Default: content
 dir = "content"
 
-[source_pdfs]
-# Raw PDFs with no bibliography entry, for the enrichment layer's topic
-# modelling and embeddings. NEVER citable -- a PDF here has no citekey,
-# so add it to your reference manager, re-export, and re-run sync before
-# citing it.
-# Relative to the repo root, or absolute.  Default: papers/pdfs
-dir = "papers/pdfs"
-
 [render]
 # How `python3 -m src.render_output` formats citations. Used by
 # nothing else -- not by sync, not by the citation gate.

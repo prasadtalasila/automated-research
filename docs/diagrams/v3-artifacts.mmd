@@ -2,11 +2,11 @@
 title: "Level 3 — everything on disk, and which module writes it"
 ---
 flowchart TB
+
   subgraph IN["<b>YOURS</b> — hand-curated, gitignored, per host"]
     direction LR
     BIB[/"papers/bibliography.bib"/]
     PDF[/"<b>papers/bibliography/files/&lt;id&gt;/*.pdf</b><br/><small>Zotero's companion folder, written beside the .bib<br/>by <b>Export Files</b> — renaming it breaks every<br/><code>file</code> field silently</small>"/]
-    RAW[/"papers/pdfs/*.pdf<br/><small>+ manifest.json · never citable</small>"/]
     CFG[/"config.toml"/]
   end
 
@@ -50,7 +50,7 @@ flowchart TB
   PDF -- "src/pdf_text.py" --> TXT
   PDF -- "src/pdf_text.py<br/><small>docling backend only</small>" --> CPS
   LED -- "which PDFs need a parse" --> TXT
-  RAW -- "src/enrich/corpus.py<br/><small>doc:&lt;stem&gt;, never a citekey</small>" --> DOC
+  LED -- "src/enrich/corpus.py<br/><small>every row, <code>doc_id == citekey</code></small>" --> DOC
   TXT -- "src/enrich/embed_index.py" --> CHR
   PDF -- "src/enrich/docling_parse.py" --> DOC
   CPS -. "<b>src/enrich/docling_parse.py</b><br/><small>adopts the corpus layer's parse<br/>instead of repeating it</small>" .-> DOC
@@ -75,7 +75,7 @@ flowchart TB
   classDef draft fill:#f0fdf4,stroke:#16a34a,color:#052e16
   classDef lock fill:#fefce8,stroke:#a16207,color:#422006
 
-  class BIB,PDF,RAW,CFG mine
+  class BIB,PDF,CFG mine
   class LED,TXT,CPS corpus
   class DOC,CHR,TOP heavy
   class RIX,DCA,TCA cache

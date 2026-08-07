@@ -117,12 +117,6 @@ mkdir -p papers && cp /path/to/your/exported-library.bib papers/bibliography.bib
 #     command). Every key in it is optional -- see docs/CONFIG.md.
 cp config.toml.example config.toml
 
-# Optional: raw, not-yet-cataloged PDFs (no reference-manager entry, no
-# citekey) for the enrichment layer's topic modelling/embeddings. NEVER
-# citable this way -- add a PDF to your reference manager, re-export, and
-# re-run sync before citing it.
-mkdir -p papers/pdfs && cp /path/to/some-paper.pdf papers/pdfs/
-
 # 2. Install. scripts/install_full_pipeline.sh is the only install path;
 #    it takes stage names as positional arguments (see its own section
 #    below for the full table). Poetry must exist before python-deps

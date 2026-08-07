@@ -128,7 +128,11 @@ structured author/title/year/DOI records, via the
 `/api/processFulltextDocument` endpoint this repo never called -- serves
 *corpus discovery* ("which papers do my papers cite that I don't have
 yet"), not grounding. Extracted references are not in the bib file, so
-per AGENTS.md's citekey invariant they can never be cited anyway.
+per AGENTS.md's citekey invariant no draft may cite them -- and since
+`src/enrich/corpus.py` sources the enrichment corpus from the ledger and
+nothing else, there is nowhere to index them either. A discovered paper
+enters this project the way every other one does: catalogue it in your
+reference manager, re-export, and re-run `python -m src.sync`.
 
 Against that, the operational cost was a JDK 21 pinned exactly (its
 bundled Kotlin compiler cannot parse a JDK 25 version string), a

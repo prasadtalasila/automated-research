@@ -60,9 +60,9 @@ Per round (repeat for ROUNDS):
    say so -- "no appropriate answer can be formulated from this corpus" is
    a valid, honest output, not a failure to route around.
 
-No web fallback exists in this adaptation. A `source-pdfs` hit may be
-discussed in prose (by title/doc_id) but is never a citation -- see
-AGENTS.md's citekey invariant.
+No web fallback exists in this adaptation. Every hit `search()` returns is a
+real, citable citekey from `content/ledger.sqlite`; nothing outside that set
+may be cited -- see AGENTS.md's citekey invariant.
 
 The packet schema each interviewer returns is defined in
 `.claude/agents/deep-research-interviewer.md`.

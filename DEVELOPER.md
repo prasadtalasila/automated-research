@@ -158,10 +158,7 @@ config.toml.example       tracked template for the central config -- paths, pars
                           anything imports src.config; see docs/CONFIG.md
 papers/                   gitignored, per-host data -- not shipped in the repo
   bibliography.bib          BibTeX export -- source of truth for citekeys/metadata (config.toml's [bib].path default)
-  pdfs/                     [source_pdfs].dir default -- raw PDFs gathered outside the bib file, never citable;
-                          manifest.json/reading-notes.md are hand-written and tracked, PDFs dropped in
-                          alongside them are not (migrated here from this repo's original source-pdfs/,
-                          now retired, on 2026-07-31)
+  bibliography/             the export's companion attachment folder, referenced by each entry's file field
 pyproject.toml            Poetry config (dependency/lockfile manager only, package-mode = false --
                           no [build-system], nothing published) + pytest/coverage tool config
 poetry.toml               project-local Poetry config: virtualenvs.create = false (installs into
@@ -198,8 +195,8 @@ src/                      the corpus and drafting layers (sync needs bibtexparse
                           Markdown draft skips pandoc entirely and emits references.numbered_markdown's
                           plain numbered copy instead
 src/enrich/                the enrichment layer (pyproject.toml's "enrich" Poetry group), optional
-  corpus.py                 unifies ledger items + [source_pdfs].dir's raw PDFs (doc: prefixed, non-citable),
-                          skipping any that the ledger already covers
+  corpus.py                 the enrichment layer's view of the ledger -- one CorpusDoc per bib item,
+                          so every enriched document is citable (doc_id == citekey)
   docling_parse.py, embed_index.py, topic_model.py
 scripts/
   install_full_pipeline.sh  single staged install path (os-deps/python-deps/dev-deps/all) for host + Docker
@@ -265,9 +262,9 @@ Two details worth knowing about that `cite` string:
   beginning `(a)` / `(b)`) therefore share a page-based citation; that
   is the fallback behaving correctly, not a collision.
 
-For a `[source_pdfs]` document the `cite` string is deliberately *not* a
-`[@citekey]`, since those documents are outside the bib file and can
-never be cited (AGENTS.md's citekey invariant).
+Every figure's `cite` string is a real `[@citekey]`, because every
+document the enrichment layer parses comes from the bib file (see
+`src/enrich/corpus.py`).
 
 ## Citation provenance
 

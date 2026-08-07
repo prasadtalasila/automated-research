@@ -20,12 +20,11 @@ already handled) except:
   meaningful once unzipped elsewhere).
 - content/ and papers/, which do have a handful of git-tracked files
   despite mostly being gitignored (e.g. content/drafts/*.md example
-  drafts, papers/pdfs/manifest.json) -- per-host example/personal data
-  that shouldn't ship as someone else's example in a fresh release.
-  Shipped as empty placeholder directories instead of omitted outright,
-  so config.toml's default paths (content.dir, source_pdfs.dir) still
-  resolve to something that exists before a first `sync` run populates
-  them.
+  drafts) -- per-host example/personal data that shouldn't ship as
+  someone else's example in a fresh release. Shipped as empty placeholder
+  directories instead of omitted outright, so config.toml's default paths
+  (content.dir, bib.path's parent) still resolve to something that exists
+  before a first `sync` run populates them.
 
 Stdlib only (tomllib, zipfile, shutil) -- runs with bare `python3`, no
 venv, same as citation_gate.py/references.py. Needs `git` on PATH to list

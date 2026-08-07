@@ -382,54 +382,18 @@ Two costs, both worth knowing before turning it on:
   `docling_image_scale = 2.0` is roughly 144 DPI, enough to read a figure
   back without storing print-resolution files.
 
-## `[source_pdfs] dir` -- the duplicate check, and what it saves
+## `[source_pdfs] dir` -- retired
 
-Since 2.5.0 the enrichment layer cross-checks every PDF in this directory
-against the ledger, so a paper the bib file already covers is not indexed
-a second time. Measured on this project's own corpus -- 537 PDFs,
-1,595 MB, median 1.56 MB per file, 642 ledger rows -- against the
-implementation that did no checking:
+Up to 2.5.x the enrichment layer also indexed a directory of raw PDFs
+gathered outside the bib file, and cross-checked each one against the
+ledger so a paper the bib file already covered was not indexed twice.
+That check cost ~0.45 ms per new PDF and ~2.3 ms per PDF it had to hash
+-- negligible against a 6.65s docling parse, and the measurements stand
+in `bench/RESULTS.md`.
 
-| Scenario | Before | After | Added |
-|---|---|---|---|
-| No `papers/pdfs/` at all | 1.7 ms | 1.7 ms | **0** |
-| 20 new PDFs (61 MB) | 1.9 ms | 11.0 ms | +9.1 ms |
-| 20 duplicates (61 MB) | 1.9 ms | 48.5 ms | +46.6 ms |
-| 100 new PDFs (298 MB) | 2.4 ms | 13.0 ms | +10.7 ms |
-| 100 duplicates (298 MB) | 2.4 ms | 190.4 ms | +188.0 ms |
-
-**With no source-pdfs directory the cost is exactly zero.** The check is
-behind an `is_dir()` guard, so the ledger index is never built.
-
-Where the time goes when the directory does exist:
-
-- **Building the index**: ~10 ms over 642 ledger rows (~15 us/row), once
-  per run. One `realpath()` per row plus dict inserts.
-- **A PDF that is new**: ~0.45 ms -- one `realpath`, one `stat`, two dict
-  lookups. **The file is never read.**
-- **A PDF that has to be hashed**: ~2.3 ms. Hashing only happens when some
-  ledger row already has the same byte length, mirroring `src/ledger.py`'s
-  own stat-before-hash skip, so a corpus of genuinely distinct PDFs never
-  reads one. sha256 measured at 1,116 MB/s here (537 files, 1.6 GB, 1.43s).
-
-**Against what it buys.** One docling parse of the same corpus is
-**6.65s per PDF serial** (3330.4s / 501, above) or 0.62s at twelve
-workers. So a duplicate costs ~2.3 ms to detect and saves ~6,650 ms of
-parsing, plus an embedding pass, plus a corpus that is permanently wrong.
-The check pays for itself if more than roughly **1 source PDF in 2,900**
-is a duplicate serially, or 1 in 270 at twelve workers.
-
-The genuine worst case -- 100 source PDFs that all collide on size with a
-ledger row and none of which is actually a duplicate, so every hash is
-wasted -- is 190 ms, against the 665s those same 100 PDFs then take to
-parse. **0.03%.**
-
-**Caveat: these are warm-cache numbers.** 1,116 MB/s is memory bandwidth,
-not disk; the corpus had just been read. On a cold cache the hash is
-I/O-bound and a median file would cost single-digit milliseconds rather
-than 2.3. Still three orders of magnitude under a parse. It was not
-measured cold -- `/proc/sys/vm/drop_caches` is read-only in the container
-this was measured in.
+The directory itself is now gone: the enrichment corpus is the
+bibliography, so there is no second source to deduplicate against and
+nothing left to measure here. See `src/enrich/corpus.py` for why.
 
 ## Where it all ended up
 

@@ -26,14 +26,13 @@ general feature):
    as an error).
 5. Re-run `python -m src.sync`.
 
-This is a **different mechanism from `papers/pdfs/`** (`config.toml`'s
-`[source_pdfs].dir`, Quickstart step 1 above): that directory is for any
-raw PDF you already have but haven't cataloged in Zotero yet (just a file
-you drop there by hand -- this project has no automated fetching from any
-external source) -- see [`src/enrich/corpus.py`](../src/enrich/corpus.py) and
-AGENTS.md's citekey invariant. Zotero's own exported attachments never
-belong there, and this project's only supported way to catalog a paper
-for citing is a Zotero export.
+A Zotero export is the **only** way to get a paper into this pipeline.
+There is no directory you can drop a raw PDF into to have it indexed:
+the enrichment layer's corpus is the bibliography, so anything it can
+retrieve is something a draft may cite -- see
+[`src/enrich/corpus.py`](../src/enrich/corpus.py) and AGENTS.md's citekey
+invariant. (Earlier versions did have such a directory, `papers/pdfs/`;
+it is gone. A PDF there is now simply ignored.)
 
 To add more papers later: add the entry in Zotero, re-export the same way
 (re-check **Export Files** so new attachments are included), then re-run

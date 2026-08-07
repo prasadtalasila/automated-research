@@ -28,7 +28,7 @@ import tempfile
 from pathlib import Path
 
 from src import config
-from src.enrich.corpus import CorpusDoc, safe_filename
+from src.enrich.corpus import CorpusDoc
 
 _COLLECTION_PREFIX = "corpus"
 
@@ -78,7 +78,7 @@ def strip_image_refs(markdown: str) -> str:
 def get_text(doc: CorpusDoc) -> str | None:
     """Best available text for a doc: Docling output > existing parsed text
     > on-the-fly pdftotext. Doesn't require the Docling stage to have run."""
-    docling_path = config.DOCLING_DIR / f"{safe_filename(doc.doc_id)}.md"
+    docling_path = config.DOCLING_DIR / f"{doc.doc_id}.md"
     if docling_path.exists():
         return strip_image_refs(docling_path.read_text())
     if doc.text_path and Path(doc.text_path).exists():
@@ -150,12 +150,11 @@ def build_index(docs: list[CorpusDoc]) -> dict[str, int]:
             counts[doc.doc_id] = 0
             continue
         embeddings = model.encode(chunks, show_progress_bar=False).tolist()
-        ids = [f"{safe_filename(doc.doc_id)}::{i}" for i in range(len(chunks))]
+        ids = [f"{doc.doc_id}::{i}" for i in range(len(chunks))]
         metadatas = [
             {
                 "doc_id": doc.doc_id,
-                "citekey": doc.citekey or "",
-                "source": doc.source,
+                "citekey": doc.citekey,
                 "title": doc.title,
                 "text_hash": text_hash,
             }
@@ -170,15 +169,13 @@ def search(query: str, k: int = 5, snippet_chars: int = 500) -> list[dict]:
     """`snippet_chars` defaults to enough context for a caller to judge
     relevance itself before citing, rather than trusting distance alone.
 
-    Deliberately the same shape as `src.retrieval.search()` so this is a
-    drop-in for it -- but with one difference a caller must handle. This
-    index covers the *enrichment* corpus, which is wider than the ledger: a hit
-    can come from `papers/pdfs/`, in which case `citekey` is `""` and
-    `doc_id` is `doc:<stem>`. Those results are readable evidence and are
-    never citable -- `citation_gate` resolves citekeys against the ledger,
-    and a `doc:` id can't be a BibTeX citekey (see corpus.py's
-    `assert_no_citekey_collision`). To cite one, add the paper to the
-    reference manager, re-export, and re-run `python -m src.sync`."""
+    Deliberately the same shape as `src.retrieval.search()`, and a
+    drop-in for it: this index covers the same documents, the ledger's,
+    differing only in how it ranks them (embeddings rather than BM25). So
+    every hit carries a real citekey and `citation_gate` will resolve it.
+    That is what restricting the corpus to the bibliography buys -- see
+    corpus.py; there is no longer any such thing as a hit a draft is not
+    allowed to cite."""
     client, model = get_client_and_model()
     collection = client.get_or_create_collection(_collection_name())
     query_embedding = model.encode([query], show_progress_bar=False).tolist()

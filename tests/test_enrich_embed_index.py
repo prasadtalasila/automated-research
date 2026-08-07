@@ -161,10 +161,10 @@ class TestStripImageRefs:
 class TestGetText:
     def test_strips_image_refs_from_docling_output(self, isolated_config):
         isolated_config.DOCLING_DIR.mkdir(parents=True)
-        (isolated_config.DOCLING_DIR / "doc_x.md").write_text(
-            "real text\n\n![Image](doc_x_artifacts/image_000000_abc.png)\n\nmore text\n"
+        (isolated_config.DOCLING_DIR / "a2024.md").write_text(
+            "real text\n\n![Image](a2024_artifacts/image_000000_abc.png)\n\nmore text\n"
         )
-        doc = CorpusDoc(doc_id="doc:x", citekey=None, source="source-pdfs", title="t", pdf_path=None)
+        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=None)
 
         out = embed_index.get_text(doc)
 
@@ -173,14 +173,14 @@ class TestGetText:
 
     def test_prefers_docling_output(self, isolated_config):
         isolated_config.DOCLING_DIR.mkdir(parents=True)
-        (isolated_config.DOCLING_DIR / "doc_x.md").write_text("docling content")
-        doc = CorpusDoc(doc_id="doc:x", citekey=None, source="source-pdfs", title="t", pdf_path=None, text_path="ignored.txt")
+        (isolated_config.DOCLING_DIR / "a2024.md").write_text("docling content")
+        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=None, text_path="ignored.txt")
         assert embed_index.get_text(doc) == "docling content"
 
     def test_falls_back_to_text_path(self, isolated_config, tmp_path):
         parsed = tmp_path / "parsed.txt"
         parsed.write_text("parsed text content")
-        doc = CorpusDoc(doc_id="a2024", citekey="a2024", source="bib", title="t", pdf_path=None, text_path=str(parsed))
+        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=None, text_path=str(parsed))
         assert embed_index.get_text(doc) == "parsed text content"
 
     def test_falls_back_to_pdftotext_subprocess(self, isolated_config, monkeypatch, tmp_path):
@@ -191,11 +191,11 @@ class TestGetText:
             return subprocess.CompletedProcess(cmd, 0)
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        doc = CorpusDoc(doc_id="a2024", citekey="a2024", source="bib", title="t", pdf_path=str(tmp_path / "a.pdf"))
+        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=str(tmp_path / "a.pdf"))
         assert embed_index.get_text(doc) == "pdftotext output"
 
     def test_returns_none_when_nothing_available(self, isolated_config):
-        doc = CorpusDoc(doc_id="a2024", citekey="a2024", source="bib", title="t", pdf_path=None)
+        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="t", pdf_path=None)
         assert embed_index.get_text(doc) is None
 
 
@@ -213,10 +213,10 @@ class TestBuildIndex:
         parsed = tmp_path / "a.txt"
         parsed.write_text(" ".join(["word"] * 10))
         doc_with_text = CorpusDoc(
-            doc_id="a2024", citekey="a2024", source="bib", title="A", pdf_path=None, text_path=str(parsed)
+            doc_id="a2024", citekey="a2024", title="A", pdf_path=None, text_path=str(parsed)
         )
         doc_without_text = CorpusDoc(
-            doc_id="b2024", citekey="b2024", source="bib", title="B", pdf_path=None
+            doc_id="b2024", citekey="b2024", title="B", pdf_path=None
         )
 
         counts = embed_index.build_index([doc_with_text, doc_without_text])
@@ -230,14 +230,14 @@ class TestBuildIndex:
         upsert_call = collection.upserted[0]
         assert upsert_call["ids"] == ["a2024::0"]
         assert upsert_call["metadatas"][0] == {
-            "doc_id": "a2024", "citekey": "a2024", "source": "bib", "title": "A",
+            "doc_id": "a2024", "citekey": "a2024", "title": "A",
             "text_hash": embed_index.hash_text(" ".join(["word"] * 10)),
         }
 
     def test_empty_chunks_from_whitespace_only_text(self, isolated_config, fake_enrich_deps, tmp_path):
         parsed = tmp_path / "empty.txt"
         parsed.write_text("   ")
-        doc = CorpusDoc(doc_id="a2024", citekey="a2024", source="bib", title="A", pdf_path=None, text_path=str(parsed))
+        doc = CorpusDoc(doc_id="a2024", citekey="a2024", title="A", pdf_path=None, text_path=str(parsed))
         counts = embed_index.build_index([doc])
         assert counts["a2024"] == 0
 
@@ -246,7 +246,7 @@ class TestBuildIndexIncremental:
     def make_doc(self, tmp_path, text, doc_id="a2024"):
         parsed = tmp_path / f"{doc_id}.txt"
         parsed.write_text(text)
-        return CorpusDoc(doc_id=doc_id, citekey=doc_id, source="bib", title="A", pdf_path=None, text_path=str(parsed))
+        return CorpusDoc(doc_id=doc_id, citekey=doc_id, title="A", pdf_path=None, text_path=str(parsed))
 
     def test_second_call_with_unchanged_text_skips_encode(self, isolated_config, fake_enrich_deps, tmp_path):
         doc = self.make_doc(tmp_path, "word " * 10)
@@ -311,7 +311,7 @@ class TestBuildIndexModelChange:
     def make_doc(self, tmp_path, text, doc_id="a2024"):
         parsed = tmp_path / f"{doc_id}.txt"
         parsed.write_text(text)
-        return CorpusDoc(doc_id=doc_id, citekey=doc_id, source="bib", title="A", pdf_path=None, text_path=str(parsed))
+        return CorpusDoc(doc_id=doc_id, citekey=doc_id, title="A", pdf_path=None, text_path=str(parsed))
 
     def test_model_swap_re_embeds_into_a_separate_collection_despite_unchanged_text(
         self, isolated_config, fake_enrich_deps, tmp_path, monkeypatch

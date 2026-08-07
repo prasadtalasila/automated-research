@@ -146,8 +146,9 @@ def sidecar_path(citekey: str) -> Path:
     Built from the citekey in one place, so the writer in
     `src/pdf_text.py` and the reader below cannot drift apart. The
     enrichment layer's own sidecar (rung 1) is *not* this path -- it lives
-    under `config.DOCLING_DIR` and is keyed by doc_id, which covers
-    `papers/pdfs/` documents that have no citekey at all.
+    under `config.DOCLING_DIR`, written by that layer's own parse under
+    its own OCR and figure settings, so the two must not share a file
+    even though they now key on the same string.
     """
     return config.PARSED_DIR / f"{citekey}.passages.json"
 

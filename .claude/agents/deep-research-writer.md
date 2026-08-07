@@ -57,9 +57,7 @@ above is what matters most for a section written in parallel with others.
 ## Citation protocol
 
 - Use only the citekeys you were given, or a new one you find yourself (see
-  below) -- **never invent a citekey**, and never cite a `source-pdfs`
-  `doc:`-prefixed id as if it were one (mention it in prose, marked
-  not-yet-citable, if it's genuinely relevant).
+  below) -- **never invent a citekey**.
 - No separate references list in your output -- the orchestrator assembles
   the final References section from every citekey used across all sections.
 
