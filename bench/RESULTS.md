@@ -263,8 +263,10 @@ exactly. What varies is Docling's element grouping inside **dense
 reference blocks** under heavy concurrency: the same words, split across
 list elements or lines differently.
 
-Nothing is lost, and retrieval tokenises on whitespace, so this does not
-affect BM25 ranking.
+Nothing is lost, and retrieval tokenises on runs of `[a-z0-9]` rather
+than on element or line boundaries, so this does not affect BM25 ranking.
+(It does affect the passage sidecar, which was not measured until
+[2026-08-07](#2026-08-07-does-the-quotable-passage-survive-a-re-parse).)
 
 **Can it be turned off?** Not from Docling. Its `PdfPipelineOptions` has
 no determinism, seed or reproducibility setting of any kind (checked

@@ -47,9 +47,11 @@ with it on).
 dense reference blocks are grouped into elements slightly differently
 between runs: ~1.4% of documents come back with different text and ~1.0%
 with a different *quotable passage*, and two runs of the same
-configuration are not exempt. Retrieval is unaffected -- it tokenises on
-whitespace -- but the exact span quoted from a source can change, which
-is the part that matters for a citation-grounded pipeline. This is
+configuration are not exempt. Ranking is unaffected -- `src/retrieval.py`
+tokenises on runs of `[a-z0-9]`, so where an element boundary falls
+between two words changes nothing about the terms extracted -- but the
+exact span quoted from a source can change, which is the part that
+matters for a citation-grounded pipeline. This is
 Docling's own behaviour under load, not something this repo's parallelism
 introduced, and it cannot be switched off: Docling exposes no determinism
 setting. `pdftotext` does not have this property; its output is

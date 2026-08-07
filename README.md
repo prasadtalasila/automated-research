@@ -253,9 +253,10 @@ nothing either way, because every stage skips what hasn't changed -- which
 is what makes it safe to put `sync` on a schedule.
 
 Every measured figure in this project comes from one of two reference
-machines -- a 4-core, 9.7GB, no-GPU **small machine** and the multi-GPU
-machine above. **Treat each as that machine's, and expect yours to
-differ.** [docs/PERFORMANCE.md](docs/PERFORMANCE.md) has their full
+machines: **the small machine** (4 cores, 9.7GB RAM, no GPU) and **the
+multi-GPU machine** (96 cores, 251GB RAM, 4x NVIDIA A40 -- the one in the
+paragraph above). **Treat each figure as that machine's, and expect yours
+to differ.** [docs/PERFORMANCE.md](docs/PERFORMANCE.md) has their full
 specifications, what each setting costs, and the two install-time traps
 worth knowing before you start (a CPU-only host pulling several GB of
 unused CUDA packages, and a GPU host where `torch.cuda.is_available()`

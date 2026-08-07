@@ -449,8 +449,9 @@ Choosing a safe value means knowing your slowest legitimate document; see
 `sync` warns when an implausible share of a freshly extracted document's
 words are unusually long -- the signature of a backend that has lost the
 spaces between words. That is easy to miss by eye and expensive
-downstream: `src/retrieval.py` tokenises on whitespace, so a query term
-fused into a longer run stops matching entirely.
+downstream: `src/retrieval.py` tokenises on runs of `[a-z0-9]`, so two
+words that lost the space between them become a single token and neither
+one matches a query for it any more.
 
 `long_word_chars`, `long_word_ratio` and `min_tokens` are its thresholds.
 It is **a warning, never a failure** -- the text is still usable, and an
