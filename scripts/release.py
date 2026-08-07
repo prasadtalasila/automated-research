@@ -15,11 +15,14 @@ already handled) except:
   rather than extending it: DEVELOPER.md, tests/, bench/ (parser
   wall-clock measurement against *this* host's own bib corpus, which a
   release consumer doesn't have), and this repo's own meta-tooling
-  (.github/, .gitignore, AGENTS.md, DEVELOPER-AGENTS.md -- CI config, git
-  config, issue/PR templates, and coding-agent guidance for developing
-  *this* repo, none of it meaningful once unzipped elsewhere). SOUL.md
-  does ship: it is the pipeline's *why*, README-adjacent rather than
-  guidance for developing this repo.
+  (.github/, .gitignore -- CI config, git config and issue/PR templates,
+  none of it meaningful once unzipped elsewhere), and both agent-guidance
+  files: DEVELOPER-AGENTS.md (developing *this* repo) and AGENTS.md
+  (drafting with the pipeline). AGENTS.md's exclusion predates the
+  audience split and is worth revisiting -- `.claude/` and its genre
+  skills *do* ship, so a consumer currently gets the skills without the
+  guidance they assume. SOUL.md ships: it is the pipeline's *why*,
+  README-adjacent rather than instructions to an agent.
 - content/ and papers/, which do have a handful of git-tracked files
   despite mostly being gitignored (e.g. content/drafts/*.md example
   drafts) -- per-host example/personal data that shouldn't ship as

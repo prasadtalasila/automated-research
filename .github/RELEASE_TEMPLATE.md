@@ -1,10 +1,12 @@
 # Release notes template
 
-GitHub has no hook that picks this file up automatically -- copy from it by
-hand into the GitHub Release body when cutting a release. The git tag
-message is not the release notes. See
-[DEVELOPER-AGENTS.md](../DEVELOPER-AGENTS.md), "Versioning and releases",
-for how the version number itself is chosen.
+GitHub has no hook that picks this file up automatically -- copy everything
+below the horizontal rule into the GitHub Release body by hand when cutting
+a release, leaving this preamble behind. The git tag message is not the
+release notes. For how the version number itself is chosen, see
+[DEVELOPER-AGENTS.md](https://github.com/prasadtalasila/chitragupta/blob/main/DEVELOPER-AGENTS.md),
+"Versioning and releases" (absolute, so it still resolves if this preamble
+is pasted somewhere by accident).
 
 ---
 
