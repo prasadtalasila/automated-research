@@ -521,15 +521,19 @@ def log_retrieval(
     silly way to fail, and this writes nothing a later `init` would
     clobber.
 
-    A pipe in the query would break the row it is written into, so it is
-    escaped rather than the row being quietly malformed.
+    The query is flattened onto one line before it is written. A pipe
+    would split the row into extra cells and a newline would split it
+    into two rows -- and `retrieval_cost` reads rows positionally, so
+    either one turns a logged call into a silently miscounted one rather
+    than a visible error. Whitespace is collapsed with `split()`, which
+    covers newlines, tabs and carriage returns together.
     """
     target = dossier_dir(draft)
     target.mkdir(parents=True, exist_ok=True)
     path = target / "retrieval.md"
     if not path.exists():
         path.write_text(_RETRIEVAL_TEMPLATE, encoding="utf-8")
-    safe_query = query.replace("|", "\\|").strip()
+    safe_query = " ".join(query.split()).replace("|", "\\|")
     row = f"| {date.today().isoformat()} | {mode} | {safe_query} | {k} | {results} | {chars} |\n"
     with path.open("a", encoding="utf-8") as handle:
         handle.write(row)

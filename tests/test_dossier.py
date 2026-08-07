@@ -628,3 +628,18 @@ class TestRetrievalLog:
         dossier.init(draft, "survey")
         dossier.main(["status", str(draft)])
         assert "call(s) returned" not in capsys.readouterr().out
+
+    def test_a_newline_in_the_query_does_not_split_the_row(self, draft):
+        """`retrieval_cost` reads rows positionally, so a query carrying a
+        newline would not error -- it would quietly become two rows, one
+        of which parses and one of which doesn't."""
+        dossier.init(draft, "survey")
+        dossier.log_retrieval(draft, "triage", "digital twin\narchitecture", 15, 15, 100)
+        text = (dossier.dossier_dir(draft) / "retrieval.md").read_text()
+        assert "digital twin architecture" in text
+        assert dossier.retrieval_cost(dossier.dossier_dir(draft)) == (1, 100)
+
+    def test_tabs_and_carriage_returns_are_flattened_too(self, draft):
+        dossier.init(draft, "survey")
+        dossier.log_retrieval(draft, "triage", "twin\tshadow\r\nmodel", 15, 15, 100)
+        assert dossier.retrieval_cost(dossier.dossier_dir(draft)) == (1, 100)

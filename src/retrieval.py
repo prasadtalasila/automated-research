@@ -516,9 +516,14 @@ def main(argv: "list[str] | None" = None) -> int:
                 Path(args.log), args.command, args.query,
                 asked_for, results, chars,
             )
-        except dossier.DossierError as exc:
+        except (dossier.DossierError, OSError) as exc:
             # A measurement is worth less than the retrieval it measures:
-            # report and carry on rather than failing the search.
+            # report and carry on rather than failing the search. OSError
+            # is caught alongside DossierError because the failure this
+            # has to survive is not only "that path isn't a draft" -- a
+            # read-only content/, a full disk or a permissions problem
+            # would otherwise let a bookkeeping write throw away results
+            # the caller has already paid to compute.
             print(f"  [not logged] {exc}", file=sys.stderr)
         else:
             print(f"  Logged to {path}")

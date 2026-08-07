@@ -329,7 +329,7 @@ on, not to accept on.
 | Subcommand | What it does |
 |---|---|
 | `triage "<query>"` | Stage one: rank `--k` candidates with a 160-character window |
-| `evidence "<query>" --citekey KEY` | Stage two: the 3 passages of that document that bear on the query |
+| `evidence "<query>" --citekey KEY` | Stage two: the passages of that document that bear on the query (`--windows`, 2 by default) |
 | `search "<query>"` | One-stage: rank with a 500-character, accept-sized snippet |
 
 | Flag | Applies to | Default | What it does |

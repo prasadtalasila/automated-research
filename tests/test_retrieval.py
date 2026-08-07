@@ -446,6 +446,14 @@ class TestTwoStageCost:
         windows_row = next(line for line in cli.splitlines() if "`--windows N`" in line)
         assert f"| {retrieval.EVIDENCE_WINDOWS} |" in windows_row
 
+        # The subcommand table states the same number in prose, and the
+        # first version of this guard checked only the flag row -- review
+        # caught the description still saying "the 3 passages".
+        evidence_row = next(
+            line for line in cli.splitlines() if '`evidence "<query>" --citekey KEY`' in line
+        )
+        assert f"{retrieval.EVIDENCE_WINDOWS} by default" in evidence_row
+
         retr = (config.REPO_ROOT / "docs" / "RETRIEVAL.md").read_text(encoding="utf-8")
         assert f"{retrieval.TRIAGE_CHARS} chars" in retr
         assert f"{retrieval.EVIDENCE_WINDOWS} x {retrieval.EVIDENCE_CHARS} chars" in retr
@@ -462,3 +470,37 @@ class TestTwoStageCost:
         for survivors in (3, 5, 8):
             total = triage + survivors * per_survivor
             assert f"{triage:,} + {survivors} x {per_survivor:,} = **{total:,}**" in retr
+
+
+class TestLogNeverFailsTheSearch:
+    """docs/CLI.md states that a `--log` problem is reported and skipped,
+    never fatal. `DossierError` covered "that path isn't a draft"; a
+    filesystem failure was not covered and would have thrown away results
+    the caller had already paid to compute."""
+
+    def _seed(self, con, tmp_path):
+        parsed = tmp_path / "a2024.txt"
+        parsed.write_text("padding " * 50 + "digital twin architecture patterns")
+        ledger.upsert_reference(con, make_reference(citekey="a2024", title="Twin Patterns"))
+        ledger.mark_parsed(con, "a2024", parsed)
+
+    def test_an_oserror_while_logging_is_reported_not_raised(
+        self, ledger_con, tmp_path, capsys, monkeypatch
+    ):
+        from src import dossier
+
+        self._seed(ledger_con, tmp_path)
+        draft = config.DRAFTS_DIR / "survey.md"
+        draft.parent.mkdir(parents=True, exist_ok=True)
+        draft.write_text("# s\n")
+
+        def boom(*args, **kwargs):
+            raise OSError(28, "No space left on device")
+
+        monkeypatch.setattr(dossier, "log_retrieval", boom)
+
+        assert retrieval.main(["triage", "digital twin", "--log", str(draft)]) == 0
+        captured = capsys.readouterr()
+        assert "a2024" in captured.out, "the retrieval results must still be printed"
+        assert "[not logged]" in captured.err
+        assert "No space left on device" in captured.err
