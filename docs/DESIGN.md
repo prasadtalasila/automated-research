@@ -1,4 +1,26 @@
-# Design review for chitragupta
+# Design
+
+Why this pipeline refuses what it refuses.
+
+**Written for** someone changing how runs interact, fail, or reject each
+other -- adding a stage, a failure mode, or a form of concurrency -- who
+needs the rule a change should be checked against rather than a map of
+what exists.
+
+**Not covered here:** what actually runs and what each part writes
+([ARCHITECTURE.md](ARCHITECTURE.md)), what any of it costs
+([PERFORMANCE.md](PERFORMANCE.md)), and how the parse path is built
+([PARALLELISM.md](PARALLELISM.md)). This document is the *rationale*;
+ARCHITECTURE.md is the map. Where they touch the same subject,
+ARCHITECTURE.md states the behaviour and this states why it was chosen
+over the alternative.
+
+## Table of contents
+
+- [Repository constraints and operating model](#repository-constraints-and-operating-model)
+- [Concurrency and conflict policy](#concurrency-and-conflict-policy)
+- [Parallelism and resource design](#parallelism-and-resource-design)
+- [Parser backends](#parser-backends)
 
 ## Repository constraints and operating model
 
@@ -43,48 +65,6 @@ The repository is designed around a few hard constraints that strongly shape the
    - Backends get the kind of parallelism they can use: threads for
      `pdftotext` (external subprocess, releases the GIL), processes for
      `docling` (in-process, holds it), with one CUDA device per worker.
-
-## Design pattern review
-
-### 1. Pipeline architecture
-The project is fundamentally a staged pipeline:
-- BibTeX export -> ledger -> parsed text -> retrieval
-- Optional enrichment layer: Docling -> embeddings -> BERTopic -> render
-
-This is the dominant structural pattern and fits the use case well.
-
-### 2. Separation of concerns
-Modules are mostly narrowly scoped:
-- `bib_reader.py` parses bibliographic input
-- `ledger.py` persists state and change detection
-- `pdf_text.py` handles plain-text extraction
-- `retrieval.py` ranks documents
-- `citation_gate.py` validates citations
-- `render_output.py` renders drafts
-
-This is a strong point of the codebase.
-
-### 3. Adapter/facade pattern around external tools
-Several modules wrap command-line tools or services behind Python APIs:
-- `pdftotext`
-- Docling
-- Pandoc/TeX Live
-
-This keeps the rest of the system insulated from tool-specific details.
-
-### 4. Strategy-like backend substitution
-The repo already supports alternate approaches for retrieval and parsing:
-- BM25 retrieval in the corpus layer
-- embedding retrieval in the enrichment layer
-- plain extraction vs structured extraction
-
-That is a good fit for a tiered research workflow.
-
-### 5. Guard pattern
-`citation_gate.py` is a hard validation gate that protects downstream stages. This is appropriate for a citation-grounded writing system.
-
-### 6. Repository-style persistence layer
-`ledger.py` functions as a small persistence/repository layer over SQLite. It keeps the rest of the code from directly dealing with SQL details.
 
 ## Concurrency and conflict policy
 
@@ -282,57 +262,31 @@ on POSIX gives two processes locks on different inodes.
 ### What this does not cover
 
 The lock serialises writers only; readers see mid-run state by design.
-And parsed output is not bit-reproducible at high worker counts --
-Docling groups dense reference blocks differently under load, and exposes
-no determinism setting to switch that off.
 
-## Design improvement recommendations
+Nor does serialising writers make output reproducible: Docling groups
+dense reference blocks differently under load, so parsed text and the
+passage sidecar both vary at high worker counts. What that costs, artifact
+by artifact, is
+[ARCHITECTURE.md's reproducibility contract](ARCHITECTURE.md#what-is-reproducible-and-what-is-not)
+-- the single statement of it, measured rather than asserted.
 
-### 1. Use hierarchical document representations
-Instead of only parsing to flat text, preserve:
-- document-level text
-- section-level text
-- chunk-level text
-- page provenance
+## Where proposed work lives
 
-This would improve retrieval, reranking, and downstream citation support.
+This document describes what the pipeline does and why. **Proposals for
+what it should do next are tracked in
+[issue #54](https://github.com/prasadtalasila/chitragupta/issues/54)**,
+not here -- a design document that also carries a wish list stops being
+readable as a statement of current behaviour, and the wish list goes
+stale faster than the design does.
 
-### 2. Split retrieval responsibilities
-`retrieval.py` currently does tokenization, caching, scoring, and snippet building. Consider splitting this into:
-- indexing/cache maintenance
-- ranking
-- snippet generation
-- backend selection
-
-### 3. Improve platform portability
-The repository is cross-platform-friendly in code, but toolchain-dependent at runtime.
-
-Likely rough spots:
-- `pdftotext` availability
-- `pandoc`/`pdflatex`
-- Docling model/runtime dependencies
-
-Suggested mitigations:
-- clearer OS-specific setup docs
-- optional fallback backends
-- extend the CI matrix beyond the current Linux + Windows legs to macOS
-
-### 4. Add reranking
-For search quality, a good pattern would be:
-- BM25 or vector retrieval first
-- lightweight reranker second
-
-That would improve precision without making every query expensive.
-
-### 5. Preserve more structured metadata
-When parsing PDFs, keep:
-- page numbers
-- section titles
-- source tool
-- extraction confidence if available
-- citation/reference blocks where possible
-
-This would improve evidence quality substantially.
+An earlier revision of this file ended with five unowned improvement
+recommendations. Four became sequenced items in that issue (splitting
+`retrieval.py`, section-aware chunking over hierarchical document
+representations, reranking, and platform portability) and the fifth --
+preserving richer per-document metadata -- is partly delivered by
+`src/passages.py` and the Docling sidecar. The parse path's own roadmap,
+which is narrower and measured, is in
+[PARALLELISM.md](PARALLELISM.md#roadmap).
 
 ## Parser backends
 

@@ -1,11 +1,34 @@
 # Measured: what a full Docling parse of the bib corpus costs
 
-Measured 2026-08-02. Host: 4x NVIDIA A40 46GB, driver 555.42.02, CUDA
-12.5, 96 logical CPUs of which this container is allowed 48
-(`Cpus_allowed_list: 0-23,48-71`). docling 2.117.0, torch 2.7.1+cu126.
+A dated record, oldest first. Host throughout: 4x NVIDIA A40 46GB, driver
+555.42.02, CUDA 12.5, 96 logical CPUs of which this container is allowed
+48 (`Cpus_allowed_list: 0-23,48-71`). docling 2.117.0, torch 2.7.1+cu126.
 
-Raw per-PDF timings: `results/2026-08-02-baseline/*.jsonl`.
-Reproduce with the commands in [README.md](README.md).
+Raw per-run data is in `results/<date>-<tag>/`. Reproduce with the
+commands in [README.md](README.md).
+
+## Which sections are current
+
+**Read this before quoting a number.** Nothing here is deleted when a
+later run overturns it -- being able to see which conclusions were wrong,
+and what corrected them, is the point of the directory (see
+[PARALLELISM-PLAN.md](PARALLELISM-PLAN.md)'s method). But that only works
+if it is obvious which is which, so:
+
+| Section | Standing | |
+|---|---|---|
+| 2026-08-02 baseline (["Wall clock"](#wall-clock), ["The GPU is not the bottleneck"](#the-gpu-is-not-the-bottleneck)) | **Superseded** | Extrapolated from a 16-PDF sample; understated the serial baseline by 41% |
+| [2026-08-02: OCR costs more than the GPU saves](#2026-08-02-ocr-costs-more-than-the-gpu-saves) | **Partly superseded** | The 2.46x is a *serial sample* figure. Measured: 2.08x serial, up to 4.79x parallel. Its qualitative finding -- what OCR recovers, and in how few documents -- still stands and is not measured anywhere else |
+| [2026-08-02: the converter rebuild](#2026-08-02-the-converter-rebuild), [spreading workers across the four A40s](#2026-08-02-spreading-workers-across-the-four-a40s) | Current | Superseded only in absolute wall clock, not in ratio |
+| [Per-worker startup](#per-worker-startup-where-the-10s-goes-and-how-much-of-it-is-shareable) | Current | |
+| [2026-08-04: the full-corpus sweep](#2026-08-04-the-full-corpus-sweep) | **Current** | The first whole-corpus measurement; corrected everything above it |
+| [2026-08-04b: repeats](#2026-08-04b-repeats-and-where-the-time-goes) | **Current** | Overturned the 32-vs-48 "knee" from the single-run sweep |
+| [2026-08-07: does the quotable passage survive a re-parse?](#2026-08-07-does-the-quotable-passage-survive-a-re-parse) | **Current** | Corrected "same-configuration runs reproduce exactly", which had been asserted in three documents |
+
+The user-facing summary of everything still standing is
+[docs/PERFORMANCE.md](../docs/PERFORMANCE.md); the reproducibility
+contract is
+[docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md#what-is-reproducible-and-what-is-not).
 
 ## The corpus
 

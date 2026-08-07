@@ -25,11 +25,15 @@ the bib file, say so in prose -- do not invent a key for it, and do not
 "fix" a gate failure by making up a plausible-looking key instead of
 removing the claim or sourcing a real one.
 
-Every genre skill (`survey-writer`, `thesis-chapter-writer`,
-`textbook-chapter-writer`, `tutorial-writer` in `.claude/skills/`) must run
+All five genre skills (`survey-writer`, `thesis-chapter-writer`,
+`textbook-chapter-writer`, `tutorial-writer`, `deep-research` in
+`.claude/skills/`) must run
 `python -m src.citation_gate <file>` on its own output and only present the
 draft once it exits 0. This is a gate, not a
 lint suggestion -- treat a `FAIL` the same way you'd treat a failing test.
+It binds the two teaching genres too, where citations are optional: a
+draft that cites nothing passes trivially, but a draft that cites
+anything must pass on merit.
 A PostToolUse hook (`.claude/hooks/citation_gate_hook.py`, wired up in
 `.claude/settings.json`) now also enforces this mechanically: any Write/Edit
 under `content/drafts/*.md` or `*.tex` runs the gate automatically and blocks
@@ -117,9 +121,14 @@ non-empty ledger, for the same reason at the extreme -- see
   generative, everything it writes is a corpus artefact, and it takes the
   same write lock as `sync` for that reason. Run by a human, never by a
   skill.
-- **Ad-hoc review aids** (`scripts/verbatim_check.py`,
-  `src/citation_coverage.py`): in no layer -- run by hand when reviewing a
-  draft, never invoked automatically, never gate anything.
+- **Ad-hoc review aids** (`src/citation_provenance.py`,
+  `scripts/verbatim_check.py`, `src/citation_coverage.py`): in no layer --
+  run by hand when reviewing a draft, never invoked automatically, never
+  gate anything. That they are not gates is deliberate: the gate answers a
+  question with one correct answer (is this citekey in the ledger?), while
+  these three answer questions of judgement, where a machine verdict would
+  be either wrong often enough to ignore or trusted more than it deserves.
+  Don't promote one to a gate.
 
 These three were called "job 1", "job 2" and "the heavy pipeline" until
 2026-08-06, and the code followed in 3.0.0: the word *heavy* now names
@@ -147,12 +156,11 @@ bare system interpreter. `python -m src.citation_gate` is the exception --
 it only reads `content/ledger.sqlite` (stdlib `sqlite3`) and still runs
 with bare `python3`.
 
-Root/sudo, a JDK, TeX Live, and Pandoc were previously assumed unavailable
-on this host -- **that assumption no longer holds** (verified
-2026-07-28): root is available via `sudo`, and a JDK, TeX Live, and Pandoc
-are all installed and working. Don't assume this generalizes to every
-host running this repo, though -- treat availability as something to
-probe, not assume, in either direction:
+**Probe for a toolchain; never assume one, in either direction.** An
+earlier revision of this file asserted that root, TeX Live and Pandoc were
+unavailable here, and a later one asserted the opposite. Both were one
+machine's facts written as project rules, and both went stale. The
+durable rule is the probe:
 
 - **When the enrichment layer's dependencies are present:** stages that need them
   (Docling parsing; Pandoc/TeX Live rendering) work directly on the host,
@@ -192,12 +200,13 @@ artifact.
 ## The enrichment layer (`src/enrich/`, `scripts/enrich.py`)
 
 Implements Docling -> sentence-transformers/Chroma ->
-BERTopic -> Pandoc/LaTeX, one script for both host and Docker
-(`scripts/enrich.py --target host|docker`). Each stage self-probes
-its own prerequisites (pandoc/pdflatex on PATH) and
+BERTopic -> Pandoc/LaTeX, one script for both host and Docker. Each stage
+self-probes its own prerequisites (pandoc/pdflatex on PATH) and
 reports honestly (`skipped`/`missing-binary`) rather than assuming the
 target implies availability -- don't "fix" a skip by hardcoding
-target-specific behavior; fix the probe if it's wrong.
+target-specific behavior; fix the probe if it's wrong. `--target
+host|docker` is **informational only** for exactly that reason: the
+probes decide, not the flag, so nothing branches on it.
 
 `src/enrich/embed_index.py`, `src/enrich/topic_model.py`, and
 `src/enrich/docling_parse.py` are all incremental, mirroring
@@ -219,12 +228,10 @@ index a document a draft would not be allowed to cite. If a paper is
 worth enriching, it belongs in the reference manager: catalogue it,
 re-export, and re-run `python -m src.sync`.
 
-This is narrower than it used to be. An earlier design also swept raw
-PDFs gathered outside the bib file (`config.toml`'s `[source_pdfs].dir`,
-default `papers/pdfs/*.pdf`) into the corpus under a `doc:<stem>` id that
-`citation_gate.py` always rejected. That made every stage downstream
-carry a permanently non-citable case; the directory, its config key, and
-that second namespace are all gone.
+A second, uncitable source was tried and removed in 3.3.0 because it made
+every stage downstream carry a permanently non-citable case; the citekey
+became the whole identity in 3.3.1. `src/enrich/corpus.py`'s module
+docstring has the detail. Don't reintroduce a second id namespace.
 
 ## Retrieval
 
@@ -242,6 +249,38 @@ a matching `search(query, k)` shape, ready to swap in without changing
 callers once BM25 stops being enough -- that's a deliberate call to make
 when it comes up (source text quality/volume, query patterns), not a
 corpus-size threshold to assert a number for here.
+
+Retrieval finds a *document*; `src/passages.py` decides which part of it
+may be shown. Anything that needs to point at a span of a source rather
+than the whole of it -- `citation_provenance`, `verbatim_check`, the
+enrichment layer -- goes through that one ladder rather than re-deriving
+passages, so a caller cannot accidentally quote from a rung that isn't
+quotable. See docs/LADDERS.md.
+
+## Conventions a new stage has to follow
+
+Three, each learned from a bug rather than chosen:
+
+- **Anything holding the write lock reports per document.** DESIGN.md's
+  concurrency policy requires a serial section to be observably making
+  progress, and an unreported one is indistinguishable from a hang -- a
+  correct run was read as stuck and killed at 399 of 501 documents
+  (#50). `sync`, `docling_parse` and `embed_index` all print
+  `[done/total] <citekey>`, opened *before* the slow call so the terminal
+  names the document currently under way. Flush every line: stdout is
+  block-buffered when it isn't a terminal, and the tail of an interrupted
+  run is the part worth keeping.
+- **Classify a failure by cause on the exception, not by matching its
+  message.** `pdf_text.py` sets `transient` and `timed_out` marks that
+  survive the pool's pickling; `sync` reports each cause separately
+  because they want opposite fixes (raise the timeout and `--reparse`
+  versus fix or remove the PDF). Adding a cause means adding a mark, not
+  a string match.
+- **Report a partial result as a failure.** Docling's `PARTIAL_SUCCESS`
+  returns a document that stops early; writing it would hand the citation
+  gate a source that silently ends at page k of n. Check the status and
+  raise *before* anything is written, so nothing enters the incremental
+  cache.
 
 ## Development process: agile, test-driven
 

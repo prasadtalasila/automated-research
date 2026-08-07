@@ -43,15 +43,22 @@ figures that replaced it (a full 501-PDF parse, measured serially:
 55m 30s with OCR off, 1h 56m
 with it on).
 
-**Its output is not bit-reproducible under concurrency.** At high worker
-counts a small number of documents (6 of 501, measured) come back with
-dense reference blocks grouped into elements slightly differently -- the
-same words, different boundaries, under 0.06% of a file. This is Docling's
-own behaviour under load, not something this repo's parallelism
+**Its output is not reproducible under concurrency.** With a worker pool,
+dense reference blocks are grouped into elements slightly differently
+between runs: ~1.4% of documents come back with different text and ~1.0%
+with a different *quotable passage*, and two runs of the same
+configuration are not exempt. Retrieval is unaffected -- it tokenises on
+whitespace -- but the exact span quoted from a source can change, which
+is the part that matters for a citation-grounded pipeline. This is
+Docling's own behaviour under load, not something this repo's parallelism
 introduced, and it cannot be switched off: Docling exposes no determinism
-setting. It does not affect retrieval, which tokenises on whitespace. See
-[PERFORMANCE.md](PERFORMANCE.md#output-is-not-bit-reproducible-under-heavy-concurrency)
-and `bench/RESULTS.md` (developer-only, in the repository).
+setting. `pdftotext` does not have this property; its output is
+byte-identical across runs.
+
+The artifact-by-artifact contract is in
+[ARCHITECTURE.md](ARCHITECTURE.md#what-is-reproducible-and-what-is-not),
+with the measurement in `bench/RESULTS.md` (developer-only, in the
+repository).
 
 Turning OCR off is a trade-off, not a free win: it drops text that the
 PDF stores as a bitmap rather than as characters, which on this sample
