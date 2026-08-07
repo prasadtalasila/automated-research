@@ -16,13 +16,13 @@ already handled) except:
   wall-clock measurement against *this* host's own bib corpus, which a
   release consumer doesn't have), and this repo's own meta-tooling
   (.github/, .gitignore -- CI config, git config and issue/PR templates,
-  none of it meaningful once unzipped elsewhere), and both agent-guidance
-  files: DEVELOPER-AGENTS.md (developing *this* repo) and AGENTS.md
-  (drafting with the pipeline). AGENTS.md's exclusion predates the
-  audience split and is worth revisiting -- `.claude/` and its genre
-  skills *do* ship, so a consumer currently gets the skills without the
-  guidance they assume. SOUL.md ships: it is the pipeline's *why*,
-  README-adjacent rather than instructions to an agent.
+  none of it meaningful once unzipped elsewhere), and DEVELOPER-AGENTS.md,
+  which only governs changing *this* repo.
+
+  AGENTS.md and SOUL.md do ship. `.claude/` and its genre skills ship
+  too, and those skills cite AGENTS.md by name for the citekey invariant
+  -- excluding it would hand a consumer skills pointing at a file they
+  don't have.
 - content/ and papers/, which do have a handful of git-tracked files
   despite mostly being gitignored (e.g. content/drafts/*.md example
   drafts) -- per-host example/personal data that shouldn't ship as
@@ -54,7 +54,6 @@ EXCLUDE_TOP_LEVEL = {
     "DEVELOPER.md",
     ".github",
     ".gitignore",
-    "AGENTS.md",
     "DEVELOPER-AGENTS.md",
     "bench",
 }

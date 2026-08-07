@@ -67,18 +67,22 @@ class TestTrackedFiles:
         assert not any(p.startswith("tests/") for p in paths)
         assert "DEVELOPER.md" not in paths
 
-    def test_excludes_github_gitignore_and_agents_md(self, repo):
+    def test_excludes_github_gitignore_and_developer_agents_md(self, repo):
         paths = release.tracked_files()
         assert not any(p.startswith(".github/") for p in paths)
         assert ".gitignore" not in paths
-        assert "AGENTS.md" not in paths
         assert "DEVELOPER-AGENTS.md" not in paths
 
-    def test_ships_soul_md(self, repo):
-        # SOUL.md is the *why* behind the pipeline, not guidance for
-        # developing this repo -- README-adjacent, so it ships where
-        # AGENTS.md/DEVELOPER-AGENTS.md don't.
-        assert "SOUL.md" in release.tracked_files()
+    def test_ships_soul_md_and_agents_md(self, repo):
+        # SOUL.md is the *why* behind the pipeline and AGENTS.md is the
+        # guidance for drafting *with* it -- both are meaningful to a
+        # release consumer, who also gets .claude/ and its genre skills.
+        # Those skills cite AGENTS.md by name, so shipping them without it
+        # would leave a dangling reference. DEVELOPER-AGENTS.md is the one
+        # that stays behind: it only governs changing this repo.
+        paths = release.tracked_files()
+        assert "SOUL.md" in paths
+        assert "AGENTS.md" in paths
 
     def test_excludes_bench(self, repo):
         # bench/ measures *this* repo's parser on *this* host's corpus --
@@ -101,7 +105,7 @@ class TestBuildRelease:
 
         assert zip_path == repo / "release" / "chitragupta-9.9.9.zip"
         assert zip_path.exists()
-        assert n_files == 4  # README.md, SOUL.md, pyproject.toml, src/foo.py
+        assert n_files == 5  # README.md, SOUL.md, AGENTS.md, pyproject.toml, src/foo.py
 
         with zipfile.ZipFile(zip_path) as zf:
             names = set(zf.namelist())
@@ -110,7 +114,7 @@ class TestBuildRelease:
         assert not any("tests/" in n for n in names)
         assert not any(n.endswith("DEVELOPER.md") for n in names)
 
-    def test_zip_excludes_github_gitignore_and_agents_md(self, repo):
+    def test_zip_excludes_github_gitignore_and_developer_agents_md(self, repo):
         import zipfile
 
         zip_path, _ = release.build_release()
@@ -119,9 +123,9 @@ class TestBuildRelease:
             names = zf.namelist()
         assert not any(".github/" in n for n in names)
         assert not any(n.endswith("/.gitignore") for n in names)
-        assert not any(n.endswith("/AGENTS.md") for n in names)
         assert not any(n.endswith("/DEVELOPER-AGENTS.md") for n in names)
         assert any(n.endswith("/SOUL.md") for n in names)
+        assert any(n.endswith("/AGENTS.md") for n in names)
 
     def test_zip_ships_content_and_papers_as_empty_directories(self, repo):
         import zipfile
@@ -155,7 +159,7 @@ class TestBuildRelease:
 
         zip_path, n_files = release.build_release()
 
-        assert n_files == 4
+        assert n_files == 5
         assert not stale_staging.exists()
 
 
