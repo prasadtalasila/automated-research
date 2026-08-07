@@ -520,9 +520,10 @@ def run(remove_stale: bool = False, reparse: bool = False) -> int:
     # returned (see its own docstring on why that -- not the requested
     # value -- is the number worth reporting), and both it and the
     # backend ride along because a bare rate has no tuning value without
-    # them: bench/sweep_sync.py parses this line the same way it already
-    # parses the [n/N] progress line, to normalize by document size
-    # rather than compare on raw document counts alone.
+    # them. bench/sweep_sync.py doesn't parse this figure yet -- today it
+    # only regexes the [n/N] progress lines and a raw document count --
+    # but could pick it up the same way, to normalize by document size
+    # rather than compare corpora on raw counts alone.
     if parsed and parse_elapsed > 0:
         summary += (
             f" {total_pages} page(s) parsed in {parse_elapsed:.1f}s "
@@ -618,6 +619,16 @@ def _not_file_only(record: logging.LogRecord) -> bool:
     return not getattr(record, "file_only", False)
 
 
+def _this_project_only(record: logging.LogRecord) -> bool:
+    """False for a record from outside the "src" logger tree -- a third
+    party already using stdlib logging (docling, torch; see the [n/N]
+    progress comment above about their own chatter). Their WARNING+
+    still reaches logs/sync.log via file_handler below, "for free" --
+    this filter only keeps their chatter off the console, which is the
+    one thing this project's own output was never supposed to include."""
+    return record.name == "src" or record.name.startswith("src.")
+
+
 def _configure_logging() -> None:
     """Attach a rotating file handler (logs/sync.log) and a stderr handler.
 
@@ -630,6 +641,18 @@ def _configure_logging() -> None:
     5 MB x 5 backups is fixed rather than configurable -- see
     config.LOGGING_LEVEL's own comment for why only the level is a
     setting here.
+
+    config.LOGGING_LEVEL is applied to file_handler alone (via
+    setLevel), not to any logger. Setting it on the "src" logger tree
+    instead -- an earlier version of this function did -- silently
+    gated the console too: a logger only creates a record at all if the
+    *logger's* effective level allows it, before any handler is even
+    reached, so a level of WARNING would have suppressed the [n/N]
+    progress line (INFO) everywhere, not just in the file, contradicting
+    the "only affects the file" this project documents for this
+    setting. The "src" logger below is instead pinned permissive
+    (DEBUG) so every record this project's own code logs always reaches
+    both handlers; each handler then decides for itself what it keeps.
     """
     config.LOGS_DIR.mkdir(parents=True, exist_ok=True)
     file_handler = logging.handlers.RotatingFileHandler(
@@ -639,20 +662,17 @@ def _configure_logging() -> None:
     file_handler.setFormatter(logging.Formatter(
         "%(asctime)s %(levelname)s %(name)s: %(message)s"
     ))
+    file_handler.setLevel(config.LOGGING_LEVEL)
+
     console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setFormatter(logging.Formatter("%(message)s"))
     console_handler.addFilter(_not_file_only)
+    console_handler.addFilter(_this_project_only)
+
     root = logging.getLogger()
     root.addHandler(file_handler)
     root.addHandler(console_handler)
-    # config.LOGGING_LEVEL governs this package's own tree, not root:
-    # root stays at its default (WARNING), so a third party already
-    # using stdlib logging (docling, torch -- see the [n/N] progress
-    # comment above about their own chatter) still gets its WARNING+
-    # into the file via these same handlers, without its INFO-level
-    # library chatter flooding the console at this project's default
-    # level.
-    logging.getLogger("src").setLevel(config.LOGGING_LEVEL)
+    logging.getLogger("src").setLevel(logging.DEBUG)
 
 
 if __name__ == "__main__":

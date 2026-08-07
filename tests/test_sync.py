@@ -587,15 +587,58 @@ class TestConfigureLogging:
     def test_creates_the_log_file_and_sets_the_configured_level(
         self, isolated_config, monkeypatch
     ):
-        monkeypatch.setattr(config, "LOGGING_LEVEL", "DEBUG")
+        monkeypatch.setattr(config, "LOGGING_LEVEL", "WARNING")
         root_level_before = logging.getLogger().level
         sync._configure_logging()
         assert (config.LOGS_DIR / "sync.log").exists()
-        assert logging.getLogger("src").level == logging.DEBUG
-        # Root itself is untouched -- only this package's tree follows
-        # LOGGING_LEVEL, so a third party's own INFO chatter isn't
-        # forced onto the console at this project's configured level.
+        file_handlers = [
+            h for h in logging.getLogger().handlers
+            if isinstance(h, logging.handlers.RotatingFileHandler)
+        ]
+        assert len(file_handlers) == 1
+        # LOGGING_LEVEL is a handler-level filter on file_handler alone
+        # -- not a logger level -- see test_console_output_ignores_
+        # logging_level below for why that distinction is load-bearing.
+        assert file_handlers[0].level == logging.WARNING
         assert logging.getLogger().level == root_level_before
+
+    def test_console_output_ignores_logging_level(
+        self, isolated_config, monkeypatch, capsys
+    ):
+        """The bug this guards against: setting LOGGING_LEVEL on the
+        "src" logger tree (an earlier version of _configure_logging()
+        did) gates whether a record is created at all, before any
+        handler is reached -- so WARNING would have silently suppressed
+        the [n/N] progress line (INFO) on the console too, contradicting
+        "only affects the file". Confirmed here at the strictest
+        setting: an INFO record must still reach the console even when
+        LOGGING_LEVEL is CRITICAL."""
+        monkeypatch.setattr(config, "LOGGING_LEVEL", "CRITICAL")
+        sync._configure_logging()
+        sync.logger.info("progress line")
+
+        log_text = (config.LOGS_DIR / "sync.log").read_text()
+        assert "progress line" not in log_text  # correctly filtered out of the file
+
+        err = capsys.readouterr().err
+        assert "progress line" in err  # but not off the console
+
+    def test_a_third_partys_warning_reaches_the_file_but_not_the_console(
+        self, isolated_config, monkeypatch, capsys
+    ):
+        """docling and torch already use stdlib logging. Their WARNING+
+        should land in logs/sync.log "for free" -- but not flood the
+        console, which is exactly the "docling's own OCR chatter"
+        problem the [n/N] progress line's own comment describes."""
+        monkeypatch.setattr(config, "LOGGING_LEVEL", "INFO")
+        sync._configure_logging()
+        logging.getLogger("docling").warning("a third-party warning")
+
+        log_text = (config.LOGS_DIR / "sync.log").read_text()
+        assert "a third-party warning" in log_text
+
+        err = capsys.readouterr().err
+        assert "a third-party warning" not in err
 
     def test_a_file_only_record_reaches_the_file_but_not_the_console(
         self, isolated_config, monkeypatch, capsys
