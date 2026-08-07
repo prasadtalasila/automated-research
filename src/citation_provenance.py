@@ -31,6 +31,7 @@ Usage:
 
 import argparse
 import re
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from datetime import date
@@ -448,6 +449,15 @@ def write_report(draft_path: Path, formats: list[str]) -> dict[str, Path]:
             written[fmt] = render_output.render(str(md_path), fmt)
         except render_output.MissingBinary as exc:
             print(f"  WARNING: skipped {fmt} -- {exc}", file=sys.stderr)
+        except subprocess.CalledProcessError as exc:
+            # A quoted excerpt can carry characters straight from the
+            # source PDF (e.g. circled digits) that pdflatex's default
+            # fonts can't set -- a real rendering failure, not a bug in
+            # this report. render_output.py's own CLI already treats this
+            # as warn-and-continue rather than a crash; do the same here
+            # so one unrenderable format doesn't take out the md/tex
+            # formats that did succeed.
+            print(f"  WARNING: skipped {fmt} -- pandoc failed: {exc.stderr or exc}", file=sys.stderr)
     return written
 
 
