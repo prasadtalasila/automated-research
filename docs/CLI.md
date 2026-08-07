@@ -16,6 +16,7 @@ short path; this is the full set.
   - [`src.citation_gate`](#python3--m-srccitation_gate)
   - [`src.references`](#python3--m-srcreferences)
   - [`src.dossier`](#python3--m-srcdossier)
+  - [`src.retrieval`](#python3--m-srcretrieval)
   - [`src.citation_coverage`](#python3--m-srccitation_coverage)
   - [`src.citation_provenance`](#python3--m-srccitation_provenance)
   - [`src.render_output`](#python3--m-srcrender_output)
@@ -78,7 +79,7 @@ Three tiers. Commands below are written with the interpreter they need.
 
 | Tier | Interpreter | Commands |
 |---|---|---|
-| 1 | **`python3`** -- stdlib only, no venv | `src.citation_gate`, `src.references`, `src.render_output`, `src.ledger`, `src.citation_provenance`, `src.citation_coverage`, `src.dossier`, `scripts/verbatim_check.py` |
+| 1 | **`python3`** -- stdlib only, no venv | `src.citation_gate`, `src.references`, `src.render_output`, `src.ledger`, `src.citation_provenance`, `src.citation_coverage`, `src.dossier`, `src.retrieval`, `scripts/verbatim_check.py` |
 | 2 | **`.venv-full/bin/python`** -- venv, for `bibtexparser` | `src.sync` |
 | 3 | **`.venv-full/bin/python`** -- venv with the `enrich` group | `scripts/enrich.py` |
 
@@ -313,6 +314,47 @@ AGENTS.md keeps as the source of truth rather than something this
 pipeline copies). Restore refuses the whole archive -- rather than
 skipping a member -- if any entry is a link or device node, escapes the
 extraction directory, or sits outside those three directories.
+
+### `python3 -m src.retrieval`
+
+BM25 retrieval over the synced corpus. Read-only, takes no lock, needs no
+venv. [RETRIEVAL.md](RETRIEVAL.md) has the ranking details.
+
+| Subcommand | What it does |
+|---|---|
+| `search "<query>"` | Rank the corpus and return a snippet per candidate |
+| `evidence "<query>" --citekey KEY` | The passages of that one document that bear on the query (`--windows`, 2 by default) |
+
+`evidence` is a lookup, not a stage: use it when a `search` snippet is not
+enough to judge a source you are minded to cite. Nothing is obliged to
+call it. [REJECTION.md](REJECTION.md) explains why an earlier arrangement,
+which made a cheap first pass mandatory and used it to *reject*, was
+withdrawn.
+
+| Flag | Applies to | Default | What it does |
+|---|---|---|---|
+| `--k N` | `search` | 5 | How many candidates to rank |
+| `--chars N` | all | 600 / 500 | Window size (evidence / search) |
+| `--citekey KEY` | `evidence` | required | Which document to read |
+| `--windows N` | `evidence` | 2 | How many passages to return |
+| `--log DRAFT` | all | -- | Record the call and its payload size in DRAFT's dossier |
+
+```bash
+python3 -m src.retrieval search "digital twin architecture" --k 15 \
+    --log content/drafts/survey.md
+python3 -m src.retrieval evidence "digital twin architecture" \
+    --citekey ferko_architecting_2022 --log content/drafts/survey.md
+```
+
+`--log` appends to `retrieval.md` in that draft's dossier, which is what
+turns "retrieval is where the tokens go" into a number for a particular
+draft (`python3 -m src.dossier status` totals it). A `--log` path that
+isn't under `content/drafts/`, or a filesystem error while writing, is
+reported on stderr and skipped -- the measurement never fails the search
+it was measuring.
+
+Exits 1 with the fix if there is no ledger; an empty result set is not an
+error.
 
 ### `python3 -m src.citation_coverage`
 

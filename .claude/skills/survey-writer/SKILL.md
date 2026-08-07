@@ -1,6 +1,6 @@
 ---
 name: survey-writer
-description: Drafts a topic-clustered literature survey / background section / "state of the art" from the synced corpus, with a comparison table and a gap analysis. Every claim is grounded in a citekey pulled from content/ledger.sqlite via src.retrieval.search() -- never a fabricated one. Triggers when the user asks to write, draft, or update a survey paper, literature review, background section, or related-work section for a given topic. Must run `python -m src.citation_gate` on its own output and only present the draft once it passes. Refuses (and tells the user to run `python -m src.sync` first) if the ledger is empty.
+description: Drafts a topic-clustered literature survey / background section / "state of the art" from the synced corpus, with a comparison table and a gap analysis. Every claim is grounded in a citekey pulled from content/ledger.sqlite via src.retrieval -- never a fabricated one. Triggers when the user asks to write, draft, or update a survey paper, literature review, background section, or related-work section for a given topic. Must run `python -m src.citation_gate` on its own output and only present the draft once it passes. Refuses (and tells the user to run `python -m src.sync` first) if the ledger is empty.
 tags: [survey, literature-review, citation]
 ---
 
@@ -17,7 +17,10 @@ layer: deterministic, safe to run unattended).
 - `papers/bibliography.bib` (gitignored, per-host) -- the source of truth for citekeys/metadata;
   `sync` reads it, it is never regenerated
 - `content/parsed/<citekey>.txt` -- extracted PDF text
-- `src/retrieval.py` -- `search(query, k)` returns `SearchResult(citekey, title, score, snippet)`
+- `src/retrieval.py` -- `python3 -m src.retrieval search "<q>" --k 15`, which
+  returns a citekey, title, score and a 500-character snippet per candidate.
+  `... evidence "<q>" --citekey <key>` reads more of one document when a
+  snippet is not enough to judge it
 
 ## The dossier: write down what produced the draft
 
@@ -104,25 +107,39 @@ collapse them for the sake of a cleaner narrative.
    corpus fingerprint, which is what lets a later revision tell whether
    the ledger has moved since.
 1. **Retrieve broadly, over-fetching on purpose.** Break the requested topic
-   into 2-4 sub-themes if it's broad. Call `src.retrieval.search(sub_theme, k=15)`
-   for each -- pull more candidates than you expect to use. This is a
-   keyword-overlap ranker, not embeddings (unless `src/enrich/embed_index.py`
-   has been built for this corpus) -- a high score or short distance is a
-   proxy for relevance, not a judgment of it. Don't let a top rank substitute
-   for reading the snippet.
-2. **Score every candidate yourself before it counts as evidence.** For each
-   result, read the full snippet (both `search()` functions default to 500
-   characters specifically so you have enough to judge, not just a title) and
-   decide: does this chunk actually support a claim about the sub-theme, or
-   did it just share vocabulary with the query? Keep only the ones that pass.
-   This is the same discipline PaperQA2 calls "gather evidence" (retrieve,
-   then LLM-judge relevance, *then* write) -- the difference here is you're
-   doing the judging inline as part of drafting, not via a second API call.
-   Treat a citekey that didn't pass this filter as unused, even if it was a
-   high-scoring `search()` hit.
+   into 2-4 sub-themes if it's broad. For each:
+   ```
+   python3 -m src.retrieval search "<sub-theme>" --k 15 --log content/drafts/<slug>.md
+   ```
+   Pull more candidates than you expect to use. This is a keyword-overlap
+   ranker, not embeddings (unless `src/enrich/embed_index.py` has been built
+   for this corpus) -- a high score means the query's words are in the
+   document, not that it supports your claim.
+
+   `--log` records the call's size in the dossier's `retrieval.md`, which is
+   what makes the cost of a run measurable instead of estimated. Pass it on
+   every call.
+2. **Score every candidate yourself before it counts as evidence.** Read the
+   full snippet -- 500 characters, sized so you have enough to judge and not
+   just a title -- and decide: does this actually support a claim about the
+   sub-theme, or did it just share vocabulary with the query? Keep only the
+   ones that pass. This is the discipline PaperQA2 calls "gather evidence"
+   (retrieve, then judge relevance, *then* write); the difference here is you
+   judge inline rather than via a second API call.
+
+   Where a snippet is not enough to decide on a source you are minded to
+   keep, read more of that one document:
+   ```
+   python3 -m src.retrieval evidence "<sub-theme>" --citekey <key> --log content/drafts/<slug>.md
+   ```
+   Use it to be **more careful about something you are about to cite** -- not
+   as a routine second pass over everything. `docs/REJECTION.md` explains why
+   the reverse, a cheap screen used to reject faster, was tried and withdrawn:
+   a wrong rejection is invisible, unrecoverable, and then entrenched in
+   `rejected.md`, which later revisions are told to trust.
 
    **Record both outcomes in the dossier before you start drafting prose**,
-   while the snippets are still in front of you:
+   while the passages are still in front of you:
    - what survives, into `evidence.md` -- one `## \`citekey\`` block with
      a `relevance:` line (why it supports the claim) and a `support:` line
      (the quote or paraphrase);
@@ -135,6 +152,21 @@ collapse them for the sake of a cleaner narrative.
    skip. It is what stops the next revision retrieving and re-judging the
    same twelve papers you just turned down -- the single most expensive
    piece of repeated work in this pipeline.
+2a. **On a broad topic, put steps 1-2 behind a subagent.** Dispatch one
+   `general-purpose` subagent per sub-theme, all in one message, each told to
+   run the retrieve-and-score loop above and return **only** the kept-evidence
+   packet plus the rejected list -- never the raw candidates.
+
+   The reason is not parallelism. This is where the reliable token saving is:
+   it costs nothing in retrieval quality, unlike trimming what you read.
+   Anything you read yourself stays in
+   your context and is re-sent on every later turn of the run; anything a
+   subagent reads is paid for once. Four sub-themes retrieved inline is tens
+   of thousands of characters you will then carry through clustering,
+   drafting, gating and rendering, most of it material you already rejected.
+
+   Skip this for a narrow topic with one sub-theme -- a subagent that returns
+   almost everything it read saves nothing and costs a dispatch.
 3. **Reformulate and re-search if a sub-theme comes up thin.** A single
    query wording is not the ceiling -- if scoring leaves you with little or
    nothing for a sub-theme, try synonyms, broader/narrower terms, or an
@@ -159,7 +191,7 @@ collapse them for the sake of a cleaner narrative.
    - A gap-analysis paragraph: what the retrieved corpus does *not* cover
      (including sub-themes that stayed thin after reformulation, and any
      cross-source disagreement from step 5)
-7. **Never write a citekey you didn't get from a `search()` result.** If you
+7. **Never write a citekey you didn't get from a retrieval result.** If you
    want to cite something you know about from general knowledge but that isn't
    in the ledger, say so in prose to the user instead ("X is commonly discussed
    in this area but isn't in your synced library yet") -- do not invent a key

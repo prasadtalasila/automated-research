@@ -207,7 +207,12 @@ src/                      the corpus and drafting layers (sync needs bibtexparse
   sync.py                   orchestrates the above -- the corpus-layer entrypoint; --remove-stale opts into
                           deleting stale ledger rows (default: report only, see README's "Removing a paper")
   dedup.py                  advisory near-duplicate citekey detection (shared DOI/title), called from sync
-  retrieval.py              BM25 search over the corpus layer, backed by a cached term-frequency index
+  retrieval.py              BM25 search over the corpus layer, backed by a cached term-frequency index.
+                          `search` ranks and returns a snippet -- the best-covering passage for the
+                          query, and the same one every run; `evidence` reads more of one document
+                          when a snippet is not enough to judge it. A lookup, not a stage: see
+                          docs/REJECTION.md for the two-stage read that was built and withdrawn.
+                          `--log` records each call's payload in the dossier
   passages.py               where a citekey's supporting text comes from (docling sidecar -> form-feed
                           pages -> pdftotext) and whether it may be quoted -- shared by the consumers
                           that need to point at part of a source rather than all of it

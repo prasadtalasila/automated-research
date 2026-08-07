@@ -8,7 +8,11 @@ without re-running the pipeline that produced it.
 Related reading:
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) -- the three layers this sits inside.
-- [RETRIEVAL.md](RETRIEVAL.md) -- what `search()` returns and how it ranks.
+- [RETRIEVAL.md](RETRIEVAL.md) -- how the corpus is ranked, and what a
+  snippet actually contains.
+- [REJECTION.md](REJECTION.md) -- why turning a source down is the
+  load-bearing judgment here, and the accounting behind a retrieval change
+  that was built and then withdrawn.
 - [CITATION-PROVENANCE.md](CITATION-PROVENANCE.md) -- the review aid that
   answers "does the cited paper actually say this?", which is a different
   question from anything here.
@@ -56,9 +60,14 @@ it.
 
 **Every figure in this section is an estimate**, derived from file sizes
 in `content/drafts/` and the defaults documented in the genre skills.
-There is no token telemetry in this repository yet; adding it is
-[future work](#what-this-deliberately-does-not-do). Read the ratios, not
-the absolute numbers.
+Nothing here counts tokens: the closest this repository gets is
+`retrieval.md`, which records the *character* payload of each retrieval
+call for one draft. Read the ratios, not the absolute numbers.
+
+This section describes the costs as they stood before the dossier
+existed. It is kept in the present tense about the *mechanism*, because
+the mechanism is what a reader needs in order to recognise the same
+pattern elsewhere.
 
 The useful split is between two pools, because they are billed
 differently:
@@ -132,8 +141,9 @@ shipped example content uses.
 | `sections.md` | section heading -> the citekeys cited under it | **specified** (survey-writer step 8) but written as JSON |
 | `steering.md` | what the user asked for in chat that the draft doesn't show | **nowhere** |
 | `revisions.md` | append-only log of what changed and why | **nowhere** |
+| `retrieval.md` | every retrieval call and the size of what it returned | **nowhere** |
 
-Two of those six were already specified and simply weren't durable. The
+Two of those were already specified and simply weren't durable. The
 two that were missing entirely are the two that matter most:
 
 - **`rejected.md`.** Without it, the next revision re-searches and
@@ -161,7 +171,7 @@ A malformed dossier makes the next revision less efficient. It cannot
 make a draft wrong, because the citation gate still stands between any
 draft and the user.
 
-### Why six files rather than one
+### Why several files rather than one
 
 So that a revision loads only what it needs. `scope.md` and `sections.md`
 are small and almost always relevant; `rejected.md` is the largest and is
@@ -296,18 +306,21 @@ The reviser rebuilds the section map from the draft rather than trusting
 the file, and `src/citation_provenance.py` already reconciles a draft
 against its sources independently.
 
-**It does not cut what enters the orchestrator's context in the first
-place.** The two-pool analysis above says the largest single constant
-factor is retrieved-and-rejected candidates sitting resident for a whole
-run. Fixing that means a two-stage retrieve -- a cheap reject-only triage
-pass, then a full-context fetch for survivors only -- and moving
-retrieval behind a subagent boundary. That is a change to
-`src/retrieval.py` and to the genre skills, and it is separate work from
-this.
+**It does not itself cut what enters the orchestrator's context.** That is
+the other half of the problem, and the answer turned out not to be
+trimming what retrieval returns -- see [REJECTION.md](REJECTION.md) for
+why a cheaper first read was built and then withdrawn. What does work is
+the subagent boundary: a genre skill on a broad topic dispatches one
+subagent per sub-theme and keeps only the kept-evidence packet, so the
+candidates it discarded are paid for once instead of sitting resident for
+the whole run. The dossier's job is the *structural* cost -- not
+re-running the pipeline at all -- and the two are complementary: the
+cheapest retrieval pass is still more expensive than the one you didn't
+have to make.
 
-**There is no token telemetry.** Every figure in
-[Where the tokens go](#where-the-tokens-go) is an estimate. A thin
-wrapper around `search()` recording `{query, k, chars_returned, n_kept}`
-into the dossier would turn all of them into measurements essentially for
-free, since the dossier is being written anyway. It belongs with the
-retrieval work above, not here.
+**It does not measure token counts directly.** `retrieval.md` records the
+character payload of each retrieval call, not tokens, and nothing records
+what the drafting turns themselves cost. That is enough to compare one
+run against another on a real corpus; it is not enough to put a number on
+a whole draft. The estimates in [Where the tokens go](#where-the-tokens-go)
+remain estimates, and are labelled as such.

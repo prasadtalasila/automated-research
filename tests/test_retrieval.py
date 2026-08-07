@@ -3,6 +3,9 @@ index, the retrieval contract genre skills call before the
 embeddings-based upgrade (src/enrich/embed_index.py)."""
 
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from src import config, ledger, retrieval
@@ -22,10 +25,49 @@ class TestTokenize:
 
 
 class TestSnippet:
-    def test_centers_window_on_first_matching_term(self):
+    def test_centers_the_window_on_a_matching_term(self):
         text = "x" * 100 + " digital twin simulation " + "y" * 100
         snippet = retrieval._snippet(text, {"digital"}, window=20)
         assert "digital" in snippet
+
+    def test_picks_the_window_covering_the_most_query_terms(self):
+        """Not the first match -- the best one. A paper that mentions one
+        query term in its front matter and discusses the actual subject
+        forty thousand characters later used to be judged on the front
+        matter."""
+        text = (
+            "ABSTRACT twin " + "x " * 400
+            + " soil moisture twin controller " + "y " * 400
+        )
+        snippet = retrieval._snippet(text, {"twin", "soil", "moisture"}, window=60)
+        assert "soil" in snippet and "moisture" in snippet
+
+    def test_is_the_same_snippet_whatever_the_hash_seed(self):
+        """`terms` is a set and string hashing is randomised per process,
+        so anything that iterates it and stops at the first hit returns a
+        different snippet run to run. That was tolerable at a 500-char
+        window and not tolerable at the short windows an earlier version
+        of this module rejected candidates on -- there it made the
+        rejection itself irreproducible (docs/REJECTION.md). Run in
+        subprocesses because PYTHONHASHSEED is read at interpreter
+        start."""
+        program = (
+            "from src import retrieval;"
+            "text = 'ABSTRACT twin ' + 'x '*400 + ' MIDDLE greenhouse ' "
+            "+ 'y '*400 + ' END actuator ';"
+            "terms = set(retrieval._tokenize('twin greenhouse actuator'));"
+            "print(retrieval._snippet(text, terms, window=60))"
+        )
+        outputs = set()
+        for seed in ("0", "1", "2", "3", "4"):
+            env = {**os.environ, "PYTHONHASHSEED": seed,
+                   "PYTHONPATH": str(config.REPO_ROOT)}
+            result = subprocess.run(
+                [sys.executable, "-c", program], capture_output=True, text=True,
+                env=env, cwd=config.REPO_ROOT, check=True,
+            )
+            outputs.add(result.stdout.strip())
+        assert len(outputs) == 1, f"snippet varied with hash seed: {outputs}"
 
     def test_falls_back_to_start_of_text_when_no_term_found(self):
         text = "no matching terms here at all"
@@ -240,3 +282,202 @@ class TestIndexCaching:
         retrieval.search("digital")
         with open(config.RETRIEVAL_INDEX_PATH) as f:
             assert "a2024" not in json.load(f)["items"]
+
+
+class TestWindows:
+    def test_returns_nothing_when_no_term_appears(self):
+        assert retrieval._windows("nothing relevant here", {"blockchain"}, 50, 3) == []
+
+    def test_prefers_a_window_covering_more_distinct_terms(self):
+        text = (
+            "moisture " * 20
+            + " ||| soil moisture sensor calibration ||| "
+            + "moisture " * 20
+        )
+        (best,) = retrieval._windows(text, {"soil", "moisture", "sensor"}, 60, 1)
+        assert "soil" in best and "sensor" in best
+
+    def test_finds_a_passage_late_in_a_long_document(self):
+        """The limitation `_snippet` has and this fixes: it anchors on the
+        first occurrence of any term, so a document that says the word
+        early and discusses it 40,000 characters later reports the early
+        mention."""
+        text = "twin " + "filler " * 6000 + "the pump is actuated by the twin controller"
+        windows = retrieval._windows(text, {"pump", "actuated", "twin"}, 60, 1)
+        assert "pump" in windows[0]
+
+    def test_windows_do_not_overlap(self):
+        text = "alpha " * 5 + "beta " * 200 + "alpha " * 5
+        windows = retrieval._windows(text, {"alpha"}, 40, 2)
+        assert len(windows) == 2
+        assert windows[0] != windows[1]
+
+    def test_returns_windows_in_document_order(self):
+        text = "start marker one " + "x " * 300 + " end marker two"
+        windows = retrieval._windows(text, {"marker", "start", "end"}, 40, 2)
+        assert "start" in windows[0] and "end" in windows[1]
+
+    def test_respects_the_requested_count(self):
+        text = ("term " + "pad " * 40) * 10
+        assert len(retrieval._windows(text, {"term"}, 30, 3)) == 3
+
+
+class TestEvidence:
+    def _seed(self, con, tmp_path, text, citekey="a2024"):
+        parsed = tmp_path / f"{citekey}.txt"
+        parsed.write_text(text)
+        ledger.upsert_reference(con, make_reference(citekey=citekey, title="A Paper"))
+        ledger.mark_parsed(con, citekey, parsed)
+
+    def test_returns_the_supporting_passages(self, ledger_con, tmp_path):
+        self._seed(ledger_con, tmp_path,
+                   "padding " * 100 + "simulation time must follow wall clock time" + " tail" * 50)
+        passages = retrieval.evidence("a2024", "simulation wall clock", chars=80)
+        assert any("wall clock" in p for p in passages)
+
+    def test_reads_more_of_the_document_than_a_search_snippet(self, ledger_con, tmp_path):
+        body = " ".join(f"clock segment {i} simulation" for i in range(200))
+        self._seed(ledger_con, tmp_path, body)
+        total = sum(len(p) for p in retrieval.evidence("a2024", "clock simulation", chars=300))
+        assert total > 500
+
+    def test_an_empty_query_returns_nothing(self, ledger_con, tmp_path):
+        self._seed(ledger_con, tmp_path, "some text")
+        assert retrieval.evidence("a2024", "the of and") == []
+
+    def test_a_citekey_with_no_parsed_text_is_not_an_error(self, ledger_con):
+        ledger.upsert_reference(ledger_con, make_reference(citekey="a2024", title="Robotics"))
+        assert retrieval.evidence("a2024", "quantum entanglement") == []
+
+    def test_the_title_alone_can_carry_a_match(self, ledger_con):
+        ledger.upsert_reference(
+            ledger_con, make_reference(citekey="a2024", title="Robotics And Control"))
+        assert retrieval.evidence("a2024", "robotics", chars=40) != []
+
+    def test_an_unknown_citekey_raises(self, ledger_con):
+        import pytest
+
+        with pytest.raises(KeyError, match="not in the ledger"):
+            retrieval.evidence("nope_2024", "anything")
+
+
+class TestCli:
+    def _seed(self, con, tmp_path):
+        parsed = tmp_path / "a2024.txt"
+        parsed.write_text("padding " * 50 + "digital twin architecture patterns catalog")
+        ledger.upsert_reference(con, make_reference(citekey="a2024", title="Twin Patterns"))
+        ledger.mark_parsed(con, "a2024", parsed)
+
+    def test_search_prints_candidates_and_points_at_evidence(
+        self, ledger_con, tmp_path, capsys
+    ):
+        self._seed(ledger_con, tmp_path)
+        assert retrieval.main(["search", "digital twin architecture"]) == 0
+        out = capsys.readouterr().out
+        assert "a2024" in out
+        assert "evidence --citekey" in out
+        assert "characters returned" in out
+
+    def test_evidence_prints_passages(self, ledger_con, tmp_path, capsys):
+        self._seed(ledger_con, tmp_path)
+        assert retrieval.main(
+            ["evidence", "architecture patterns", "--citekey", "a2024"]) == 0
+        assert "patterns" in capsys.readouterr().out
+
+    def test_evidence_on_an_unknown_citekey_exits_nonzero(self, ledger_con, tmp_path, capsys):
+        self._seed(ledger_con, tmp_path)
+        assert retrieval.main(["evidence", "x", "--citekey", "nope_2024"]) == 1
+        assert "not in the ledger" in capsys.readouterr().err
+
+    def test_no_ledger_exits_nonzero_with_the_fix(self, isolated_config, capsys):
+        assert retrieval.main(["search", "anything"]) == 1
+        assert "src.sync" in capsys.readouterr().err
+
+    def test_no_results_is_not_an_error(self, ledger_con, tmp_path, capsys):
+        self._seed(ledger_con, tmp_path)
+        assert retrieval.main(["search", "quantum chromodynamics"]) == 0
+        assert "No results." in capsys.readouterr().out
+
+    def test_log_records_the_call_in_the_dossier(self, ledger_con, tmp_path, capsys):
+        from src import dossier
+
+        self._seed(ledger_con, tmp_path)
+        draft = config.DRAFTS_DIR / "survey.md"
+        draft.parent.mkdir(parents=True, exist_ok=True)
+        draft.write_text("# s\n")
+
+        assert retrieval.main(
+            ["search", "digital twin architecture", "--log", str(draft)]) == 0
+        calls, chars = dossier.retrieval_cost(dossier.dossier_dir(draft))
+        assert calls == 1 and chars > 0
+        assert "Logged to" in capsys.readouterr().out
+
+    def test_a_draft_outside_drafts_reports_but_does_not_fail_the_search(
+        self, ledger_con, tmp_path, capsys
+    ):
+        """A measurement is worth less than the retrieval it measures."""
+        self._seed(ledger_con, tmp_path)
+        stray = tmp_path / "stray.md"
+        stray.write_text("# s\n")
+        assert retrieval.main(["search", "digital twin", "--log", str(stray)]) == 0
+        captured = capsys.readouterr()
+        assert "a2024" in captured.out
+        assert "[not logged]" in captured.err
+
+
+class TestDocsQuoteTheActualDefaults:
+    """docs/CLI.md and docs/RETRIEVAL.md spell these numbers out in prose,
+    and prose does not fail a build when a constant moves. Review caught
+    that drift twice on this work -- CLI.md said 700 after the default
+    became 600, then said 3 windows after the default became 2 -- so the
+    quoted values are pinned to the constants rather than trusted."""
+
+    def test_the_docs_quote_the_actual_defaults(self):
+        cli = (config.REPO_ROOT / "docs" / "CLI.md").read_text(encoding="utf-8")
+        chars_row = next(line for line in cli.splitlines() if "`--chars N`" in line)
+        assert f"{retrieval.EVIDENCE_CHARS} / 500" in chars_row
+
+        windows_row = next(line for line in cli.splitlines() if "`--windows N`" in line)
+        assert f"| {retrieval.EVIDENCE_WINDOWS} |" in windows_row
+
+        evidence_row = next(
+            line for line in cli.splitlines() if '`evidence "<query>" --citekey KEY`' in line
+        )
+        assert f"{retrieval.EVIDENCE_WINDOWS} by default" in evidence_row
+
+        retr = (config.REPO_ROOT / "docs" / "RETRIEVAL.md").read_text(encoding="utf-8")
+        assert f"{retrieval.EVIDENCE_WINDOWS} x {retrieval.EVIDENCE_CHARS} characters" in retr
+
+
+class TestLogNeverFailsTheSearch:
+    """docs/CLI.md states that a `--log` problem is reported and skipped,
+    never fatal. `DossierError` covered "that path isn't a draft"; a
+    filesystem failure was not covered and would have thrown away results
+    the caller had already paid to compute."""
+
+    def _seed(self, con, tmp_path):
+        parsed = tmp_path / "a2024.txt"
+        parsed.write_text("padding " * 50 + "digital twin architecture patterns")
+        ledger.upsert_reference(con, make_reference(citekey="a2024", title="Twin Patterns"))
+        ledger.mark_parsed(con, "a2024", parsed)
+
+    def test_an_oserror_while_logging_is_reported_not_raised(
+        self, ledger_con, tmp_path, capsys, monkeypatch
+    ):
+        from src import dossier
+
+        self._seed(ledger_con, tmp_path)
+        draft = config.DRAFTS_DIR / "survey.md"
+        draft.parent.mkdir(parents=True, exist_ok=True)
+        draft.write_text("# s\n")
+
+        def boom(*args, **kwargs):
+            raise OSError(28, "No space left on device")
+
+        monkeypatch.setattr(dossier, "log_retrieval", boom)
+
+        assert retrieval.main(["search", "digital twin", "--log", str(draft)]) == 0
+        captured = capsys.readouterr()
+        assert "a2024" in captured.out, "the retrieval results must still be printed"
+        assert "[not logged]" in captured.err
+        assert "No space left on device" in captured.err

@@ -42,6 +42,7 @@ import math
 import os
 import re
 import sqlite3
+import sys
 import uuid
 from collections import Counter
 from dataclasses import dataclass
@@ -78,14 +79,85 @@ def _tokenize(text: str) -> list[str]:
     ]
 
 
-def _snippet(text: str, terms: set[str], window: int = 500) -> str:
+# Occurrences of one query term that `_windows` will anchor a candidate
+# window on before it stops looking for more of that term. A ceiling on
+# work for a pathological document, not a quality knob: 500 anchors of one
+# term already spread across the whole text, and the top few windows come
+# out of scoring, not out of how many candidates were offered.
+_MAX_ANCHORS_PER_TERM = 500
+
+
+def _windows(text: str, terms: set[str], width: int, count: int) -> list[str]:
+    """The `count` best-matching windows of `text`, in document order.
+
+    Scored by how many *distinct* query terms fall inside, not by raw hit
+    count, so a passage repeating one word doesn't outrank one that
+    actually covers the query. Candidate windows are anchored on every
+    occurrence of every term and then de-overlapped, so a passage from
+    late in a long document is reachable.
+
+    Deterministic, which matters more than it looks. `terms` is a set, and
+    string hashing is randomised per process, so anything that depends on
+    the order those terms come out in gives a different answer run to run.
+    Nothing here does: anchors are sorted before scoring, the score is a
+    count over the whole term set, and ties break on position.
+    """
     lower = text.lower()
+    anchors: list[int] = []
     for term in terms:
-        idx = lower.find(term)
-        if idx != -1:
-            start = max(0, idx - window // 2)
-            end = min(len(text), idx + window // 2)
-            return " ".join(text[start:end].split())
+        start = lower.find(term)
+        found = 0
+        # Bounded per term rather than across all of them, so a book-length
+        # document that says "twin" ten thousand times cannot crowd out
+        # every anchor for "greenhouse". Scoring rewards distinct-term
+        # coverage, so losing a term's anchors entirely would work directly
+        # against what the window is chosen for -- and a shared budget
+        # would pick its victim by set order, i.e. at random.
+        while start != -1 and found < _MAX_ANCHORS_PER_TERM:
+            anchors.append(start)
+            found += 1
+            start = lower.find(term, start + 1)
+    if not anchors:
+        return []
+
+    scored: list[tuple[int, int, int]] = []
+    half = width // 2
+    for anchor in sorted(set(anchors)):
+        begin = max(0, anchor - half)
+        end = min(len(text), begin + width)
+        window = lower[begin:end]
+        hits = sum(1 for term in terms if term in window)
+        scored.append((hits, begin, end))
+
+    chosen: list[tuple[int, int]] = []
+    for _, begin, end in sorted(scored, key=lambda item: (-item[0], item[1])):
+        if any(begin < other_end and end > other_begin for other_begin, other_end in chosen):
+            continue
+        chosen.append((begin, end))
+        if len(chosen) == count:
+            break
+    return [" ".join(text[begin:end].split()) for begin, end in sorted(chosen)]
+
+
+def _snippet(text: str, terms: set[str], window: int = 500) -> str:
+    """The single best `window` characters of `text` for `terms`.
+
+    This used to return the window around the *first* occurrence of
+    whichever term came out of the `terms` set first -- and since string
+    hashing is randomised per process, that made the same query on the
+    same document return a different snippet run to run. Harmless-ish at
+    a 500-character window, where you get enough context either way, and
+    not harmless at all at the short windows an earlier version of this
+    module rejected candidates on -- an irreproducible snippet there meant
+    an irreproducible rejection (docs/REJECTION.md).
+
+    Shared with `evidence` through `_windows`, so a snippet is the
+    best-covering passage rather than an arbitrary one, and the same
+    passage every run.
+    """
+    best = _windows(text, terms, width=window, count=1)
+    if best:
+        return best[0]
     return " ".join(text[:window].split())
 
 
@@ -241,3 +313,195 @@ def search(query: str, k: int = 5, snippet_chars: int = 500) -> list[SearchResul
             )
         )
     return results
+
+
+# Zooming in on one document
+# --------------------------
+#
+# `search` above answers "which documents, and roughly why", with a
+# snippet long enough to judge a candidate on. `evidence` answers the
+# question that comes after it for a document you have already decided is
+# worth the attention: "what in *this* paper actually bears on my query?"
+#
+# It is a lookup, not a stage. Nothing has to call it, and a caller that
+# is satisfied by a `search` snippet is done. That framing is deliberate
+# and was arrived at the hard way -- an earlier version of this module
+# made a short-window `triage` pass the mandatory first stage of drafting,
+# with `evidence` reserved for whatever survived it. docs/REJECTION.md is
+# the full reckoning; the short version is that it put an irreversible
+# decision (rejecting a source, which `rejected.md` then makes permanent)
+# on a third of the evidence, in exchange for a saving that was
+# conditional, unmeasured, and real for one genre out of five.
+#
+# What survived that reckoning is here, because none of it needed the
+# split: the window chooser `_windows` (now shared with `_snippet`, and
+# the reason a snippet is deterministic at all), this CLI, `evidence`
+# itself, and `--log`. Used this way `evidence` deepens an *acceptance*
+# rather than cheapening a rejection, which is the safer direction: being
+# more careful about a source you are about to cite cannot lose you one
+# you never saw.
+
+EVIDENCE_CHARS = 600
+EVIDENCE_WINDOWS = 2
+
+
+def evidence(
+    citekey: str, query: str, chars: int = EVIDENCE_CHARS, windows: int = EVIDENCE_WINDOWS
+) -> list[str]:
+    """The passages of one document that bear on `query`.
+
+    A lookup for one document you already care about, not a stage
+    anything is obliged to run: use it when a `search` snippet is not
+    enough to judge a source you are minded to cite. Returns more text
+    per document than a snippet, chosen for the query. Returns `[]` for a
+    citekey with no parsed text: a source the corpus layer could not read
+    is a real answer, not an error.
+
+    Deliberately reads `parsed_path` rather than going through
+    `src/passages.py`: this ranks the same text BM25 ranked, so what
+    comes back is what the score was about. `passages.py` owns the
+    quotable-paragraph/page ladder that `citation_provenance` needs to
+    *attribute* a claim -- a different question, asked after drafting.
+    """
+    # The citekey is checked before the query, so that naming a key the
+    # ledger doesn't have is reported as the caller error it is even when
+    # the query happens to tokenize to nothing.
+    con = ledger.connect()
+    try:
+        # row_factory set and cleared around the read, matching
+        # ledger.all_items: connect() leaves rows as tuples, and
+        # _full_text addresses its columns by name.
+        con.row_factory = sqlite3.Row
+        row = con.execute(
+            "SELECT title, parsed_path FROM items WHERE citekey = ?", (citekey,)
+        ).fetchone()
+        con.row_factory = None
+    finally:
+        con.close()
+    if row is None:
+        raise KeyError(f"{citekey} is not in the ledger")
+    terms = set(_tokenize(query))
+    if not terms:
+        return []
+    return _windows(_full_text(row), terms, width=chars, count=windows)
+
+
+# ---------------------------------------------------------------------
+# CLI: `python3 -m src.retrieval`
+#
+# Its own entrypoint rather than the `python3 -c "from src import
+# retrieval; [print(r.citekey, r.snippet) for r in ...]"` one-liner the
+# skills used to carry. Three reasons, all about the caller's context
+# rather than convenience: the one-liner's output shape was whatever the
+# author of each skill happened to write, `--log` needs somewhere to
+# hang, and a `--chars` flag with a documented default is a much more
+# obvious knob than an argument buried in a shell-quoted Python
+# expression.
+# ---------------------------------------------------------------------
+
+
+def _print_results(results: list[SearchResult]) -> int:
+    """One block per result. Returns the payload size in characters."""
+    chars = 0
+    for result in results:
+        chars += len(result.snippet)
+        print(f"\n{result.citekey}  (score {result.score:.1f})")
+        print(f"  {result.title}")
+        print(f"  {result.snippet}")
+    return chars
+
+
+def main(argv: "list[str] | None" = None) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="python3 -m src.retrieval",
+        description="BM25 retrieval over the synced corpus. Read-only, takes no "
+                    "lock, and runs with the bare system python3.",
+        epilog="`search` ranks the corpus and hands back a snippet to judge each "
+               "candidate on. `evidence` zooms in on one document you already care "
+               "about. Neither is a stage: nothing has to call evidence.",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p_search = sub.add_parser(
+        "search", help="Rank the corpus and return a snippet per candidate")
+    p_search.add_argument("query")
+    p_search.add_argument("--k", type=int, default=5, help="Results to return (default 5)")
+    p_search.add_argument("--chars", type=int, default=500, help="Snippet size (default 500)")
+
+    p_evidence = sub.add_parser(
+        "evidence", help="The passages of one document that bear on the query")
+    p_evidence.add_argument("query")
+    p_evidence.add_argument("--citekey", required=True)
+    p_evidence.add_argument("--chars", type=int, default=EVIDENCE_CHARS,
+                            help=f"Window size (default {EVIDENCE_CHARS})")
+    p_evidence.add_argument("--windows", type=int, default=EVIDENCE_WINDOWS,
+                            help=f"Passages to return (default {EVIDENCE_WINDOWS})")
+
+    for each in (p_search, p_evidence):
+        each.add_argument(
+            "--log", metavar="DRAFT",
+            help="Record this call in DRAFT's dossier (content/dossiers/...), so the "
+                 "cost of retrieval for this draft is measured rather than estimated")
+
+    args = parser.parse_args(argv)
+
+    if not config.LEDGER_PATH.exists():
+        print(f"No ledger at {config.LEDGER_PATH}.", file=sys.stderr)
+        print("Run `python -m src.sync` to build it from your bib file.", file=sys.stderr)
+        return 1
+
+    if args.command == "evidence":
+        try:
+            passages = evidence(args.citekey, args.query, args.chars, args.windows)
+        except KeyError as exc:
+            print(f"[error] {exc}", file=sys.stderr)
+            return 1
+        if not passages:
+            print(f"{args.citekey}: no passage matches that query "
+                  "(or the corpus layer has no parsed text for it).")
+        for passage in passages:
+            print(f"\n  {passage}")
+        results, chars = len(passages), sum(len(p) for p in passages)
+    else:
+        found = search(args.query, k=args.k, snippet_chars=args.chars)
+        if not found:
+            print("No results.")
+        chars = _print_results(found)
+        results = len(found)
+        if found:
+            print("\n  Judge each snippet yourself -- a high score means the query's "
+                  "words are in the document, not that it supports your claim. Run "
+                  "`evidence --citekey <key>` where a snippet is not enough to decide.")
+
+    print(f"\n  {results} result(s), {chars:,} characters returned.")
+    if args.log:
+        from src import dossier
+
+        try:
+            # The logged `k` is "how much was asked for", which is `--k`
+            # for the ranking modes and `--windows` for `evidence` --
+            # `evidence` has no `--k`, and logging a bare 1 there put a
+            # number in the column that meant nothing.
+            asked_for = args.windows if args.command == "evidence" else args.k
+            path = dossier.log_retrieval(
+                Path(args.log), args.command, args.query,
+                asked_for, results, chars,
+            )
+        except (dossier.DossierError, OSError) as exc:
+            # A measurement is worth less than the retrieval it measures:
+            # report and carry on rather than failing the search. OSError
+            # is caught alongside DossierError because the failure this
+            # has to survive is not only "that path isn't a draft" -- a
+            # read-only content/, a full disk or a permissions problem
+            # would otherwise let a bookkeeping write throw away results
+            # the caller has already paid to compute.
+            print(f"  [not logged] {exc}", file=sys.stderr)
+        else:
+            print(f"  Logged to {path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

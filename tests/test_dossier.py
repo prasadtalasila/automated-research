@@ -575,3 +575,71 @@ class TestCli:
         stray.write_text("# x\n")
         assert dossier.main(["init", str(stray), "--genre", "survey"]) == 1
         assert "not under" in capsys.readouterr().err
+
+
+class TestRetrievalLog:
+    def test_appends_a_row_and_totals_it(self, draft):
+        dossier.init(draft, "survey")
+        dossier.log_retrieval(draft, "search", "digital twin", 15, 15, 2400)
+        dossier.log_retrieval(draft, "evidence", "digital twin", 1, 3, 2100)
+        assert dossier.retrieval_cost(dossier.dossier_dir(draft)) == (2, 4500)
+
+    def test_creates_the_file_for_a_dossier_that_predates_it(self, draft):
+        dossier.init(draft, "survey")
+        (dossier.dossier_dir(draft) / "retrieval.md").unlink()
+        dossier.log_retrieval(draft, "search", "q", 15, 15, 100)
+        assert dossier.retrieval_cost(dossier.dossier_dir(draft)) == (1, 100)
+
+    def test_creates_the_dossier_when_a_skill_logs_before_init(self, draft):
+        dossier.log_retrieval(draft, "search", "q", 15, 15, 100)
+        assert (dossier.dossier_dir(draft) / "retrieval.md").is_file()
+
+    def test_logging_before_init_leaves_init_free_to_write_the_rest(self, draft):
+        dossier.log_retrieval(draft, "search", "q", 15, 15, 100)
+        written = {path.name for path in dossier.init(draft, "survey")}
+        assert "retrieval.md" not in written
+        assert "scope.md" in written
+        assert dossier.retrieval_cost(dossier.dossier_dir(draft)) == (1, 100)
+
+    def test_a_pipe_in_the_query_does_not_break_the_row(self, draft):
+        dossier.init(draft, "survey")
+        dossier.log_retrieval(draft, "search", "twin | shadow", 15, 15, 100)
+        assert dossier.retrieval_cost(dossier.dossier_dir(draft)) == (1, 100)
+
+    def test_a_hand_edited_row_is_skipped_rather_than_fatal(self, draft):
+        dossier.init(draft, "survey")
+        dossier.log_retrieval(draft, "search", "q", 15, 15, 100)
+        path = dossier.dossier_dir(draft) / "retrieval.md"
+        path.write_text(path.read_text() + "| 2026-08-06 | search | q | 15 | 15 | lots |\n")
+        assert dossier.retrieval_cost(dossier.dossier_dir(draft)) == (1, 100)
+
+    def test_no_log_means_no_cost(self, draft):
+        dossier.init(draft, "survey")
+        assert dossier.retrieval_cost(dossier.dossier_dir(draft)) == (0, 0)
+
+    def test_status_reports_the_measured_cost(self, draft, capsys):
+        dossier.init(draft, "survey")
+        dossier.log_retrieval(draft, "search", "digital twin", 15, 15, 2400)
+        dossier.main(["status", str(draft)])
+        out = capsys.readouterr().out
+        assert "1 call(s) returned 2,400 characters" in out
+
+    def test_status_says_nothing_about_retrieval_when_nothing_was_logged(self, draft, capsys):
+        dossier.init(draft, "survey")
+        dossier.main(["status", str(draft)])
+        assert "call(s) returned" not in capsys.readouterr().out
+
+    def test_a_newline_in_the_query_does_not_split_the_row(self, draft):
+        """`retrieval_cost` reads rows positionally, so a query carrying a
+        newline would not error -- it would quietly become two rows, one
+        of which parses and one of which doesn't."""
+        dossier.init(draft, "survey")
+        dossier.log_retrieval(draft, "search", "digital twin\narchitecture", 15, 15, 100)
+        text = (dossier.dossier_dir(draft) / "retrieval.md").read_text()
+        assert "digital twin architecture" in text
+        assert dossier.retrieval_cost(dossier.dossier_dir(draft)) == (1, 100)
+
+    def test_tabs_and_carriage_returns_are_flattened_too(self, draft):
+        dossier.init(draft, "survey")
+        dossier.log_retrieval(draft, "search", "twin\tshadow\r\nmodel", 15, 15, 100)
+        assert dossier.retrieval_cost(dossier.dossier_dir(draft)) == (1, 100)

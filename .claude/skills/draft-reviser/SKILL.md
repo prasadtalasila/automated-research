@@ -93,10 +93,22 @@ Most revisions don't. Before any retrieval call:
   **do not retrieve and re-judge it**. That list exists precisely to stop
   the most expensive repeated work in the pipeline.
 
-Search only when the change opens genuinely new ground. If it does, use
-`src.retrieval.search()` (or `src.enrich.embed_index.search()` where
-built), score candidates as `survey-writer` step 2 describes, and record
-both outcomes -- kept into `evidence.md`, turned down into `rejected.md`.
+Search only when the change opens genuinely new ground. If it does:
+
+```bash
+python3 -m src.retrieval search "<query>" --k 15 --log content/drafts/<path>
+python3 -m src.retrieval evidence "<query>" --citekey <key> --log content/drafts/<path>
+```
+
+(or `src.enrich.embed_index.search()` in place of `search` where the
+embedding stack has been built). `evidence` is optional -- reach for it
+when a snippet is not enough to decide on a source you are minded to
+cite. Score what you keep as `survey-writer` step 2 describes, and record
+both outcomes: kept into `evidence.md`, turned down into `rejected.md`.
+
+`--log` keeps `retrieval.md` honest about what this revision actually
+cost, which is the number that tells you whether revising from the
+dossier is paying off.
 
 If `status` reported corpus drift, read the named citekeys only if they
 bear on the sub-theme you are changing. **Drift is not itself a reason to
@@ -120,7 +132,11 @@ pipeline exists to prevent.**
 Update only what actually changed:
 
 - `evidence.md` -- new kept citekeys, with relevance and support
-- `rejected.md` -- anything newly retrieved and turned down
+- `rejected.md` -- anything newly retrieved and turned down. Bear in mind
+  that a later revision is told to trust this file rather than re-judge
+  what is in it, so a reason worth reading later is worth writing now
+  (`docs/REJECTION.md`)
+- `retrieval.md` -- nothing by hand; `--log` appends to it for you
 - `sections.md` -- if headings or their citations moved
 - `scope.md` -- only if the user agreed to a scope change in step 2
 - `steering.md` -- append the instruction that prompted this revision,
