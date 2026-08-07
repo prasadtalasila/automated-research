@@ -32,6 +32,13 @@ from pathlib import Path
 
 from src import bib_reader, config, dedup, ledger, pdf_text, runlock
 
+# How many timed-out citekeys the summary names before falling back to
+# "(+N more)". Enough that the case worth naming -- a handful of long
+# documents against a limit that is right for the rest of the corpus --
+# is always named in full, and small enough that a corpus-wide timeout
+# stays one readable line.
+_MAX_NAMED_TIMEOUTS = 10
+
 
 def _executor_for(workers: int):
     """Processes for docling, threads for pdftotext.
@@ -453,9 +460,18 @@ def run(remove_stale: bool = False, reparse: bool = False) -> int:
     # vanish from view after the run that produced it while still making
     # every later run exit nonzero. Say what it is and what to do.
     if kinds["deterministic"]:
+        # "fix or remove the PDF" is the right remedy for the usual
+        # deterministic failure and the wrong one for a timeout, where
+        # the PDF is fine and a setting is too low. Rather than print
+        # both and let them contradict each other, this line defers to
+        # the per-cause WARNING below whenever this run produced one --
+        # the summary keeps saying what the state is, and the thing that
+        # knows the cause says what to do about it.
+        remedy = ("see the WARNING below for the fix, or re-run with --reparse"
+                  if timed_out else "fix or remove the PDF, or re-run with --reparse")
         summary += (
             f" {kinds['deterministic']} needs attention (will not be retried -- "
-            "fix or remove the PDF, or re-run with --reparse)."
+            f"{remedy})."
         )
     if kinds["transient"]:
         summary += f" {kinds['transient']} will be retried next run."
@@ -468,15 +484,25 @@ def run(remove_stale: bool = False, reparse: bool = False) -> int:
         # not the PDF, and a reader following "fix or remove the PDF" on
         # a document that is merely long has nothing to fix.
         #
-        # Named rather than counted, for the same reason as low_quality
-        # below: a couple of citekeys points at those documents (a large
-        # scan, OCR on), while most of the corpus tripping it points at
-        # the limit being too low for this host -- and the list is what
-        # tells the two apart.
+        # Named rather than counted, because a couple of citekeys points
+        # at those documents (a large scan, OCR on) while most of the
+        # corpus tripping it points at the limit being too low for this
+        # host -- and the list is what tells the two apart.
+        #
+        # Capped, unlike the low_quality list below, because that
+        # distinction is already made by the first handful: past
+        # _MAX_NAMED_TIMEOUTS the count is the diagnosis, and naming all
+        # 646 of a corpus that timed out wholesale would bury it in a
+        # single line no terminal or log aggregator wants. Same
+        # "(+N more)" idiom pdf_text uses on docling's per-page errors,
+        # and the count stays exact either way.
+        named = ", ".join(timed_out[:_MAX_NAMED_TIMEOUTS])
+        if len(timed_out) > _MAX_NAMED_TIMEOUTS:
+            named += f", (+{len(timed_out) - _MAX_NAMED_TIMEOUTS} more)"
         print(
             f"  WARNING: {len(timed_out)} document(s) hit the "
             f"{config.PARSER_DOCUMENT_TIMEOUT}s [parser].document_timeout and were "
-            f"not parsed: {', '.join(timed_out)}. Raise that setting (or switch it "
+            f"not parsed: {named}. Raise that setting (or switch it "
             "off) and re-run with --reparse -- a timeout is recorded as a "
             "deterministic failure, so it is not retried on its own."
         )

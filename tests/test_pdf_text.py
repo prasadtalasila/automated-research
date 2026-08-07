@@ -1667,10 +1667,13 @@ class _FakeResult:
         # what a docling build predating FailureCategory looks like --
         # the case check_docling_status falls back to the wording for.
         cats = categories if categories is not None else [None] * len(messages)
+        # strict=True: a categories list of the wrong length is a typo in
+        # the test, and silently dropping the tail would show up as a
+        # baffling assertion failure rather than as the mistake it is.
         self.errors = [
             types.SimpleNamespace(error_message=m) if c is None
             else types.SimpleNamespace(error_message=m, category=c)
-            for m, c in zip(messages, cats)
+            for m, c in zip(messages, cats, strict=True)
         ]
         self.document = FakeDoclingDocument("# partial")
 
@@ -1900,13 +1903,31 @@ class TestTimeoutIsRecordedAsSuch:
             pdf_text.check_docling_status(result)
         assert excinfo.value.timed_out is False
 
-    def test_the_wording_is_the_fallback_when_there_is_no_category(self):
+    @pytest.mark.parametrize("message", [
+        "document timeout exceeded",                                  # threaded pipeline
+        "Document processing timeout: exceeded 10.000s limit after "  # page-batch loop
+        "12.345s. Processed 3/17 pages.",
+    ])
+    def test_the_wording_is_the_fallback_when_there_is_no_category(self, message):
         """A docling build predating FailureCategory still has to be
-        classified, not silently reported as an unreadable PDF."""
-        result = _FakeResult("PARTIAL_SUCCESS", ["document timeout exceeded"])
+        classified, not silently reported as an unreadable PDF -- and
+        both of its wordings have to be recognised, not just one."""
+        result = _FakeResult("PARTIAL_SUCCESS", [message])
         with pytest.raises(pdf_text.ExtractionError) as excinfo:
             pdf_text.check_docling_status(result)
         assert excinfo.value.timed_out is True
+
+    def test_an_unrelated_timeout_is_not_this_timeout(self):
+        """The fallback matches docling's own phrasing, not the bare
+        word: a failure that mentions a timeout it did not cause would
+        otherwise send its reader to raise a setting that had no part in
+        it."""
+        result = _FakeResult(
+            "PARTIAL_SUCCESS", ["connection timeout fetching model weights"]
+        )
+        with pytest.raises(pdf_text.ExtractionError) as excinfo:
+            pdf_text.check_docling_status(result)
+        assert excinfo.value.timed_out is False
 
     def test_a_timeout_past_the_display_cap_is_still_found(self):
         """docling appends one error per page and the timeout arrives

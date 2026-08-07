@@ -938,6 +938,14 @@ def _docling_converter(threads: int | None = None):
     return _DOCLING_CONVERTER
 
 
+# The wordings docling's two document_timeout paths actually produce:
+# "Document processing timeout: exceeded 10.000s limit after ..." from
+# the page-batch loop, and "document timeout exceeded" from the threaded
+# pipeline. Only consulted when an error carries no FailureCategory --
+# see _is_docling_timeout.
+_DOCLING_TIMEOUT_PHRASES = ("document timeout", "document processing timeout")
+
+
 def _is_docling_timeout(error, message: str) -> bool:
     """Did this ErrorItem come from `document_timeout` expiring?
 
@@ -957,12 +965,18 @@ def _is_docling_timeout(error, message: str) -> bool:
     The wording is consulted only when there is no category at all --
     what a docling build predating the field looks like -- rather than
     as a second opinion, so a categorised non-timeout error that happens
-    to mention the word is not miscounted.
+    to mention the word is not miscounted. Even then it matches the two
+    phrases docling actually uses rather than the bare word "timeout",
+    which a failure with nothing to do with `document_timeout` can
+    legitimately contain (a model download giving up, say). Reporting
+    one of those under "raise [parser].document_timeout" would send its
+    reader to a setting that had no part in it.
     """
     category = getattr(error, "category", None)
     if category is not None:
         return getattr(category, "value", category) == "timeout"
-    return "timeout" in message.lower()
+    lowered = message.lower()
+    return any(phrase in lowered for phrase in _DOCLING_TIMEOUT_PHRASES)
 
 
 def check_docling_status(result) -> None:

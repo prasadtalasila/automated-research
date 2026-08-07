@@ -1310,9 +1310,64 @@ class TestTimeoutReporting:
 
         assert "1 document(s) hit the 90.0s [parser].document_timeout" in out
         assert "doe_broken_2023" in out
-        # Actionable, and specifically *not* the "fix or remove the PDF"
-        # advice the deterministic-failure line above it gives.
         assert "--reparse" in out
+
+    def test_the_summary_stops_giving_the_advice_that_does_not_apply(
+        self, basic_corpus, monkeypatch, capsys
+    ):
+        """Two contradictory instructions is worse than one: the PDF is
+        fine, so the deterministic line must not send its reader to fix
+        it while the line below says to raise a setting."""
+        monkeypatch.setattr(config, "PARSER_DOCUMENT_TIMEOUT", 90.0)
+        monkeypatch.setattr(
+            pdf_text, "extract_text",
+            timing_out_extract_text_factory({"doe_broken_2023"}),
+        )
+        sync.run()
+        out = capsys.readouterr().out
+        assert "needs attention" in out  # still says what the state is...
+        assert "fix or remove the PDF" not in out  # ...but not the wrong fix
+        assert "see the WARNING below for the fix" in out
+
+    def test_the_usual_advice_survives_when_nothing_timed_out(
+        self, basic_corpus, monkeypatch, capsys
+    ):
+        monkeypatch.setattr(
+            pdf_text, "extract_text", fake_extract_text_factory(fail_citekeys={"doe_broken_2023"})
+        )
+        sync.run()
+        assert "fix or remove the PDF" in capsys.readouterr().out
+
+    def test_a_corpus_wide_timeout_stays_one_readable_line(
+        self, isolated_config, monkeypatch, capsys
+    ):
+        """Past a handful, the count is the diagnosis and the names are
+        noise -- naming every one of them would bury the line that says
+        what to do in a list no terminal wants to scroll."""
+        entries = "".join(f"""
+@article{{doc_{i}_2024,
+  title = {{Document {i}}},
+  author = {{Roe, Jan}},
+  year = {{2024}},
+  file = {{p{i}.pdf:p{i}.pdf:application/pdf}},
+}}
+""" for i in range(14))
+        write_bib(isolated_config.BIB_FILE_PATH, entries)
+        for i in range(14):
+            (isolated_config.BIB_FILE_PATH.parent / f"p{i}.pdf").write_bytes(b"%PDF")
+        monkeypatch.setattr(config, "PARSER_DOCUMENT_TIMEOUT", 5.0)
+        monkeypatch.setattr(
+            pdf_text, "extract_text",
+            timing_out_extract_text_factory({f"doc_{i}_2024" for i in range(14)}),
+        )
+        sync.run()
+        out = capsys.readouterr().out
+
+        # The count stays exact even though the list does not.
+        assert "14 document(s) hit the 5.0s" in out
+        assert "(+4 more)" in out
+        line = next(ln for ln in out.splitlines() if "hit the 5.0s" in ln)
+        assert line.count("doc_") == 10
 
     def test_an_ordinary_failure_produces_no_timeout_line(
         self, basic_corpus, monkeypatch, capsys
