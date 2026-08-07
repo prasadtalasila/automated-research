@@ -145,7 +145,8 @@ stdlib-only, no venv or model download needed) is what the genre skills
 use by default. Term-frequency stats per document are cached to disk
 (`config.RETRIEVAL_INDEX_PATH`), keyed by a cheap per-item fingerprint
 (parsed-file stat, not content) so a call only re-tokenizes documents
-whose text actually changed since the last run. `src/enrich/embed_index.py`
+whose text actually changed since the last run (this doesn't touch
+`sync`). `src/enrich/embed_index.py`
 (sentence-transformers + Chroma) is a verified, working upgrade path with
 a matching `search(query, k)` shape, ready to swap in without changing
 callers once BM25 stops being enough -- that's a deliberate call to make
