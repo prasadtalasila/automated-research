@@ -32,6 +32,8 @@ def make_repo(tmp_path):
     (repo / ".github" / "workflows" / "ci.yml").write_text("name: ci")
     (repo / ".gitignore").write_text("content/parsed/\n")
     (repo / "AGENTS.md").write_text("agent guidance")
+    (repo / "DEVELOPER-AGENTS.md").write_text("agent guidance for developing this repo")
+    (repo / "SOUL.md").write_text("why this exists")
     (repo / "bench").mkdir()
     (repo / "bench" / "bench_docling.py").write_text("x = 1")
     (repo / "content" / "drafts").mkdir(parents=True)
@@ -70,6 +72,13 @@ class TestTrackedFiles:
         assert not any(p.startswith(".github/") for p in paths)
         assert ".gitignore" not in paths
         assert "AGENTS.md" not in paths
+        assert "DEVELOPER-AGENTS.md" not in paths
+
+    def test_ships_soul_md(self, repo):
+        # SOUL.md is the *why* behind the pipeline, not guidance for
+        # developing this repo -- README-adjacent, so it ships where
+        # AGENTS.md/DEVELOPER-AGENTS.md don't.
+        assert "SOUL.md" in release.tracked_files()
 
     def test_excludes_bench(self, repo):
         # bench/ measures *this* repo's parser on *this* host's corpus --
@@ -92,7 +101,7 @@ class TestBuildRelease:
 
         assert zip_path == repo / "release" / "chitragupta-9.9.9.zip"
         assert zip_path.exists()
-        assert n_files == 3  # README.md, pyproject.toml, src/foo.py
+        assert n_files == 4  # README.md, SOUL.md, pyproject.toml, src/foo.py
 
         with zipfile.ZipFile(zip_path) as zf:
             names = set(zf.namelist())
@@ -111,6 +120,8 @@ class TestBuildRelease:
         assert not any(".github/" in n for n in names)
         assert not any(n.endswith("/.gitignore") for n in names)
         assert not any(n.endswith("/AGENTS.md") for n in names)
+        assert not any(n.endswith("/DEVELOPER-AGENTS.md") for n in names)
+        assert any(n.endswith("/SOUL.md") for n in names)
 
     def test_zip_ships_content_and_papers_as_empty_directories(self, repo):
         import zipfile
@@ -144,7 +155,7 @@ class TestBuildRelease:
 
         zip_path, n_files = release.build_release()
 
-        assert n_files == 3
+        assert n_files == 4
         assert not stale_staging.exists()
 
 

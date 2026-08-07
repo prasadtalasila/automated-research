@@ -9,7 +9,7 @@ on:
 # the *same* tag (e.g. a force-pushed/re-pushed tag) -- never one
 # release's run against a different version's, which always groups
 # separately. Added for consistency with ci.yml, not because this repo's
-# documented release flow (AGENTS.md) ever re-pushes a tag.
+# documented release flow (DEVELOPER-AGENTS.md) ever re-pushes a tag.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
