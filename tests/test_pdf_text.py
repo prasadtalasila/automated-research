@@ -7,10 +7,12 @@ tests/test_enrich_docling_parse.py's pattern -- fast, deterministic, and
 doesn't need the real package installed.
 """
 
+import enum
 import importlib.machinery
 import importlib.util
 import json
 import multiprocessing
+import pickle
 import shutil
 import signal
 import subprocess
@@ -1658,9 +1660,21 @@ class TestDoclingPartialSuccess:
 
 
 class _FakeResult:
-    def __init__(self, status_name, messages):
+    def __init__(self, status_name, messages, categories=None):
         self.status = types.SimpleNamespace(name=status_name)
-        self.errors = [types.SimpleNamespace(error_message=m) for m in messages]
+        # `categories`, when given, is parallel to `messages`. Omitting
+        # it leaves the attribute off the error entirely, which is also
+        # what a docling build predating FailureCategory looks like --
+        # the case check_docling_status falls back to the wording for.
+        cats = categories if categories is not None else [None] * len(messages)
+        # strict=True: a categories list of the wrong length is a typo in
+        # the test, and silently dropping the tail would show up as a
+        # baffling assertion failure rather than as the mistake it is.
+        self.errors = [
+            types.SimpleNamespace(error_message=m) if c is None
+            else types.SimpleNamespace(error_message=m, category=c)
+            for m, c in zip(messages, cats, strict=True)
+        ]
         self.document = FakeDoclingDocument("# partial")
 
 
@@ -1823,6 +1837,120 @@ class TestDocumentTimeout:
         monkeypatch.setattr(config, "PARSER_DOCUMENT_TIMEOUT", 60.0)
         pdf_text.extract_text(str(tmp_path / "b.pdf"), "b")
         assert fake_docling.build_count == 2
+
+
+class TestTimeoutIsRecordedAsSuch:
+    """A document that ran out of time is a different failure from a
+    document the backend could not read, and only the caller can say so
+    usefully -- the fix for one is a config value, for the other the PDF.
+    The distinction rides on the exception, like `transient` does, so it
+    survives the trip back from a pool worker."""
+
+    def test_a_timed_out_pdftotext_says_it_timed_out(
+        self, isolated_config, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(config, "PARSER_DOCUMENT_TIMEOUT", 5.0)
+        monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/pdftotext")
+
+        def fake_run(cmd, **kwargs):
+            raise subprocess.TimeoutExpired(cmd, 5.0)
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        with pytest.raises(pdf_text.ExtractionError) as excinfo:
+            pdf_text.extract_text(str(tmp_path / "a.pdf"), "a")
+        assert excinfo.value.timed_out is True
+
+    def test_an_unreadable_pdf_does_not(self, isolated_config, monkeypatch, tmp_path):
+        monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/pdftotext")
+
+        def fake_run(cmd, **kwargs):
+            raise subprocess.CalledProcessError(1, cmd, stderr="Syntax Error: Couldn't read xref")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        with pytest.raises(pdf_text.ExtractionError) as excinfo:
+            pdf_text.extract_text(str(tmp_path / "a.pdf"), "a")
+        assert getattr(excinfo.value, "timed_out", False) is False
+
+    def test_docling_says_so_from_its_own_failure_category(self):
+        """The category, not the wording: docling's two timeout paths
+        word themselves differently, so matching prose would miss one."""
+        result = _FakeResult(
+            "PARTIAL_SUCCESS", ["something upstream reworded"], categories=["timeout"]
+        )
+        with pytest.raises(pdf_text.ExtractionError) as excinfo:
+            pdf_text.check_docling_status(result)
+        assert excinfo.value.timed_out is True
+
+    def test_a_str_enum_category_is_read_by_value(self):
+        """docling's FailureCategory is a str-Enum, so str() on it gives
+        'FailureCategory.TIMEOUT' rather than the 'timeout' it compares
+        equal to. Read `.value`, or every real timeout is missed."""
+        class FailureCategory(str, enum.Enum):
+            TIMEOUT = "timeout"
+
+        result = _FakeResult(
+            "PARTIAL_SUCCESS", ["ran out of time"], categories=[FailureCategory.TIMEOUT]
+        )
+        with pytest.raises(pdf_text.ExtractionError) as excinfo:
+            pdf_text.check_docling_status(result)
+        assert excinfo.value.timed_out is True
+
+    def test_a_bad_page_is_not_a_timeout(self):
+        result = _FakeResult(
+            "PARTIAL_SUCCESS", ["page 3 could not be decoded"], categories=["backend_failure"]
+        )
+        with pytest.raises(pdf_text.ExtractionError) as excinfo:
+            pdf_text.check_docling_status(result)
+        assert excinfo.value.timed_out is False
+
+    @pytest.mark.parametrize("message", [
+        "document timeout exceeded",                                  # threaded pipeline
+        "Document processing timeout: exceeded 10.000s limit after "  # page-batch loop
+        "12.345s. Processed 3/17 pages.",
+    ])
+    def test_the_wording_is_the_fallback_when_there_is_no_category(self, message):
+        """A docling build predating FailureCategory still has to be
+        classified, not silently reported as an unreadable PDF -- and
+        both of its wordings have to be recognised, not just one."""
+        result = _FakeResult("PARTIAL_SUCCESS", [message])
+        with pytest.raises(pdf_text.ExtractionError) as excinfo:
+            pdf_text.check_docling_status(result)
+        assert excinfo.value.timed_out is True
+
+    def test_an_unrelated_timeout_is_not_this_timeout(self):
+        """The fallback matches docling's own phrasing, not the bare
+        word: a failure that mentions a timeout it did not cause would
+        otherwise send its reader to raise a setting that had no part in
+        it."""
+        result = _FakeResult(
+            "PARTIAL_SUCCESS", ["connection timeout fetching model weights"]
+        )
+        with pytest.raises(pdf_text.ExtractionError) as excinfo:
+            pdf_text.check_docling_status(result)
+        assert excinfo.value.timed_out is False
+
+    def test_a_timeout_past_the_display_cap_is_still_found(self):
+        """docling appends one error per page and the timeout arrives
+        last, so classification has to read every error even though only
+        the first few are shown."""
+        result = _FakeResult(
+            "PARTIAL_SUCCESS",
+            [f"page {i} was skipped" for i in range(20)] + ["out of time"],
+            categories=["backend_failure"] * 20 + ["timeout"],
+        )
+        with pytest.raises(pdf_text.ExtractionError) as excinfo:
+            pdf_text.check_docling_status(result)
+        assert "out of time" not in str(excinfo.value)  # capped, as before
+        assert excinfo.value.timed_out is True
+
+    def test_the_mark_survives_the_trip_back_from_a_worker(self):
+        """extract_one returns the exception rather than raising it, so
+        the mark is only useful if pickling keeps it -- which it does
+        only because it lives in the instance __dict__."""
+        error = pdf_text.ExtractionError("out of time")
+        error.timed_out = True
+        revived = pickle.loads(pickle.dumps(error))
+        assert revived.timed_out is True
 
 
 class TestDoclingErrorMessage:

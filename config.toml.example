@@ -202,7 +202,11 @@ start_method = "auto"
 # Any value has to clear the slowest document you legitimately have --
 # in this project's own corpus that is a 675-page book taking 246s on its
 # own, so measure before setting it. A timed-out document is reported as
-# a failure, not silently truncated, and is retried next run.
+# a failure, not silently truncated, and sync's summary names it. It is
+# *not* retried on its own, unlike a stall_timeout casualty below: the
+# limit that expired is this one, so retrying under it would spend the
+# same minutes to reach the same answer. Raise this, then re-run with
+# --reparse.
 #                                                          Default: "off"
 document_timeout = "off"
 

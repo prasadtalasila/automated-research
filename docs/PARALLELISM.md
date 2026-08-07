@@ -321,9 +321,10 @@ Each backend gets the concurrency it can use:
 
 | Event | Behaviour |
 |---|---|
-| One document fails | Reported, marked `parse_failed`, **retried next run**. The batch continues |
+| One document fails | Reported, marked `parse_failed` as **deterministic** — the backend read this PDF and could not parse it, so it is **not** retried until the file changes or `--reparse`. The batch continues |
+| One document runs out of time | `[parser].document_timeout` expired: reported, marked `parse_failed`, and **named in the summary on its own line** — the fix is that setting, not the PDF, so it is **not** retried until `--reparse`. The batch continues |
 | A worker dies (OOM killer) | `BrokenProcessPool` is handled: it takes the whole pool, so **every document without a result yet** is marked a transient failure -- the run still writes its ledger, prints its summary, and exits nonzero |
-| The pool goes silent | Watchdog warns at half `stall_timeout`, then abandons the outstanding documents as failures |
+| The pool goes silent | Watchdog warns at half `stall_timeout`, then abandons the outstanding documents as **transient** failures — they were never given a fair attempt, so they are retried next run |
 | Ctrl+C | `interrupt_guard` terminates workers (SIGTERM, grace period, then kill) and `os._exit`s |
 
 Ctrl+C needs an explicit SIGINT handler because `except KeyboardInterrupt`

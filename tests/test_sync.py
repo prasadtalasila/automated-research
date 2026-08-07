@@ -1277,6 +1277,161 @@ class TestFailureReporting:
         assert "needs attention" in out
 
 
+def timing_out_extract_text_factory(timeout_citekeys):
+    """A backend that runs out of time on some documents and parses the
+    rest -- the shape both real backends produce (see
+    tests/test_pdf_text.py's TestTimeoutIsRecordedAsSuch)."""
+    parse = fake_extract_text_factory()
+
+    def fake_extract_text(pdf_path, citekey):
+        if citekey in timeout_citekeys:
+            error = pdf_text.ExtractionError(f"{citekey} exceeded the timeout")
+            error.timed_out = True
+            raise error
+        return parse(pdf_path, citekey)
+    return fake_extract_text
+
+
+class TestTimeoutReporting:
+    """The summary has to name a document that ran out of time, because
+    the remediation differs from every other failure it is counted
+    alongside: raise a config value, not fix the PDF."""
+
+    def test_the_summary_names_the_documents_that_timed_out(
+        self, basic_corpus, monkeypatch, capsys
+    ):
+        monkeypatch.setattr(config, "PARSER_DOCUMENT_TIMEOUT", 90.0)
+        monkeypatch.setattr(
+            pdf_text, "extract_text",
+            timing_out_extract_text_factory({"doe_broken_2023"}),
+        )
+        assert sync.run() == 1
+        out = capsys.readouterr().out
+
+        assert "1 document(s) hit the 90.0s [parser].document_timeout" in out
+        assert "doe_broken_2023" in out
+        assert "--reparse" in out
+
+    def test_the_summary_stops_giving_the_advice_that_does_not_apply(
+        self, basic_corpus, monkeypatch, capsys
+    ):
+        """Two contradictory instructions is worse than one: the PDF is
+        fine, so the deterministic line must not send its reader to fix
+        it while the line below says to raise a setting."""
+        monkeypatch.setattr(config, "PARSER_DOCUMENT_TIMEOUT", 90.0)
+        monkeypatch.setattr(
+            pdf_text, "extract_text",
+            timing_out_extract_text_factory({"doe_broken_2023"}),
+        )
+        sync.run()
+        out = capsys.readouterr().out
+        assert "needs attention" in out  # still says what the state is...
+        assert "fix or remove the PDF" not in out  # ...but not the wrong fix
+        assert "see the WARNING below for the fix" in out
+
+    def test_the_usual_advice_survives_when_nothing_timed_out(
+        self, basic_corpus, monkeypatch, capsys
+    ):
+        monkeypatch.setattr(
+            pdf_text, "extract_text", fake_extract_text_factory(fail_citekeys={"doe_broken_2023"})
+        )
+        sync.run()
+        assert "fix or remove the PDF" in capsys.readouterr().out
+
+    def test_a_corpus_wide_timeout_stays_one_readable_line(
+        self, isolated_config, monkeypatch, capsys
+    ):
+        """Past a handful, the count is the diagnosis and the names are
+        noise -- naming every one of them would bury the line that says
+        what to do in a list no terminal wants to scroll."""
+        entries = "".join(f"""
+@article{{doc_{i}_2024,
+  title = {{Document {i}}},
+  author = {{Roe, Jan}},
+  year = {{2024}},
+  file = {{p{i}.pdf:p{i}.pdf:application/pdf}},
+}}
+""" for i in range(14))
+        write_bib(isolated_config.BIB_FILE_PATH, entries)
+        for i in range(14):
+            (isolated_config.BIB_FILE_PATH.parent / f"p{i}.pdf").write_bytes(b"%PDF")
+        monkeypatch.setattr(config, "PARSER_DOCUMENT_TIMEOUT", 5.0)
+        monkeypatch.setattr(
+            pdf_text, "extract_text",
+            timing_out_extract_text_factory({f"doc_{i}_2024" for i in range(14)}),
+        )
+        sync.run()
+        out = capsys.readouterr().out
+
+        # The count stays exact even though the list does not.
+        assert "14 document(s) hit the 5.0s" in out
+        assert "(+4 more)" in out
+        line = next(ln for ln in out.splitlines() if "hit the 5.0s" in ln)
+        assert line.count("doc_") == 10
+
+    def test_an_ordinary_failure_produces_no_timeout_line(
+        self, basic_corpus, monkeypatch, capsys
+    ):
+        monkeypatch.setattr(
+            pdf_text, "extract_text", fake_extract_text_factory(fail_citekeys={"doe_broken_2023"})
+        )
+        sync.run()
+        assert "[parser].document_timeout" not in capsys.readouterr().out
+
+    def test_a_timeout_is_still_counted_as_a_deterministic_failure(
+        self, basic_corpus, monkeypatch, capsys
+    ):
+        """Deliberately not transient: if the limit is genuinely too low
+        for this host, retrying every run burns the same minutes forever
+        and never converges."""
+        monkeypatch.setattr(config, "PARSER_DOCUMENT_TIMEOUT", 90.0)
+        monkeypatch.setattr(
+            pdf_text, "extract_text",
+            timing_out_extract_text_factory({"doe_broken_2023"}),
+        )
+        assert sync.run() == 1
+        capsys.readouterr()
+
+        assert sync.run() == 1
+        out = capsys.readouterr().out
+        assert "0 parsed" in out
+        assert "needs attention" in out
+
+    def test_every_timed_out_document_is_named(self, basic_corpus, monkeypatch, capsys):
+        monkeypatch.setattr(config, "PARSER_DOCUMENT_TIMEOUT", 5.0)
+        monkeypatch.setattr(
+            pdf_text, "extract_text",
+            timing_out_extract_text_factory({"doe_broken_2023", "smith_example_2024"}),
+        )
+        sync.run()
+        out = capsys.readouterr().out
+        assert "2 document(s) hit the 5.0s" in out
+        assert "doe_broken_2023" in out and "smith_example_2024" in out
+
+    def test_a_timeout_from_a_pool_worker_is_reported_too(
+        self, many_corpus, monkeypatch, capsys
+    ):
+        """The parallel path returns the exception across a process
+        boundary rather than raising it, so the mark has to arrive
+        intact for the summary to say anything."""
+        monkeypatch.setattr(config, "PARSER", "docling")
+        monkeypatch.setattr(config, "PARSER_WORKERS", 4)
+        monkeypatch.setattr(config, "PARSER_DOCUMENT_TIMEOUT", 30.0)
+        monkeypatch.setattr(pdf_text, "allowed_cpus", lambda: 48)
+        monkeypatch.setattr(sync, "_executor_for", _thread_executor)
+
+        def timing_out_extract_one(job):
+            _pdf_path, citekey, _threads = job
+            error = pdf_text.ExtractionError("out of time")
+            error.timed_out = True
+            return citekey, None, error
+
+        monkeypatch.setattr(pdf_text, "extract_one", timing_out_extract_one)
+        assert sync.run() == 1
+        out = capsys.readouterr().out
+        assert "6 document(s) hit the 30.0s [parser].document_timeout" in out
+
+
 class TestStallWarning:
     """The watchdog kills work, so it must warn before it acts.
 
