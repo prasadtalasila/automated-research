@@ -19,6 +19,20 @@ layer: deterministic, safe to run unattended).
 - `content/parsed/<citekey>.txt` -- extracted PDF text
 - `src/retrieval.py` -- `search(query, k)` returns `SearchResult(citekey, title, score, snippet)`
 
+## The dossier: write down what produced the draft
+
+The draft is only half of what this run produces. The other half is the
+judgment behind it -- the reader, the scope, the glossary, which
+candidates were kept and **which were turned down and why** -- and it
+belongs on disk, not in this conversation. Without it the next revision
+has to re-retrieve and re-score the whole topic to change one paragraph.
+
+`src/dossier.py` owns that state, in Markdown, one directory per draft at
+`content/dossiers/<the draft's path, minus its suffix>/`. Create it before
+you search (step 0) and fill it in as you go -- not at the end, when what
+you rejected has already fallen out of your context. `docs/DRAFT-ITERATION.md`
+is the full design.
+
 **Read-only means read-only: never run `python -m src.sync`.** That command
 belongs to the corpus layer, it takes the pipeline's write lock, and a
 first full-corpus parse can run for tens of minutes. It is the user's to
@@ -43,6 +57,7 @@ around it, do not sync, do not cite. Tell the user to run
 | User asks for a thesis chapter | Use `thesis-chapter-writer` instead |
 | User asks for a textbook chapter / lecture notes / worked examples | Use `textbook-chapter-writer` instead |
 | User asks for a hands-on tutorial the reader follows at a keyboard | Use `tutorial-writer` instead |
+| User asks to change a survey that **already exists** in `content/drafts/` | Use `draft-reviser` instead -- never re-run this skill to make a change |
 | Ledger is empty, or nothing is `parsed` | Say so and stop. **Never** run `src.sync` yourself |
 
 ## Prose standards
@@ -74,11 +89,20 @@ collapse them for the sake of a cleaner narrative.
 
 ## Process
 
-0. **Name the reader and the scope.** Before searching, settle who this
-   survey is for (a thesis reader? a grant reviewer? a paper's related-work
-   section?) and what it will and won't cover. Write the scope statement into
-   the draft's opening paragraph -- including what's deliberately excluded, so
-   a reader can tell an omission from an oversight.
+0. **Name the reader and the scope, and open the dossier.** Before
+   searching, settle who this survey is for (a thesis reader? a grant
+   reviewer? a paper's related-work section?) and what it will and won't
+   cover. Write the scope statement into the draft's opening paragraph --
+   including what's deliberately excluded, so a reader can tell an
+   omission from an oversight. Then create the dossier and record the same
+   decisions there:
+   ```
+   python3 -m src.dossier init content/drafts/<slug>.md --genre survey
+   ```
+   Fill in `scope.md`'s **Reader**, **Covers**, **Does not cover** and
+   **Glossary** now, while you are deciding them. `init` also stamps the
+   corpus fingerprint, which is what lets a later revision tell whether
+   the ledger has moved since.
 1. **Retrieve broadly, over-fetching on purpose.** Break the requested topic
    into 2-4 sub-themes if it's broad. Call `src.retrieval.search(sub_theme, k=15)`
    for each -- pull more candidates than you expect to use. This is a
@@ -94,11 +118,23 @@ collapse them for the sake of a cleaner narrative.
    This is the same discipline PaperQA2 calls "gather evidence" (retrieve,
    then LLM-judge relevance, *then* write) -- the difference here is you're
    doing the judging inline as part of drafting, not via a second API call.
-   Write what survives as scored evidence -- `{"citekey": ..., "relevance":
-   "why this supports the claim", "quote_or_paraphrase": "..."}` -- into
-   `content/provenance/<slug>-evidence.json` before you start drafting
-   prose. Treat a citekey that didn't pass this filter as unused, even if it
-   was a high-scoring `search()` hit.
+   Treat a citekey that didn't pass this filter as unused, even if it was a
+   high-scoring `search()` hit.
+
+   **Record both outcomes in the dossier before you start drafting prose**,
+   while the snippets are still in front of you:
+   - what survives, into `evidence.md` -- one `## \`citekey\`` block with
+     a `relevance:` line (why it supports the claim) and a `support:` line
+     (the quote or paraphrase);
+   - what doesn't, into `rejected.md` -- one table row per candidate:
+     citekey, the query that surfaced it, and a few words on why it was
+     turned down ("shares vocabulary only", "wrong domain", "superseded by
+     X").
+
+   The rejected list is the more valuable of the two and the easier to
+   skip. It is what stops the next revision retrieving and re-judging the
+   same twelve papers you just turned down -- the single most expensive
+   piece of repeated work in this pipeline.
 3. **Reformulate and re-search if a sub-theme comes up thin.** A single
    query wording is not the ceiling -- if scoring leaves you with little or
    nothing for a sub-theme, try synonyms, broader/narrower terms, or an
@@ -128,10 +164,11 @@ collapse them for the sake of a cleaner narrative.
    in the ledger, say so in prose to the user instead ("X is commonly discussed
    in this area but isn't in your synced library yet") -- do not invent a key
    for it.
-8. **Log provenance.** Write `content/provenance/<slug>.json`: a list of
-   `{"section": "...", "citekeys": [...]}` so citation choices are auditable
-   later without re-reading the whole draft (in addition to the evidence file
-   from step 2).
+8. **Map sections to citekeys.** Fill in the dossier's `sections.md` --
+   one row per section heading with the citekeys cited under it -- so a
+   later revision can tell which section owns a citation without reading
+   the draft. `python3 -m src.dossier sections content/drafts/<slug>.md`
+   prints the headings and their line ranges to build it from.
 9. **Gate before presenting.** Save the draft as `content/drafts/<slug>.md`
    (this is the canonical, source-of-truth format), then run:
    ```
@@ -177,9 +214,19 @@ collapse them for the sake of a cleaner narrative.
     doesn't match what the subsection actually argues, a comparison-table row
     that repeats prose already above it, and any paragraph whose first
     sentence doesn't carry its point.
-13. Present the draft plus a one-paragraph summary of thin-coverage areas and
+13. **Record any steering.** If the user shaped this draft in chat --
+    "don't lead with tooling", "shorter", "drop the adoption angle" --
+    append it to the dossier's `steering.md`, dated. It is invisible in
+    the prose and has nowhere else to live; a revision that doesn't know
+    about it will undo it.
+14. Present the draft plus a one-paragraph summary of thin-coverage areas and
     any unresolved cross-source disagreement, and report the render outcome
     (paths to the `.tex`/`.pdf` if they succeeded, or the warning if not).
+    Tell the user where the dossier is, that changes to this draft should
+    go through `draft-reviser` rather than another run of this skill, and
+    that `content/drafts/` and `content/dossiers/` are gitignored -- so
+    `python3 -m src.dossier export <slug>` is how a draft and its working
+    state get backed up.
 
 ## Sources
 

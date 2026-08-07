@@ -92,6 +92,8 @@ def isolated_config(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "PARSED_DIR", content_dir / "parsed")
     monkeypatch.setattr(config, "LEDGER_PATH", content_dir / "ledger.sqlite")
     monkeypatch.setattr(config, "PROVENANCE_DIR", content_dir / "provenance")
+    monkeypatch.setattr(config, "DRAFTS_DIR", content_dir / "drafts")
+    monkeypatch.setattr(config, "DOSSIERS_DIR", content_dir / "dossiers")
     monkeypatch.setattr(config, "RETRIEVAL_INDEX_PATH", content_dir / "retrieval_index.json")
     monkeypatch.setattr(config, "PIPELINE_LOCK_PATH", content_dir / "pipeline.lock.db")
     monkeypatch.setattr(config, "DOCLING_DIR", content_dir / "docling")

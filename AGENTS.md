@@ -114,7 +114,15 @@ non-empty ledger, for the same reason at the extreme -- see
   src.sync` or the enrichment layer on the user's behalf. Both take the
   write lock and can run for tens of minutes; starting one is the user's
   call. On an empty ledger a skill says so and stops rather than
-  regenerating anything.
+  regenerating anything. Each run writes a **dossier** beside its draft
+  (`content/dossiers/<the draft's path minus its suffix>/`, Markdown,
+  owned by `src/dossier.py`) holding the reader, scope, glossary, kept
+  evidence, **rejected candidates and why**, and the steering the user
+  gave in chat. That is what makes a draft revisable weeks later:
+  `draft-reviser` reads the dossier and edits the affected sections
+  instead of re-running the genre skill over the whole topic. Never
+  re-run a genre skill to change an existing draft --
+  see docs/DRAFT-ITERATION.md.
 - **The enrichment layer -- optional** (`scripts/enrich.py`):
   Docling, embeddings and topic modelling over the same corpus. It extends
   the *corpus* layer rather than the drafting one -- nothing in it is

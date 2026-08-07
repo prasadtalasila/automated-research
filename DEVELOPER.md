@@ -162,6 +162,8 @@ docs/                     reference docs that ship in the release zip -- everyth
     svg/*.svg                 rendered exports (mmdc -b white -w 1900). Exports only -- edit the
                               fenced block in DIAGRAMS.md, then re-render
   CITATION-PROVENANCE.md    what src/citation_provenance.py reports and how to read it
+  DRAFT-ITERATION.md        why drafting costs what it costs, what a dossier holds, and how a draft
+                            is revised weeks later without re-running the pipeline that produced it
   LADDERS.md                every automatic fallback chain the code walks, and every tier you pick
                             yourself -- and what the bottom rung of each costs
   WRITING-STANDARDS.md      the prose standards the genre skills share, and their sources in the
@@ -210,6 +212,10 @@ src/                      the corpus and drafting layers (sync needs bibtexparse
                           pages -> pdftotext) and whether it may be quoted -- shared by the consumers
                           that need to point at part of a source rather than all of it
   citation_gate.py          hard citation-verification gate -- the drafting layer must pass this
+  dossier.py                the working state behind a draft (reader, scope, kept evidence, rejected
+                          candidates, steering, revision log) as Markdown under content/dossiers/,
+                          mirroring the draft's path; plus tar.gz backup/restore. Read-only over the
+                          corpus layer, never a gate -- see docs/DRAFT-ITERATION.md
   citation_coverage.py      ad-hoc review aid: retrieval-candidates-vs-actually-cited report, not a gate
   citation_provenance.py    ad-hoc review aid: what in each cited source supports the claim citing it, not a gate
                             (scores claims against passages.py's ladder; see docs/CITATION-PROVENANCE.md)
