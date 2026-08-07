@@ -565,8 +565,9 @@ it ignores while building the archive anyway. Run it bare:
 .venv-full/bin/python scripts/release.py
 ```
 
-`tests/`, `bench/`, `DEVELOPER.md`, `AGENTS.md`, `.github/` and
-`.gitignore` are excluded from the archive; `docs/` ships.
+`tests/`, `bench/`, `.github/` and `.gitignore` are excluded from the
+archive. Every prose document ships: `docs/`, `README.md`, `SOUL.md`,
+`AGENTS.md`, `DEVELOPER-AGENTS.md` and `DEVELOPER.md`, plus `.claude/`.
 
 ## Running sync on a schedule
 

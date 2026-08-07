@@ -58,6 +58,19 @@ synced corpus, simulating one editorial angle on the topic.
    "no appropriate answer can be formulated from this corpus" is a valid,
    honest output for this question.
 
+## The corpus is read-only, and you don't own any file
+
+Never run `python -m src.sync`, `scripts/enrich.py`, or any `src/enrich/*`
+build stage. Both take the pipeline's write lock and can run for tens of
+minutes, and several of you run in parallel. Use `content/chroma/` only if
+it already exists; if it doesn't, fall back to `src.retrieval.search()` and
+say so in your packet -- do not build one.
+
+You write no files at all. In particular you never write into
+`content/dossiers/` -- the orchestrating run owns the dossier and
+transcribes your packet into it. Anything you don't put in your returned
+packet is lost when you exit.
+
 ## Mandatory grounding discipline
 
 - Every claim requires a real citekey pulled from a `search()` result --

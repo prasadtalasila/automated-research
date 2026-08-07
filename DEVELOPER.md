@@ -135,11 +135,16 @@ bench/                    parser measurement (dev-only, not shipped) -- see "Ben
   make_corpus.py            builds the gitignored work lists from your own bib file
   repro_check.py            compares two parses at three levels (bytes, passage spans, passage texts)
                             and self-checks its own detector on every run
-AGENTS.md                 instructions for coding agents working in this repo -- hard invariants, install
-                          notes, dev process, commit/PR/release conventions
+SOUL.md                   one page: why this exists, the one invariant, what it refuses to become
+AGENTS.md                 instructions for agents drafting *with* the pipeline -- the citekey
+                          invariant, the three layers, retrieval
+DEVELOPER-AGENTS.md       instructions for agents changing *this repo* -- install notes, dev
+                          process, commit/PR/release conventions
 DEVELOPER.md              this file -- test running, repo layout, open questions
 DOCKER.md                 running this repo in a container (docker/Dockerfile)
-docs/                     reference docs that ship in the release zip -- everything except the four
+.github/                  CI/release workflows, plus the issue and PR templates GitHub picks up
+                          automatically and RELEASE_TEMPLATE.md (copied by hand)
+docs/                     reference docs that ship in the release zip -- everything except the
                           root-level ones above, which stay put because they're what a reader looks
                           for first
   PARALLELISM.md            parallel parse design: architecture, components, and the roadmap

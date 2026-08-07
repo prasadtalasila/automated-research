@@ -26,10 +26,13 @@ user asked for the other one. See "When to invoke".
   ground the motivation section in the corpus (citing the result is still
   optional -- see step 3)
 
-**Read-only means read-only: never run `python -m src.sync`.** That command
-belongs to the corpus layer, it takes the pipeline's write lock, and a
-first full-corpus parse can run for tens of minutes. It is the user's to
-run, not yours.
+**Read-only means read-only: never run `python -m src.sync`, and never
+run `scripts/enrich.py` or any `src/enrich/*` stage.** Both belong to the
+corpus layer, both take the pipeline's write lock, and either can run for
+tens of minutes -- a first full-corpus parse, or building the embedding
+index. They are the user's to run, not yours. If a semantic index would
+help and none exists, say so and use `src.retrieval.search()`; do not
+build one.
 
 If `python3 -m src.ledger` reports an empty ledger, say so before you
 start. Citations are optional in this genre, so the draft is still
@@ -38,6 +41,40 @@ not something to discover at the end. Ask whether to proceed uncited or to
 sync first, and wait for the answer.
 
 Citations here are optional, not the point. Don't force them in.
+
+## The dossier: write down what produced the draft
+
+The chapter is only half of what this run produces. The other half is the
+teaching judgment behind it -- who the student is, what they are assumed to
+know already, which definition each term was pinned to, which worked example
+was chosen and **which candidates were tried and dropped, and why** -- and it
+belongs on disk, not in this conversation. Without it the next revision has to
+reconstruct the whole pedagogical design in order to change one exercise.
+
+`src/dossier.py` owns that state, in Markdown, one directory per draft at
+`content/dossiers/<the draft's path, minus its suffix>/`. Create it before you
+draft anything (step 0) and fill it in as you go -- not at the end, when the
+example you abandoned has already fallen out of your context.
+`docs/DRAFT-ITERATION.md` is the full design.
+
+What the dossier is worth here is not what it is worth in the citation-dense
+genres. This chapter is mostly original worked examples and exercises, so
+`evidence.md` stays thin and may well be empty -- there is no long evidence
+table to build, and padding one out is not the job. The weight sits instead in
+`scope.md` (the reader, the prior knowledge assumed, the covers /
+does-not-cover line, the glossary that keeps notation stable across a
+revision) and in `rejected.md`, which in this genre records **pedagogical**
+rejects rather than bibliographic ones: the worked example that turned out too
+advanced for the course level, the analogy that broke down one step in, the
+exercise cut because it mapped to no objective. That file has no schema and
+nothing parses it beyond backticked citekeys, so a row naming an example
+rather than a paper is exactly what it is for.
+
+None of this depends on citing anything. **A chapter that carries no citations
+at all still gets a dossier** -- including one drafted after the user was asked
+about an empty ledger and said to proceed uncited. The reader, the scope, the
+glossary and the rejected examples are what a later revision needs, and they
+exist whether or not a single `[@citekey]` does.
 
 ## When to invoke
 
@@ -65,10 +102,10 @@ a defect in a tutorial.
 
 ## Audience first
 
-Before drafting anything, write down -- in your own working notes, not
-necessarily in the chapter -- who the reader is and what they already know.
-Everything downstream depends on it: what can go unexplained, which
-prerequisites need a recap, how much notation is safe.
+Before drafting anything, write down -- in the dossier's `scope.md` (step 0),
+not necessarily in the chapter itself -- who the reader is and what they
+already know. Everything downstream depends on it: what can go unexplained,
+which prerequisites need a recap, how much notation is safe.
 
 Then check yourself against the **curse of knowledge**: you know this material
 and the student does not, and the specific danger is the step that feels too
@@ -80,6 +117,20 @@ candidate for the chapter.
 
 ## Process
 
+0. **Name the reader and the scope, and open the dossier.** Before drafting
+   and before any retrieval, settle who this chapter is for and what they
+   already know ("Audience first" above), and what it will and won't cover.
+   Then create the dossier and record those decisions there:
+   ```
+   python3 -m src.dossier init content/drafts/<slug>.md --genre textbook-chapter
+   ```
+   Fill in `scope.md`'s **Reader**, **Covers**, **Does not cover** and
+   **Glossary** now, while you are deciding them -- the glossary especially,
+   since it is what stops a later revision renaming a concept this chapter has
+   already defined once, which is the failure a student notices fastest. Where
+   a ledger is present, `init` also stamps the corpus fingerprint, which is
+   what lets a later revision tell whether the ledger has moved since. Do this
+   even if the chapter will carry no citations.
 1. **Establish the learning objectives** first -- 3-5 concrete "by the end of
    this chapter, students will be able to..." statements, each with an
    observable verb (*derive*, *compare*, *implement*, *predict*), not
@@ -141,7 +192,10 @@ candidate for the chapter.
    -- state which. Each exercise should map to a stated learning objective
    (step 1); say which one, at least in your own notes, and cut any exercise
    that maps to none. Exercises should exercise the objectives, not just
-   recall the reading.
+   recall the reading. Note each cut in the dossier's `rejected.md` -- one row
+   naming the exercise and why it went -- so a later revision doesn't
+   reintroduce a problem you already judged and dropped. The same goes for a
+   worked example you drafted and abandoned.
 7. **Close the loop.** End with a short summary of what the chapter
    established, tied back to the objectives it opened with, plus pointers to
    where a student who wants more should go next -- including, where it fits,
@@ -151,15 +205,25 @@ candidate for the chapter.
    term arrives undefined, a step skips reasoning, or notation changes
    meaning mid-chapter. This pass catches more real problems than any other
    single step here.
-9. **Never write a citekey you didn't get from `search()`.** If you do include
-   any citations, save the draft as `content/drafts/<slug>.md` and gate it:
-   ```
-   python -m src.citation_gate content/drafts/<slug>.md
-   ```
-   Fix and re-run until `OK` before presenting. If there are no citations at
-   all, the gate step is unnecessary -- just save to
-   `content/drafts/<slug>.md`.
-10. **Build the References section.** Once the gate passes, generate it from
+9. **Map the chapter's sections.** Fill in the dossier's `sections.md` -- one
+   row per section heading, with any citekeys cited under it -- so a later
+   revision can find the section that owns a change without reading the whole
+   chapter. Once the draft is saved,
+   `python3 -m src.dossier sections content/drafts/<slug>.md` prints the
+   headings and their line ranges to build the table from, skipping fenced
+   code so a `# Step 1` comment inside an example listing isn't mistaken for
+   a heading. A chapter with no citations still gets this map: leave the
+   citekeys column empty, since the outline is what a reviser navigates by
+   either way.
+10. **Never write a citekey you didn't get from `search()`.** If you do include
+    any citations, save the draft as `content/drafts/<slug>.md` and gate it:
+    ```
+    python -m src.citation_gate content/drafts/<slug>.md
+    ```
+    Fix and re-run until `OK` before presenting. If there are no citations at
+    all, the gate step is unnecessary -- just save to
+    `content/drafts/<slug>.md`.
+11. **Build the References section.** Once the gate passes, generate it from
     exactly the gated citekeys rather than writing it by hand:
     ```
     python -m src.references content/drafts/<slug>.md
@@ -177,7 +241,7 @@ candidate for the chapter.
     the new section matches the draft's own numbering instead of the bare
     `## References` default. Skip this step entirely if there are no
     citations at all -- same as the gate step.
-11. **Render tex and pdf.** Once saved (and gated/referenced, if it has
+12. **Render tex and pdf.** Once saved (and gated/referenced, if it has
     citations), also render the other three formats:
     ```
     python3 -m src.render_output content/drafts/<slug>.md --format tex
@@ -192,8 +256,24 @@ candidate for the chapter.
     enrich group required. If either command reports `[missing-binary]` or
     `[error]`, print a one-line warning in chat with that message and
     continue anyway -- a rendering failure never blocks presenting the
-    `.md` draft. Report the render outcome (paths to the `.tex`/`.pdf` if
-    they succeeded, or the warning if not) alongside the draft.
+    `.md` draft.
+13. **Record any steering.** If the user shaped this chapter in chat --
+    "second-years, not first-years", "assume no probability", "more exercises
+    and fewer worked examples", "drop the compiler example" -- append it to
+    the dossier's `steering.md`, dated. It is invisible in the prose and has
+    nowhere else to live; a revision that doesn't know about it will undo it,
+    and pedagogical steering is the kind that undoes most quietly, because
+    nothing in the finished chapter shows that an easier example was ever on
+    the table.
+14. **Present the draft** plus a short note on what it assumes as prior
+    knowledge, what it deliberately leaves out, and where a student is meant
+    to go next -- and report the render outcome (paths to the `.tex`/`.pdf`
+    if they succeeded, or the warning if not). Tell the user where the
+    dossier is, that changes to this chapter should go through
+    `draft-reviser` rather than another run of this skill, and that
+    `content/drafts/` and `content/dossiers/` are gitignored -- so
+    `python3 -m src.dossier export <slug>` is how a draft and its working
+    state get backed up.
 
 ## House style for this genre
 

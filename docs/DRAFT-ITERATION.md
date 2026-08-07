@@ -179,6 +179,25 @@ only needed when a change opens a sub-theme up for re-searching. One
 combined file would have to be read whole every time, which is the cost
 this module exists to avoid.
 
+### Why not merge the provenance JSON into it
+
+`thesis-chapter-writer` and `deep-research` also write
+`content/provenance/<slug>.json`. Both artifacts are kept, and neither
+replaces the other, because they answer different questions for different
+readers:
+
+| | `content/provenance/*.json` | `content/dossiers/<draft>/` |
+|---|---|---|
+| Shape | JSON, machine-readable | Markdown, human-readable |
+| Holds | section -> citekey, and why that source supports that claim | reader, scope, glossary, kept evidence, **rejected candidates and why**, steering |
+| Read by | tooling, and a reviewer auditing one claim | `draft-reviser`, and a human months later |
+| Lost if absent | an audit trail for a finished draft | the ability to revise without re-running the whole topic |
+
+The overlap is one column of `sections.md`. Collapsing them would mean
+either putting prose a human needs into JSON, or putting a machine record
+into Markdown that nothing parses -- so they stay separate, and the two
+skills that produce both write both.
+
 ### The corpus fingerprint
 
 `scope.md` records how many citekeys the ledger held when the draft was

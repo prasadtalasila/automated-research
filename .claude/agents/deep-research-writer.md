@@ -76,9 +76,29 @@ document with `python3 -m src.retrieval evidence "<query>" --citekey <key>`. Rep
 way in a trailing `### Sources added` block so the orchestrator can include
 it in the final references.
 
+Report what you turned down too, in a `### Candidates discarded` block --
+citekey, the query that surfaced it, and one clause on why it didn't hold
+up. A candidate you rejected is the most expensive thing in your context
+to reconstruct later, and the orchestrator cannot see it unless you say
+so. If you didn't re-search, omit both blocks.
+
+## The corpus is read-only, and you don't own any file
+
+Never run `python -m src.sync`, `scripts/enrich.py`, or any `src/enrich/*`
+build stage. Both take the pipeline's write lock and can run for tens of
+minutes, and several of you run in parallel. Use `content/chroma/` only if
+it already exists; if it doesn't, fall back to `src.retrieval.search()` and
+say so in your packet -- do not build one.
+
+You write no files at all. In particular you never write into
+`content/dossiers/` -- the orchestrating run owns the dossier and
+transcribes your packet into it. Anything you don't put in your returned
+packet is lost when you exit.
+
 ## Output format
 
 Markdown section starting with the heading (`##`), subsections as `###`,
-inline `[@citekey]` citations, optionally ending with a `### Sources added`
-block if you found anything new. Return this as your response -- don't
-write it to a file yourself; the orchestrator assembles the full document.
+inline `[@citekey]` citations, optionally ending with `### Sources added`
+and `### Candidates discarded` blocks if you re-searched. Return this as
+your response -- don't write it to a file yourself; the orchestrator
+assembles the full document.

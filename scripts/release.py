@@ -11,13 +11,18 @@ Bundles every git-tracked file (`git ls-files`, so .gitignore's exclusions
 -- content/parsed/, papers/bibliography.bib, .venv-full/, etc. -- are
 already handled) except:
 
-- developer-only material not useful to someone consuming the pipeline
-  rather than extending it: DEVELOPER.md, tests/, bench/ (parser
-  wall-clock measurement against *this* host's own bib corpus, which a
-  release consumer doesn't have), and this repo's own meta-tooling
-  (.github/, .gitignore, AGENTS.md -- CI config, git config, and
-  coding-agent guidance for developing *this* repo, none of it
-  meaningful once unzipped elsewhere).
+- this repo's own machinery, which does something only in a git checkout
+  of it: tests/, bench/ (parser wall-clock measurement against *this*
+  host's own bib corpus, which a release consumer doesn't have), and
+  .github/ + .gitignore (CI config, git config and issue/PR templates).
+
+  **Every prose document ships** -- README.md, docs/, SOUL.md, AGENTS.md,
+  DEVELOPER-AGENTS.md and DEVELOPER.md -- as does `.claude/` and its genre
+  skills. Those skills cite AGENTS.md by name for the citekey invariant,
+  and the docs cross-reference each other freely, so excluding any one of
+  them leaves dangling references in the rest. Someone who unzips a
+  release to work on the pipeline needs the developer docs as much as
+  someone who cloned it.
 - content/ and papers/, which do have a handful of git-tracked files
   despite mostly being gitignored (e.g. content/drafts/*.md example
   drafts) -- per-host example/personal data that shouldn't ship as
@@ -44,7 +49,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Developer-only / this-repo-only material a release doesn't need to ship
 # -- everything else git-tracks is fair game (see module docstring).
-EXCLUDE_TOP_LEVEL = {"tests", "DEVELOPER.md", ".github", ".gitignore", "AGENTS.md", "bench"}
+EXCLUDE_TOP_LEVEL = {
+    "tests",
+    ".github",
+    ".gitignore",
+    "bench",
+}
 
 # Ships as an empty placeholder directory instead of its tracked contents
 # -- see module docstring.

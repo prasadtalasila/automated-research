@@ -27,7 +27,7 @@ def _pdftotext_present_by_default(monkeypatch):
     # (src/pdf_text.py's missing-binary handling), so without this these
     # tests would silently depend on pdftotext actually being on PATH on
     # whatever host runs them (true here, but os-deps -- the stage that
-    # installs poppler-utils -- is explicitly opt-in per AGENTS.md, and
+    # installs poppler-utils -- is explicitly opt-in per DEVELOPER-AGENTS.md, and
     # test_pdf_text.py already contemplates hosts where it isn't). The
     # dedicated test_missing_pdftotext_* tests below override this back
     # to False afterward -- monkeypatch is last-write-wins within a test.

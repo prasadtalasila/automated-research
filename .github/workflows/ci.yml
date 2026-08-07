@@ -30,7 +30,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     # windows-latest is exploratory (docs/DESIGN.md's cross-platform-CI
     # recommendation) -- this repo's install path and every doc
-    # (AGENTS.md, DEVELOPER.md) assume Linux, so don't let it block the
+    # (DEVELOPER-AGENTS.md, DEVELOPER.md) assume Linux, so don't let it block the
     # Linux leg (this repo's actual gate) while real gaps get found and
     # fixed one at a time instead of guessed at up front.
     continue-on-error: ${{ matrix.os == 'windows-latest' }}
@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: cp config.toml.example config.toml
 
-      # Dogfoods the project's own single install path (AGENTS.md: "don't
+      # Dogfoods the project's own single install path (DEVELOPER-AGENTS.md: "don't
       # add a second install path") rather than hand-rolling equivalent
       # steps here -- this is also, itself, a real end-to-end test that
       # the install script still works on a clean host.
