@@ -179,6 +179,18 @@ def build_sample(n: int, keep_outliers: bool, outliers_only: bool, out_bib: Path
     # already de-duplicates, but saying so here keeps the record honest
     # about what was actually parsed.
     sample = rank_sample(rows, min(n, len(rows)))
+    if not sample:
+        # Reachable: --outliers-only against a corpus whose page counts
+        # are tight enough to have no Tukey outliers at all. Without this
+        # the next few lines divide by zero and max() an empty sequence,
+        # which reports a corpus problem as a crash in the arithmetic.
+        raise SystemExit(
+            f"No documents to parse ({mode} selection over "
+            f"{corpus_path.name} is empty"
+            + (f"; Tukey fence is {fence:.1f} pages" if fence is not None else "")
+            + "). Nothing to compare -- widen the selection or re-run "
+              "make_corpus.py."
+        )
     # Minimal entries: this bib exists to name PDFs for the parser, and
     # nothing downstream of the parse is being measured. The `file` field
     # carries an absolute path, which is what bib_reader resolves.
@@ -386,10 +398,22 @@ def self_check() -> None:
     flip = compare(present, label_only)
     assert len(flip["spans_differ"]) == 1, "detector missed a label flip"
     assert not flip["texts_differ"], "label flip wrongly reported as changed quotation"
-    # The one that matters most: two absent sidecars must not read as "same".
+    # The one that matters most. Two absent sidecars ARE equal, so
+    # compare() reports zero differences and is right to -- there is
+    # nothing to differ. The guard against mistaking that for stability
+    # cannot live in compare() at all; it is require_sidecars(), and this
+    # asserts *that*. An earlier version of this function asserted
+    # `compare(absent, absent)["compared"] == 1` and called it the check,
+    # which was vacuous: `compared` counts citekeys found by the .txt
+    # glob and is 1 whether or not a single sidecar exists.
     absent = {"k": {"txt_sha": "a", "sidecar_sha": None, "spans_sha": None,
                     "texts_sha": None, "n_spans": None}}
-    assert compare(absent, absent)["compared"] == 1
+    assert not compare(absent, absent)["sidecar_bytes_differ"]
+    assert require_sidecars([{"name": "t", "fingerprint": absent}]), (
+        "a run with no passage records must be flagged -- otherwise it "
+        "reports exactly what a perfectly stable run reports"
+    )
+    assert require_sidecars([{"name": "t", "fingerprint": present}]) is None
 
 
 def require_sidecars(runs: "list[dict]") -> "str | None":

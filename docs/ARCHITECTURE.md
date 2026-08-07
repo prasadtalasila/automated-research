@@ -284,7 +284,8 @@ a specific span of a specific source.
 | `content/rendered/*.md`, `*.tex` | **Yes** -- byte-identical, measured |
 | `content/rendered/*.pdf` | **No.** pdflatex embeds a creation timestamp and a trailer `/ID`; two renders of identical input differ. `SOURCE_DATE_EPOCH`/`FORCE_SOURCE_DATE` does *not* make them identical |
 | `content/topics.json` | **No.** UMAP is seeded (`random_state=42`), but HDBSCAN clusters the whole corpus, so assignments move when the corpus does -- a document's topic id is not a stable identifier |
-| `content/chroma/`, the retrieval index cache | Derived caches, rebuilt from their inputs and keyed by fingerprint. Not artifacts to compare |
+| `content/retrieval_index.json` | A cache, not an output: term-frequency stats keyed by a per-item fingerprint, rebuilt for any document whose parsed text changed. Delete it and the next search rebuilds it |
+| `content/chroma/` | The embedding store the `embed` stage writes -- persistent, not a cache, but incremental: a document whose text hashes the same is not re-embedded. Inherits whatever instability its input text has |
 
 ### The passage sidecar, specifically
 
