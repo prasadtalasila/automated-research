@@ -169,13 +169,19 @@ def search(query: str, k: int = 5, snippet_chars: int = 500) -> list[dict]:
     """`snippet_chars` defaults to enough context for a caller to judge
     relevance itself before citing, rather than trusting distance alone.
 
-    Deliberately the same shape as `src.retrieval.search()`, and a
-    drop-in for it: this index covers the same documents, the ledger's,
-    differing only in how it ranks them (embeddings rather than BM25). So
-    every hit carries a real citekey and `citation_gate` will resolve it.
-    That is what restricting the corpus to the bibliography buys -- see
-    corpus.py; there is no longer any such thing as a hit a draft is not
-    allowed to cite."""
+    Deliberately the same shape as `src.retrieval.search()`, so this is a
+    drop-in for it, and every hit is citable either way: both draw on the
+    ledger, so a returned `citekey` always resolves against it. That is
+    what restricting the corpus to the bibliography buys (see corpus.py)
+    -- there is no longer any such thing as a hit a draft may not cite.
+
+    The two do not cover quite the same *documents*, though, and a caller
+    choosing between them should know which way it cuts. BM25 indexes
+    each item's title whether or not it has parsed text, so a
+    metadata-only entry is still findable there; `build_index` skips any
+    document `get_text` returns nothing for, because there is nothing to
+    embed. A bib entry whose PDF is missing or failed to parse is
+    therefore searchable by title and not by meaning."""
     client, model = get_client_and_model()
     collection = client.get_or_create_collection(_collection_name())
     query_embedding = model.encode([query], show_progress_bar=False).tolist()
