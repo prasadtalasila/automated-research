@@ -329,9 +329,9 @@ split by who is asking.
 | [DEVELOPER-AGENTS.md](DEVELOPER-AGENTS.md) | The rules an agent *changing this repo* must follow -- test policy, the local check suite, commit/PR/release conventions |
 
 Everything under `docs/` ships in the release archive, as do `SOUL.md`,
-`AGENTS.md` and `.claude/`'s genre skills. `DEVELOPER.md`,
-`DEVELOPER-AGENTS.md`, `tests/` and `bench/` (the measurement harness and
-its raw timings) are in the repository but excluded from it.
+`AGENTS.md`, `DEVELOPER-AGENTS.md` and `.claude/`'s genre skills.
+`DEVELOPER.md`, `tests/` and `bench/` (the measurement harness and its raw
+timings) are in the repository but excluded from it.
 
 ## Acknowledgements
 

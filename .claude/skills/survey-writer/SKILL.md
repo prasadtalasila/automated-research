@@ -33,10 +33,13 @@ you search (step 0) and fill it in as you go -- not at the end, when what
 you rejected has already fallen out of your context. `docs/DRAFT-ITERATION.md`
 is the full design.
 
-**Read-only means read-only: never run `python -m src.sync`.** That command
-belongs to the corpus layer, it takes the pipeline's write lock, and a
-first full-corpus parse can run for tens of minutes. It is the user's to
-run, not yours.
+**Read-only means read-only: never run `python -m src.sync`, and never
+run `scripts/enrich.py` or any `src/enrich/*` stage.** Both belong to the
+corpus layer, both take the pipeline's write lock, and either can run for
+tens of minutes -- a first full-corpus parse, or building the embedding
+index. They are the user's to run, not yours. If a semantic index would
+help and none exists, say so and use `src.retrieval.search()`; do not
+build one.
 
 **If the ledger is empty, stop.** Check before drafting anything:
 

@@ -523,9 +523,9 @@ it ignores while building the archive anyway. Run it bare:
 .venv-full/bin/python scripts/release.py
 ```
 
-`tests/`, `bench/`, `DEVELOPER.md`, `DEVELOPER-AGENTS.md`, `.github/` and
-`.gitignore` are excluded from the archive; `docs/`, `SOUL.md`,
-`AGENTS.md` and `.claude/` ship.
+`tests/`, `bench/`, `DEVELOPER.md`, `.github/` and `.gitignore` are
+excluded from the archive; `docs/`, `SOUL.md`, `AGENTS.md`,
+`DEVELOPER-AGENTS.md` and `.claude/` ship.
 
 ## Running sync on a schedule
 

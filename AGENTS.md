@@ -3,12 +3,10 @@
 Guidance for coding agents (and anyone else) **using this pipeline to
 draft content**.
 
-> **Changing chitragupta's own code, rather than drafting with it?**
-> `DEVELOPER-AGENTS.md` governs: test policy, the local check suite,
-> environment constraints, and commit/PR/release conventions. It lives in
-> the source repository only and is deliberately **not** in the release
-> archive -- if you unzipped a release to use the pipeline, that file is
-> not missing, it just doesn't apply to you.
+> **Changing chitragupta's own code, rather than drafting with it? Read
+> [DEVELOPER-AGENTS.md](DEVELOPER-AGENTS.md) first -- it governs.** Test
+> policy, the local check suite, environment constraints, and
+> commit/PR/release conventions all live there.
 
 [SOUL.md](SOUL.md) is the one-page why behind everything below. When this
 file and that one seem to disagree, that one is the tie-breaker.
@@ -22,10 +20,7 @@ invariant itself.
 
 Rule: a citekey may only be used if it appears in `papers/bibliography.bib`
 (source of truth -- see below) and was picked up into `content/ledger.sqlite`
-by `python -m src.sync`. If a citation would help an argument but isn't in
-the bib file, say so in prose -- do not invent a key for it, and do not
-"fix" a gate failure by making up a plausible-looking key instead of
-removing the claim or sourcing a real one.
+by `python -m src.sync`.
 
 All five genre skills (`survey-writer`, `thesis-chapter-writer`,
 `textbook-chapter-writer`, `tutorial-writer`, `deep-research` in
@@ -87,10 +82,12 @@ have the full semantics.
 - **The drafting layer -- generative** (the `.claude/skills/`): invoked on
   demand, reviewed by the user. **Read-only over the corpus layer**: they
   never write to `content/ledger.sqlite`, and they never run `python -m
-  src.sync` or the enrichment layer on the user's behalf. Both take the
-  write lock and can run for tens of minutes; starting one is the user's
-  call. On an empty ledger a skill says so and stops rather than
-  regenerating anything. Each run writes a **dossier** beside its draft
+  src.sync` or the enrichment layer on the user's behalf. On an empty
+  ledger a skill says so and stops rather than regenerating anything --
+  except the two teaching genres, where citations are optional:
+  `textbook-chapter-writer` and `tutorial-writer` instead ask the user
+  whether to proceed uncited, and wait. Each run writes a **dossier**
+  beside its draft
   (`content/dossiers/<the draft's path minus its suffix>/`, Markdown,
   owned by `src/dossier.py`) holding the reader, scope, glossary, kept
   evidence, **rejected candidates and why**, and the steering the user
@@ -104,8 +101,7 @@ have the full semantics.
   the *corpus* layer rather than the drafting one -- nothing in it is
   generative, everything it writes is a corpus artefact, and it takes the
   same write lock as `sync` for that reason. Run by a human, never by a
-  skill. Its internals are in `DEVELOPER-AGENTS.md` (source repository
-  only).
+  skill.
 - **Ad-hoc review aids** (`src/citation_provenance.py`,
   `scripts/verbatim_check.py`, `src/citation_coverage.py`): in no layer --
   run by hand when reviewing a draft, never invoked automatically, never

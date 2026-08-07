@@ -62,10 +62,13 @@ other genre -- in a survey they'd delete the deliverable.
 - `content/parsed/<citekey>.txt` -- extracted PDF text
 - `src/retrieval.py` -- `search(query, k, snippet_chars)`
 
-**Read-only means read-only: never run `python -m src.sync`.** That command
-belongs to the corpus layer, it takes the pipeline's write lock, and a
-first full-corpus parse can run for tens of minutes. It is the user's to
-run, not yours.
+**Read-only means read-only: never run `python -m src.sync`, and never
+run `scripts/enrich.py` or any `src/enrich/*` stage.** Both belong to the
+corpus layer, both take the pipeline's write lock, and either can run for
+tens of minutes -- a first full-corpus parse, or building the embedding
+index. They are the user's to run, not yours. If a semantic index would
+help and none exists, say so and use `src.retrieval.search()`; do not
+build one.
 
 If `python3 -m src.ledger` reports an empty ledger, say so before you
 start. Citations are optional in this genre, so the draft is still

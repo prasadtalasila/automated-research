@@ -116,11 +116,6 @@ index a document a draft would not be allowed to cite. If a paper is
 worth enriching, it belongs in the reference manager: catalogue it,
 re-export, and re-run `python -m src.sync`.
 
-A second, uncitable source was tried and removed in 3.3.0 because it made
-every stage downstream carry a permanently non-citable case; the citekey
-became the whole identity in 3.3.1. `src/enrich/corpus.py`'s module
-docstring has the detail. Don't reintroduce a second id namespace.
-
 ## Conventions a new stage has to follow
 
 Three, each learned from a bug rather than chosen:
@@ -278,10 +273,12 @@ succeeded -- not merely started:
    it's green -- if it fails, fix the actual cause (see "Before claiming a
    task complete") and push again; don't merge past a red check.
 5. Request review from Copilot, resolve every issue it identifies, and
-   mark each as resolved; iterate (push a fix, let it re-review) until
-   none remain. Use judgement on a genuinely trivial finding rather than
-   treating every comment as mandatory -- but "trivial" means actually
-   inconsequential (a wording nit), not "inconvenient to fix."
+   mark each as resolved; consider all previous Copilot comments made in
+   this PR while resolving the issues. Make a push after all issues are
+   resolved, and then request re-review from Copilot. Iterate until all
+   issues are resolved. Use judgement on a genuinely trivial finding
+   rather than treating every comment as mandatory -- but "trivial" means
+   actually inconsequential (a wording nit), not "inconvenient to fix."
 6. Squash-merge the PR.
 7. Tag `v<version>` (matching what's now in `main`'s `pyproject.toml`) and
    push the tag.

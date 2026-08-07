@@ -67,4 +67,5 @@ know.
 
 ---
 
-_This file is yours to evolve. As you learn who you are, update it._
+_This file is yours to evolve, except the invariant: that one is the
+user's to change, not yours._
