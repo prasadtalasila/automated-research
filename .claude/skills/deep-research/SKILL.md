@@ -64,9 +64,11 @@ transcribe, in the phase that dispatched them, before you move on:
   `evidence.md`, so a revision can see the disagreement without rebuilding
   the map from scratch.
 - **After Phase 5**, every writer's `### Sources added` block goes into
-  `evidence.md`. A citekey found by a writer re-searching a thin subpoint
-  is otherwise cited in the report and recorded nowhere. At `quick` depth
-  you are that writer -- record what you find the same way.
+  `evidence.md` and its `### Candidates discarded` block into
+  `rejected.md`. A citekey found by a writer re-searching a thin subpoint
+  is otherwise cited in the report and recorded nowhere, and one it turned
+  down is lost entirely. At `quick` depth you are that writer -- record
+  what you find the same way.
 
 The `peer-reviewer` packets are the one exception, and only because Phase
 7(a)'s reconciled scorecard is already their durable record: it ships in
@@ -264,7 +266,8 @@ per-section reference list. A writer may re-search a thin subpoint -- only
 against this project's corpus, never inventing a citekey.
 
 When the writers return, copy each `### Sources added` block into
-`evidence.md` yourself, with why the writer kept it. These are citekeys
+`evidence.md` yourself, with why the writer kept it, and each
+`### Candidates discarded` block into `rejected.md`. These are citekeys
 that never passed through Phase 2, so nothing else in the run has them.
 
 ## Phase 6 -- Polish + synthesis briefing
