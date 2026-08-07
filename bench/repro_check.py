@@ -133,6 +133,20 @@ _WORKERS_LINE = re.compile(r"parsing (\d+) document\(s\) with (\d+) workers")
 _PARSED_LINE = re.compile(r"Sync complete: (\d+) parsed")
 
 
+def _portable(path: Path) -> str:
+    """`path` relative to the repo root when it is inside it, else as-is.
+
+    These strings end up in a committed record. An absolute path names
+    the machine that produced it -- and on a throwaway worktree, a
+    directory that will not exist anywhere ever again -- which makes the
+    evidence unreadable to the next person and noisy in a diff.
+    """
+    try:
+        return str(path.resolve().relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
 def outlier_fence(rows: "list[dict]") -> float:
     """Tukey's upper fence over page counts: Q3 + 1.5 * IQR.
 
@@ -210,7 +224,13 @@ def build_sample(n: int, keep_outliers: bool, outliers_only: bool, out_bib: Path
         "outlier_rule": None if keep_outliers else "tukey_q3_plus_1.5_iqr",
         "outlier_fence_pages": round(fence, 1) if fence is not None else None,
         "outliers_excluded": excluded,
-        "bib": str(out_bib),
+        # The citekeys themselves, not just a path to a generated bib.
+        # rank_sample is deterministic, so a reader could in principle
+        # re-derive them -- but only from bench/corpus.json, which is
+        # gitignored per-host data. Inline, the record says which
+        # documents were measured without needing that file at all.
+        "citekeys": [r["citekey"] for r in sample],
+        "bib": _portable(out_bib),
     }
 
 
@@ -287,7 +307,7 @@ def run_once(bib: Path, workers: int, gpus: int, cpus: "str | None",
         "device_complaints": [line for line in proc.stderr.splitlines()
                               if "GPU" in line or "device" in line.lower()],
         "gpu_state_before": before,
-        "content_dir": str(content_dir),
+        "content_dir": _portable(content_dir),
     }
 
 

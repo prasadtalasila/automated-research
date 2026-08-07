@@ -8,7 +8,59 @@
   "outlier_rule": "tukey_q3_plus_1.5_iqr",
   "outlier_fence_pages": 49.0,
   "outliers_excluded": 36,
-  "bib": "/workspace/.claude/worktrees/bridge-cse_01KhwXK9nHSwBG8iTQx1krky/bench/results/n50/sample.bib"
+  "bib": "bench/results/n50/sample.bib (regenerated per run; citekeys above)",
+  "citekeys": [
+   "deslauriers_everyday_2022",
+   "li_digital_2024",
+   "jensen_demonstration_2025",
+   "combemale_model-based_2023",
+   "esterle_digital_2021",
+   "munoz_towards_2024",
+   "guo_life_2024",
+   "picone_wldt_2021",
+   "zech_digital-twins-as--service_2024",
+   "aguzzi_modron_2021",
+   "lehner_aml4dt_2021",
+   "agrawal_coupled_2024",
+   "hinderks_developing_2019",
+   "rivera_forging_2021",
+   "formentini_examining_2023",
+   "infante_distributed_2025",
+   "zhou_secure_2022",
+   "viceconti_position_2024",
+   "bhatnagar_development_2019",
+   "ferko_standardisation_2023",
+   "haselbach_blade_2020",
+   "robles-enciso_adapting_2024",
+   "lehner_method_nodate",
+   "bohlbro_visualisation_2024",
+   "noauthor_communication-_nodate",
+   "karnoub_how_2025",
+   "noauthor_digital_nodate-1",
+   "bruel_anomaly_2020",
+   "noauthor_digital_2023",
+   "liu_survey_2024",
+   "chacon_requirements_2025",
+   "tao_five-dimension_2019-1",
+   "vaezi_digital_2022",
+   "torzoni_digital_2024",
+   "noauthor_modelbased_nodate",
+   "noauthor_cbnrm_nodate",
+   "noauthor_change2twin_nodate-3",
+   "shangguan_triple_2022",
+   "noauthor_change2twin_nodate-4",
+   "ghzouli_behavior_2023",
+   "tao_digital_2019",
+   "noauthor_glossary_nodate-1",
+   "budiardjo_digital_2021",
+   "wermann_ktwin_2024",
+   "liu_digital_2023",
+   "deng_cloud-native_2024",
+   "duran_toward_2026",
+   "iliuta_digital_2024",
+   "noauthor_change2twin_nodate-2",
+   "heaton_platform_nodate"
+  ]
  },
  "workers": 12,
  "cpus_pinned": "0-23,48-71",
@@ -59,7 +111,7 @@
      "utilisation_pct": 0
     }
    ],
-   "content_dir": "/workspace/.claude/worktrees/bridge-cse_01KhwXK9nHSwBG8iTQx1krky/bench/results/n50/runs/g1-r0",
+   "content_dir": "bench/results/n50/runs/g1-r0",
    "name": "g1-r0",
    "n_documents": 50
   },
@@ -104,7 +156,7 @@
      "utilisation_pct": 0
     }
    ],
-   "content_dir": "/workspace/.claude/worktrees/bridge-cse_01KhwXK9nHSwBG8iTQx1krky/bench/results/n50/runs/g1-r1",
+   "content_dir": "bench/results/n50/runs/g1-r1",
    "name": "g1-r1",
    "n_documents": 50
   },
@@ -149,7 +201,7 @@
      "utilisation_pct": 0
     }
    ],
-   "content_dir": "/workspace/.claude/worktrees/bridge-cse_01KhwXK9nHSwBG8iTQx1krky/bench/results/n50/runs/g4-r0",
+   "content_dir": "bench/results/n50/runs/g4-r0",
    "name": "g4-r0",
    "n_documents": 50
   },
@@ -194,7 +246,7 @@
      "utilisation_pct": 0
     }
    ],
-   "content_dir": "/workspace/.claude/worktrees/bridge-cse_01KhwXK9nHSwBG8iTQx1krky/bench/results/n50/runs/g4-r1",
+   "content_dir": "bench/results/n50/runs/g4-r1",
    "name": "g4-r1",
    "n_documents": 50
   }
