@@ -3,6 +3,7 @@
 
 import contextlib
 import logging
+import logging.handlers
 import multiprocessing
 import subprocess
 import sys
