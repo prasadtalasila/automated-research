@@ -259,9 +259,20 @@ Markdown files hold the reader, the scope, the glossary, the kept
 evidence, the rejected candidates and why, the user's steering, and a
 revision log. [DRAFT-ITERATION.md](DRAFT-ITERATION.md) is the design.
 
-Stdlib only, and never a gate: it takes no lock, only ever opens the
-ledger read-only, and reports rather than failing when there is no ledger
-or no dossier.
+Stdlib only, and never a gate: it takes no lock and only ever opens the
+ledger read-only.
+
+Two "missing" cases are deliberately different, because one is actionable
+and the other isn't:
+
+| Situation | `status` does |
+|---|---|
+| No ledger, or an unreadable one | Reports the dossier as usual, says the drift check is unavailable, **exits 0** |
+| No dossier for this draft | Prints the `init` command to create one, **exits 1** |
+
+So `python3 -m src.dossier status <draft> >/dev/null` is a usable test for
+"does this draft have a dossier yet", while a machine with no corpus built
+still gets a full report of what it has.
 
 | Subcommand | What it does |
 |---|---|

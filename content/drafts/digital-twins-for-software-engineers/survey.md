@@ -43,13 +43,12 @@ logger is not a twin; under the Consortium, it is.
 
 ## 2. Architecture: familiar shapes, one unfamiliar edge
 
-Most of a twin's architecture is shapes you already recognise, and two
-catalogs hand them to you to instantiate rather than principles to derive:
-one for twin architecture [@tekinerdogan_systems_2020], one for giving twin
-models behaviour rather than structure alone [@lehner_pattern_2023]. The
-software architecture community has claimed twins as its own subject, and
-the body of peer-reviewed architectural solutions is growing
-[@ferko_architecting_2022].
+The software architecture community has claimed twins as its own subject,
+with a growing body of peer-reviewed architectural solutions
+[@ferko_architecting_2022]. Two pattern catalogs offer shapes to instantiate
+rather than principles to derive: one for twin architecture
+[@tekinerdogan_systems_2020], one for giving twin models behaviour rather
+than structure alone [@lehner_pattern_2023].
 
 The live architectural split is whether a twin is data or a process.
 Commercial platforms represent twins as passive JSON entities, while research

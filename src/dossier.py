@@ -37,7 +37,15 @@ draft, and nothing here writes to the corpus layer -- the ledger is only
 ever opened read-only, and only to answer "has the corpus moved since
 this draft was written?". A dossier that is missing, stale or
 hand-edited degrades the next revision's efficiency; it can never make a
-draft wrong. That is why `status` reports and never fails.
+draft wrong.
+
+That is why `status()` reports rather than raising: a missing ledger, a
+missing draft, an unparsable fingerprint and a hand-edited file all come
+back as something to print. The one thing its *CLI* treats as an error is
+a dossier that does not exist at all -- `_cmd_status` exits 1 there,
+because "there is nothing to report yet, run `init`" is an actionable
+condition a script should be able to branch on, unlike "this dossier
+exists and the corpus has moved".
 
 Stdlib only (re/sqlite3/tarfile/hashlib), like citation_gate.py,
 references.py and citation_provenance.py -- runs with bare `python3`, no
@@ -232,10 +240,24 @@ def cited_citekeys(dossier: Path) -> set[str]:
     return found
 
 
-# A citekey as the dossier templates write one: inside backticks, and
-# containing at least one underscore or digit, so ordinary backticked
-# prose ("`status`", "`--force`") doesn't read as a citation.
-_CITEKEY_TOKEN = re.compile(r"`([A-Za-z][A-Za-z0-9]*(?:[_:-][A-Za-z0-9]+)+)`")
+# A citekey as the dossier templates write one: inside backticks, starting
+# with a letter, and carrying at least one run of `_`/`:`/`-` separators
+# followed by more alphanumerics -- the shape BibTeX gives a key
+# (`talasila_composable_2025`). Requiring a separator is what keeps
+# ordinary backticked prose out: `status` and `content` have none, and
+# `--force` also fails the letter start.
+#
+# The separator run is `+`, not a single character, because a real key in
+# this project's own corpus is `zech_digital-twins-as--service_2024` --
+# BibTeX collapses "as-a-service" into a doubled hyphen. Matching only one
+# separator dropped it silently.
+#
+# Only false *negatives* matter here. This set is subtracted from the
+# ledger's citekeys to find what a dossier never considered, so a prose
+# token that looks key-shaped (`draft-reviser`) is inert -- it is not in
+# the ledger, so subtracting it changes nothing. A missed real key, by
+# contrast, gets reported as "never considered" when it was cited.
+_CITEKEY_TOKEN = re.compile(r"`([A-Za-z][A-Za-z0-9]*(?:[_:-]+[A-Za-z0-9]+)+)`")
 
 
 # --------------------------------------------------------------------------

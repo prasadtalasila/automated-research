@@ -235,10 +235,9 @@ cut a code block in half. Markdown fences (``` and `~~~`) and LaTeX
 `content/rendered/` before it. That is a deliberate choice, not an
 oversight: `evidence.md` quotes passages from copyrighted sources, and
 this project already treats per-host content as the user's own to keep.
-The example dossier under
-`content/dossiers/digital-twins-for-software-engineers/` is in git only
-because it was force-added as example content, exactly as the example
-drafts were.
+Nothing under `content/dossiers/` is tracked, and no example one ships --
+a dossier is a record of a real run, and one assembled to be looked at
+would be a reconstruction wearing a record's clothes.
 
 What replaces version control is an explicit bundle:
 

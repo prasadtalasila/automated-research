@@ -311,6 +311,20 @@ class TestStatus:
         )
         assert dossier.cited_citekeys(dossier.dossier_dir(draft)) == set()
 
+    def test_a_separator_is_what_distinguishes_a_citekey_from_prose(self, draft):
+        """Pins the rule `_CITEKEY_TOKEN`'s comment states: a letter start
+        plus at least one separator-then-alphanumeric segment."""
+        dossier.init(draft, "survey")
+        (dossier.dossier_dir(draft) / "evidence.md").write_text(
+            "# Kept\n\n"
+            "Real: `talasila_composable_2025`, `zech_digital-twins-as--service_2024`.\n"
+            "Prose: `status`, `--force`, `content`, `md`.\n"
+        )
+        assert dossier.cited_citekeys(dossier.dossier_dir(draft)) == {
+            "talasila_composable_2025",
+            "zech_digital-twins-as--service_2024",
+        }
+
     def test_drift_is_unavailable_rather_than_fatal_without_a_ledger(self, draft):
         dossier.init(draft, "survey")
         report = dossier.status(draft)
@@ -427,6 +441,35 @@ class TestRestore:
         dossier.restore(bundle, force=True)
         assert draft.read_text() == original
 
+    def test_a_path_too_long_for_a_tar_header_round_trips(self, isolated_config, tmp_path):
+        """`_checked_members` refuses anything that isn't a regular file or
+        directory, which raises the question of whether the extended
+        headers tar uses for a >100-character path survive that check.
+
+        They do, and not by luck: Python's `tarfile` consumes GNU longname
+        (`L`/`K`) and PAX (`x`/`g`) header blocks while reading and folds
+        them into the member they describe, so `getmembers()` only ever
+        yields the real entry. Pinned here rather than argued, because the
+        failure it would cause -- `export` producing a bundle its own
+        `restore` refuses -- is exactly the kind a backup tool must not
+        have.
+        """
+        deep = config.DRAFTS_DIR / ("topic-" + "x" * 90) / ("sub-" + "y" * 90)
+        deep.mkdir(parents=True)
+        draft = deep / ("survey-" + "z" * 80 + ".md")
+        draft.write_text("# A survey with an inconveniently long path\n")
+        assert len(str(draft.relative_to(config.DRAFTS_DIR))) > 100
+
+        dossier.init(draft, "survey")
+        archive, _ = dossier.export([], tmp_path / "long.tar.gz")
+
+        draft.unlink()
+        plan = dossier.restore(archive, force=True)
+        assert plan.performed
+        assert draft.is_file()
+        assert draft.read_text() == "# A survey with an inconveniently long path\n"
+        assert (dossier.dossier_dir(draft) / "scope.md").is_file()
+
     def _archive_containing(self, tmp_path, name, payload=b"x"):
         archive = tmp_path / "hostile.tar.gz"
         member = tmp_path / "payload"
@@ -489,6 +532,16 @@ class TestCli:
     def test_status_without_a_dossier_exits_nonzero_with_the_fix(self, draft, capsys):
         assert dossier.main(["status", str(draft)]) == 1
         assert "init" in capsys.readouterr().out
+
+    def test_status_without_a_ledger_still_exits_zero(self, draft, capsys):
+        """The two "missing" cases are deliberately different exit codes,
+        and docs/CLI.md documents the difference: no dossier is actionable
+        ("run init"), no ledger just means one section of the report is
+        unavailable. A machine with no corpus built must still be able to
+        see what it has."""
+        dossier.init(draft, "survey")
+        assert dossier.main(["status", str(draft)]) == 0
+        assert "unavailable" in capsys.readouterr().out
 
     def test_sections_on_a_missing_draft_exits_nonzero(self, isolated_config, capsys):
         assert dossier.main(["sections", "content/drafts/nope.md"]) == 1
