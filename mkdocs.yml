@@ -103,7 +103,7 @@ exclude_docs: |
   .github/
   .venv-full/
   .venv/
-  assets/
+  assets/csl/
   bench/
   content/
   docker/

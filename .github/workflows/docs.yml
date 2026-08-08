@@ -70,6 +70,74 @@ jobs:
       - name: Build the site
         run: mkdocs build --strict
 
+      # `--strict` checks the Markdown MkDocs was given; it says nothing
+      # about whether the site it produced is usable. It passed cleanly on
+      # a build whose entire stylesheet and JavaScript bundle were missing,
+      # because an over-broad `exclude_docs: assets/` -- meant for this
+      # repo's `assets/csl/` -- also removed the theme's own output. The
+      # site published unstyled and every check was green.
+      #
+      # So: resolve every local href/src in every built page against what
+      # is actually on disk. That catches the missing-theme case, a nav
+      # entry pointing at a file that moved, and a raw HTML link MkDocs
+      # never rewrote (which `--strict` also misses, since it only rewrites
+      # Markdown links).
+      - name: Check every reference in the built site resolves
+        run: |
+          python3 - <<'PY'
+          import pathlib, re, sys, urllib.parse
+
+          site = pathlib.Path("site").resolve()
+          base = re.search(r'^site_url:\s*\S+//[^/]+(/\S*?)/?$',
+                           pathlib.Path("mkdocs.yml").read_text(), re.M)
+          base = (base.group(1) + "/") if base else "/"
+
+          def refs(text):
+              """Every local reference in one page.
+
+              `srcset` is included and split on its own grammar -- a comma
+              separated candidate list, each entry a URL optionally followed
+              by a descriptor (`logo.svg 2x`). Missing it would let the
+              README's dark-mode logo, which is only ever reached through
+              `srcset`, break silently while this guard stayed green.
+              """
+              for attr, value in re.findall(r'(href|src|srcset)="([^"]+)"', text):
+                  if attr != "srcset":
+                      yield value
+                      continue
+                  for candidate in value.split(","):
+                      parts = candidate.strip().split()
+                      if parts:
+                          yield parts[0]
+
+          missing = {}
+          for html in sorted(site.rglob("*.html")):
+              for ref in refs(html.read_text(errors="replace")):
+                  if ref.startswith(("http://", "https://", "mailto:", "data:", "#", "//")):
+                      continue
+                  path = urllib.parse.unquote(ref.split("#")[0].split("?")[0])
+                  if not path:
+                      continue
+                  # Absolute refs are rooted at the served base path (the
+                  # 404 page uses them, since it can be served from any depth).
+                  target = site / path[len(base):] if path.startswith(base) else html.parent / path
+                  if not target.resolve().exists():
+                      missing.setdefault(ref, set()).add(str(html.relative_to(site)))
+
+          for ref, pages in sorted(missing.items()):
+              print(f"::error::broken reference {ref} in {sorted(pages)[:4]}")
+
+          # A belt-and-braces floor, in case a future theme stops being
+          # reachable by reference-walking alone.
+          for pattern in ("assets/stylesheets/*.css", "assets/javascripts/*.js"):
+              if not list(site.glob(pattern)):
+                  print(f"::error::no {pattern} in the built site")
+                  missing[pattern] = set()
+
+          print(f"{len(list(site.rglob('*.html')))} pages checked")
+          sys.exit(1 if missing else 0)
+          PY
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
