@@ -393,6 +393,34 @@ class TestReGroundingAfterTheCorpusMoves:
             "mechanism"
         )
 
+    def test_re_stamping_the_fingerprint_clears_drifted_and_still_parses(self, grounded):
+        """The one step of the mode with a silent failure mode.
+
+        `scope.md`'s corpus line is written once by `init` and rewritten
+        only here. Reshaping it rather than rewriting it makes
+        `recorded_corpus()` return `None`, and the dossier downgrades to
+        "records no corpus fingerprint" instead of erroring -- so the
+        skill is told to rewrite the line in place, and this is what says
+        that the line it writes is one the parser accepts.
+        """
+        _drop_paper("kept_paper_2024")
+        _add_paper("fresh_twin_2026", "Digital twin fidelity",
+                   "Digital twin fidelity metrics for engineering models.")
+        target = dossier.dossier_dir(grounded)
+        scope = target / "scope.md"
+
+        (count, digest) = dossier.drift(target).current
+        old = dossier.recorded_corpus(target)
+        scope.write_text(scope.read_text().replace(
+            f"- corpus: {old[0]} citekeys, digest `{old[1]}`",
+            f"- corpus: {count} citekeys, digest `{digest}`",
+        ))
+
+        assert dossier.recorded_corpus(target) == (count, digest), (
+            "the re-stamped line must still match what `init` wrote"
+        )
+        assert not dossier.drift(target).drifted
+
     def test_an_unpursued_candidate_keeps_the_dossier_unclean(self, grounded):
         """The limit of the claim above, pinned deliberately.
 

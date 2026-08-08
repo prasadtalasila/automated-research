@@ -1,6 +1,6 @@
 ---
 name: draft-reviser
-description: Revises an existing draft in content/drafts/ from its dossier (content/dossiers/<same path>/) instead of re-running the genre skill that produced it -- reads the recorded scope, reader, glossary, kept evidence and rejected candidates, edits only the affected sections, and logs what changed. Triggers when the user asks to revise, shorten, expand, restructure, re-target or correct a draft that already exists, including in a session that did not write it. Also handles re-grounding after the corpus moves: triggers on "re-ground", "the corpus moved", "a cited paper left the corpus", "this draft has drifted", or a `dossier status --all` report naming a draft -- it consumes that report as JSON and proposes a scoped fix rather than a re-draft. Use the genre skill (survey-writer, thesis-chapter-writer, textbook-chapter-writer, tutorial-writer, deep-research) for a NEW draft, never for a change to an existing one. Must pass `python -m src.citation_gate` before presenting and never invents a citekey.
+description: Revises an existing draft in content/drafts/ from its dossier (content/dossiers/<same path>/) instead of re-running the genre skill that produced it -- reads the recorded scope, reader, glossary, kept evidence and rejected candidates, edits only the affected sections, and logs what changed. Triggers when the user asks to revise, shorten, expand, restructure, re-target or correct a draft that already exists, including in a session that did not write it. Also handles re-grounding after the corpus moves -- triggers on "re-ground", "the corpus moved", "a cited paper left the corpus", "this draft has drifted", or a `dossier status --all` report naming a draft, and consumes that report as JSON to propose a scoped fix rather than a re-draft. Use the genre skill (survey-writer, thesis-chapter-writer, textbook-chapter-writer, tutorial-writer, deep-research) for a NEW draft, never for a change to an existing one. Must pass `python -m src.citation_gate` before presenting and never invents a citekey.
 tags: [revision, dossier, citation]
 ---
 
@@ -26,7 +26,7 @@ is shaped that way.
 | The draft exists but has no dossier | Bootstrap one (below), then continue here |
 | A sync moved the corpus, or `dossier status --all` names this draft | Re-grounding mode (below), not the ordinary loop |
 | User asks for a different genre of the same topic | That's a new draft -- use the genre skill |
-| Ledger is empty or absent | Revise anyway if the change touches no citations; say so. **Never** run `src.sync` |
+| Ledger is empty or absent | Revise anyway if the change touches no citations; say so. **Never** run `src.sync`. In re-grounding mode, stop instead -- the ledger *is* the request |
 
 **Read-only over the corpus layer.** Never run `python -m src.sync` and
 never run `scripts/enrich.py`. Both take the pipeline's write lock and
@@ -205,8 +205,22 @@ longer has; `citation_gate` already disagrees with the draft. Always
 actioned, whatever else the revision is about. Each entry maps a citekey
 to the sections citing it, and `python3 -m src.dossier sections
 content/drafts/<path>` turns those into line ranges, so the edit stays as
-scoped as any other. For each one: cite a paper in the corpus that
-supports the same claim, or remove the claim. Never leave it.
+scoped as any other. Look for the replacement in this order, and stop at
+the first that supports the claim:
+
+1. `evidence.md` -- another paper you already kept may support it, at no
+   retrieval cost at all.
+2. The report's own `candidates` -- a paper that arrived matching the
+   same query that once produced the broken citation is the likeliest
+   replacement there is.
+3. `search "<the claim>" --k 15 --log content/drafts/<path>` -- here a
+   fresh search *is* right, unlike the candidate path, because a claim
+   left unsupported is genuinely new ground.
+
+If none of the three supports it, **remove the claim** and say so. Not a
+reworded sentence that keeps the assertion and quietly drops the
+citation. Never leave the citekey in place, and never replace it with a
+key you have not seen in the ledger.
 
 **`candidates` are a decision, not a defect.** New papers that this
 dossier's own recorded queries reach. Pursue only the ones whose
@@ -240,7 +254,19 @@ cost `rejected.md` exists to prevent (`docs/REJECTION.md`).
 
 ### R4. Edit, write back, and re-stamp
 
-Step 5 and step 6 unchanged, plus two things specific to this mode.
+Step 5 unchanged. Step 6 unchanged except for two of its bullets, which
+were written for a revision someone asked for:
+
+- **`steering.md` -- usually nothing.** A re-grounding pass has no
+  instruction to record; the corpus moved, the user did not steer.
+  Append only if they actually said something here. Inventing a steering
+  entry to fill the file is the same failure as inventing an evidence
+  one.
+- **`scope.md` -- the fingerprint line only.** The rule that the scope
+  statement changes only by agreement is untouched; the corpus line
+  below is bookkeeping, and is the one thing this mode always writes.
+
+Then two things specific to this mode.
 
 **Re-stamp the corpus fingerprint** in `scope.md`, after the gate passes,
 from the report's `current` field -- it is the record that this draft was
