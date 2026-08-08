@@ -178,6 +178,13 @@ def adopt_real_corpus(source_ledger: Path, dest: Path) -> tuple[int, int]:
 
 def run(docs: int, dossier_counts: list[int], queries_each: int, repeats: int,
         real_ledger: Path | None = None) -> dict:
+    """Time a sweep at each dossier count, cold and warm.
+
+    `docs` is the size of the corpus to generate, and is **ignored when
+    `real_ledger` is given** -- the count then comes from the ledger being
+    copied, and is reported back in the result rather than taken on
+    trust.
+    """
     from src import dossier, retrieval
 
     if real_ledger is not None:
@@ -242,7 +249,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--real", action="store_true",
                         help="Use this host's own ledger and parsed text instead of "
                              "a generated corpus (read-only: the ledger is copied)")
-    parser.add_argument("--docs", type=int, default=DEFAULT_DOCS)
+    parser.add_argument("--docs", type=int, default=DEFAULT_DOCS,
+                        help=f"Documents to generate (default {DEFAULT_DOCS}); "
+                             "ignored with --real, which takes the count from the "
+                             "ledger it copies")
     parser.add_argument("--dossiers", type=int, nargs="*", default=[1, 10, 50])
     parser.add_argument("--queries-each", type=int, default=4)
     parser.add_argument("--repeats", type=int, default=5)
@@ -253,18 +263,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="Leave the generated corpus on disk")
     args = parser.parse_args(argv)
 
-    # Never touch the host's real content/: everything is generated into a
-    # throwaway tree, exactly as tests/conftest.py's isolated_config does.
-    root = Path(tempfile.mkdtemp(prefix="bench-drift-"))
-    content = root / "content"
-    for name, value in [
-        ("CONTENT_DIR", content), ("PARSED_DIR", content / "parsed"),
-        ("LEDGER_PATH", content / "ledger.sqlite"),
-        ("DRAFTS_DIR", content / "drafts"), ("DOSSIERS_DIR", content / "dossiers"),
-        ("RETRIEVAL_INDEX_PATH", content / "retrieval_index.json"),
-    ]:
-        setattr(config, name, value)
-
+    # Validated before anything is created, so a bad --real cannot leave a
+    # temp tree behind on the way out.
     real_ledger = None
     if args.real:
         real_ledger = Path(args.real_ledger) if args.real_ledger else REAL_LEDGER
@@ -273,11 +273,37 @@ def main(argv: list[str] | None = None) -> int:
                   "or drop --real to generate a corpus.", file=sys.stderr)
             return 1
 
+    # Never touch the host's real content/: everything is generated into a
+    # throwaway tree, exactly as tests/conftest.py's isolated_config does.
+    #
+    # Saved and restored for the same reason `run()` restores
+    # `all_dossiers`: these are module-level constants that every `src`
+    # module reads at call time, so leaving them pointed at a directory
+    # this function is about to delete would break any caller that
+    # imports this one rather than running it as a script.
+    root = Path(tempfile.mkdtemp(prefix="bench-drift-"))
+    content = root / "content"
+    redirected = {
+        "CONTENT_DIR": content,
+        "PARSED_DIR": content / "parsed",
+        "LEDGER_PATH": content / "ledger.sqlite",
+        "DRAFTS_DIR": content / "drafts",
+        "DOSSIERS_DIR": content / "dossiers",
+        "RETRIEVAL_INDEX_PATH": content / "retrieval_index.json",
+    }
+    original = {name: getattr(config, name) for name in redirected}
+    for name, value in redirected.items():
+        setattr(config, name, value)
+
     try:
         result = run(args.docs, sorted(args.dossiers), args.queries_each, args.repeats,
                      real_ledger)
     finally:
-        if not args.keep:
+        for name, value in original.items():
+            setattr(config, name, value)
+        if args.keep:
+            print(f"corpus kept at {root}\n", file=sys.stderr)
+        else:
             shutil.rmtree(root, ignore_errors=True)
 
     mb = result["parsed_bytes"] / 1e6

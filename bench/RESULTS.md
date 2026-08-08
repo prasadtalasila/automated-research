@@ -772,28 +772,50 @@ byte-identical after the run.
 
 | Dossiers swept | Cold (no index cache) | Warm (cache from a prior `search()`) |
 |---|---|---|
-| 1 | 2.126s | 0.221s |
-| 10 | 2.178s | 0.262s |
-| 50 | 2.368s | 0.439s |
+| 1 | 2.032s | 0.218s |
+| 10 | 2.036s | 0.257s |
+| 50 | 2.227s | 0.436s |
 
 **The claim holds, and this is the line that shows it.** Going from 1
-dossier to 50 costs **+0.24s cold** -- about 5ms per additional dossier
-against a 2.1s fixed cost. The tokenization is paid once for the sweep,
+dossier to 50 costs **+0.19s cold** -- about 4ms per additional dossier
+against a 2.0s fixed cost. The tokenization is paid once for the sweep,
 not once per dossier; had it been per-dossier, 50 dossiers would have
-taken somewhere near 105s.
+taken somewhere near 100s.
 
-A warm cache is **5.4-9.6x** faster than a cold one, so "nearly free"
+A warm cache is **5.1-9.3x** faster than a cold one, so "nearly free"
 was fair for the warm case and optimistic for the cold one: 2.1s is not
 free, it is just cheap enough to run after every sync.
 
 Dossiers that logged no retrieval calls never build an index at all:
-**0.039s for 50 dossiers**, which is the pure file-reading floor.
+**0.040s for 50 dossiers**, which is the pure file-reading floor.
 
-Run-to-run spread, from two independent runs of the same configuration:
-cold 2.130s/2.126s at 1 dossier and 2.364s/2.368s at 50, warm
-0.218s/0.221s and 0.432s/0.439s. About 0.5%, so the +0.24s marginal cost
-of 49 more dossiers is comfortably outside the noise -- which is the only
-comparison in this section that the noise could have swallowed.
+### Run-to-run spread, and why the marginal cost is still safe to quote
+
+Three independent runs of the same configuration:
+
+| | run 1 | run 2 | run 3 (the one above) | spread |
+|---|---|---|---|---|
+| cold, 1 dossier | 2.130s | 2.126s | 2.032s | 4.8% |
+| cold, 50 dossiers | 2.364s | 2.368s | 2.227s | 6.4% |
+| warm, 1 dossier | 0.218s | 0.221s | 0.218s | 1.4% |
+| **paired delta, 1 -> 50 cold** | **+0.234s** | **+0.242s** | **+0.194s** | |
+
+An earlier edition of this section quoted "about 0.5%" from the first two
+runs and called the marginal cost "comfortably outside the noise". The
+third run makes the first half of that wrong: cold time varies by
+**~5-6%** between runs, which is ~0.1-0.14s -- the same order as the
+0.19-0.24s delta being measured. Warm time is far steadier (1.4%),
+because it is not dominated by re-reading and re-tokenizing 47 MB.
+
+The conclusion survives, but only because of *how* the delta is measured.
+The 1-vs-50 comparison is **paired**: both numbers come from the same
+process, the same page-cache state and the same machine conditions,
+seconds apart. All three runs independently produce a positive delta in a
+narrow band (0.194-0.242s), which is the evidence -- not a subtraction
+across separately-scheduled runs, which the 5% drift would swallow.
+
+Quote the marginal cost from a single run's paired pair. Do not compute
+it by differencing numbers from two different runs of this table.
 
 ### Synthetic corpora, as a scaling cross-check
 
@@ -806,7 +828,7 @@ trust its *scaling* and not close enough to quote its absolute seconds.
 
 | Corpus | Documents | Parsed text | Cold, 1 dossier | Cold, 50 |
 |---|---|---|---|---|
-| real | 646 | 47.4 MB | 2.126s | 2.368s |
+| real | 646 | 47.4 MB | 2.032s | 2.227s |
 | synthetic | 501 | 38.1 MB | 1.521s | 1.685s |
 | synthetic | 2000 | 148.6 MB | 5.857s | 6.471s |
 

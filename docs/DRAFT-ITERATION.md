@@ -19,10 +19,12 @@ Related reading:
 - [CITATION-PROVENANCE.md](CITATION-PROVENANCE.md) -- the review aid that
   answers "does the cited paper actually say this?", which is a different
   question from anything here.
-- [PERFORMANCE.md](PERFORMANCE.md) -- **measured** costs of the corpus
-  layer. Nothing in this document belongs there: the figures below are
-  derived from file sizes and documented defaults, and are labelled as
-  estimates every time they appear.
+- [PERFORMANCE.md](PERFORMANCE.md) -- **measured** costs, including
+  [what a drift sweep costs](PERFORMANCE.md#what-a-drift-sweep-costs),
+  which is the one figure this document quotes rather than estimates.
+  That split is the rule here: a stopwatch number lives there and is
+  cited from here, and anything derived from file sizes or documented
+  defaults is labelled an estimate every time it appears.
 
 ## Table of contents
 
@@ -295,15 +297,14 @@ work the next `search()` will do again. That is accepted deliberately.
 The alternative is a read-only command that writes to the corpus layer
 as a side effect, which is a much worse thing to owe the reader.
 
-**What that costs is measured, not assumed** -- and unlike the estimates
-in [Where the tokens go](#where-the-tokens-go), it is a stopwatch figure,
-so it lives in
-[PERFORMANCE.md](PERFORMANCE.md#what-a-drift-sweep-costs) with the rest
-of the measurements. The load-bearing result, on this project's own
-corpus: sweeping 50 dossiers costs **0.24s more than sweeping one**
-(2.368s vs 2.126s cold), because the tokenization is shared. Had it been
-per dossier, 50 would have taken nearly two minutes. A warm cache is
-5.4-9.6x faster again. The first draft of this section called a warm
+**What that costs is measured, not assumed** -- and unlike the token
+estimates in [TOKENS.md](TOKENS.md), it is a stopwatch figure, so it
+lives in [PERFORMANCE.md](PERFORMANCE.md#what-a-drift-sweep-costs) with
+the rest of the measurements. The load-bearing result, on this project's own
+corpus: sweeping 50 dossiers costs **0.19s more than sweeping one**
+(2.227s vs 2.032s cold), because the tokenization is shared. Had it been
+per dossier, 50 would have taken well over a minute. A warm cache is
+5.1-9.3x faster again. The first draft of this section called a warm
 sweep "nearly free"; the measurement says about 0.2-0.4s warm and ~2.1s
 cold -- cheap enough to run after every sync, but not nothing, and the
 wording here was corrected to match.
