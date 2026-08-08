@@ -48,6 +48,13 @@ because "there is nothing to report yet, run `init`" is an actionable
 condition a script should be able to branch on, unlike "this dossier
 exists and the corpus has moved".
 
+`status --all` extends the same posture across every dossier at once:
+which drafts cite a citekey the ledger has since lost, and which new
+papers this draft's own recorded queries would have surfaced. It always
+exits 0 -- drift is the normal state of a live corpus -- and, like
+everything else here, it writes nothing: see `_ephemeral_index` for why
+`src.retrieval.search()` cannot be used to do the matching.
+
 Stdlib only (re/sqlite3/tarfile/hashlib), like citation_gate.py,
 references.py and citation_provenance.py -- runs with bare `python3`, no
 venv, on a machine where the corpus was never built.
@@ -55,6 +62,7 @@ venv, on a machine where the corpus was never built.
 Usage:
     python3 -m src.dossier init content/drafts/<name>.md --genre survey
     python3 -m src.dossier status content/drafts/<name>.md
+    python3 -m src.dossier status --all [--json]
     python3 -m src.dossier sections content/drafts/<name>.md
     python3 -m src.dossier list
     python3 -m src.dossier export [<name> ...] [--out FILE] [--with-rendered]
@@ -63,6 +71,7 @@ Usage:
 
 import argparse
 import hashlib
+import json
 import re
 import sqlite3
 import sys
@@ -170,15 +179,21 @@ def all_dossiers() -> list[Path]:
 # --------------------------------------------------------------------------
 
 
-def known_citekeys() -> set[str] | None:
-    """Every citekey in the ledger, or None if there is no readable one.
+def _corpus_rows() -> list[sqlite3.Row] | None:
+    """Every ledger item, or None if there is no readable ledger.
 
     Opened read-only and with `timeout=0`, exactly as `src.ledger`'s own
     CLI does and for the same reason: this is an inspection, and it must
     not take a write lock, run a migration, or block behind a sync that
-    happens to be mid-run. None (rather than an empty set) distinguishes
-    "no corpus on this machine" from "a corpus with nothing in it" --
-    `status` says different things about those two.
+    happens to be mid-run. `src.ledger.connect()` would do all three --
+    it mkdirs `content/`, executes the schema and runs migrations -- so
+    nothing here goes through it, and `src.retrieval.search()`, which
+    does, is off limits for the same reason (see `_ephemeral_index`).
+
+    Three columns rather than one because the drift scan needs the same
+    fields `src.retrieval` indexes on: `title` and `parsed_path` are what
+    a BM25 entry is built from, and `title` is also what makes a reported
+    candidate legible without a second lookup.
     """
     if not config.LEDGER_PATH.exists():
         return None
@@ -187,11 +202,23 @@ def known_citekeys() -> set[str] | None:
     except sqlite3.Error:
         return None
     try:
-        return {row[0] for row in con.execute("SELECT citekey FROM items")}
+        con.row_factory = sqlite3.Row
+        return con.execute("SELECT citekey, title, parsed_path FROM items").fetchall()
     except sqlite3.DatabaseError:
         return None
     finally:
         con.close()
+
+
+def known_citekeys() -> set[str] | None:
+    """Every citekey in the ledger, or None if there is no readable one.
+
+    None (rather than an empty set) distinguishes "no corpus on this
+    machine" from "a corpus with nothing in it" -- `status` says
+    different things about those two.
+    """
+    rows = _corpus_rows()
+    return None if rows is None else {row["citekey"] for row in rows}
 
 
 def digest(citekeys: set[str]) -> str:
@@ -225,6 +252,24 @@ def recorded_corpus(dossier: Path) -> tuple[int, str] | None:
     return int(match.group(1)), match.group(2)
 
 
+def _citekeys_in(dossier: Path, names: tuple[str, ...]) -> set[str]:
+    found: set[str] = set()
+    for name in names:
+        path = dossier / name
+        if path.is_file():
+            found |= set(_CITEKEY_TOKEN.findall(path.read_text(encoding="utf-8")))
+    return found
+
+
+# The files that mean "this draft *stands on* that paper", as opposed to
+# "this draft *looked at* it". The split matters for drift: a citekey
+# that leaves the ledger is a finding when the draft cites it and a
+# non-event when the draft turned it down, and `MENTIONED_FILES` would
+# report the second as the first.
+CITED_FILES = ("evidence.md", "sections.md")
+MENTIONED_FILES = ("evidence.md", "rejected.md", "sections.md")
+
+
 def cited_citekeys(dossier: Path) -> set[str]:
     """Every citekey the dossier mentions, kept or rejected.
 
@@ -234,11 +279,56 @@ def cited_citekeys(dossier: Path) -> set[str]:
     token that looks like a BibTeX key) so that a hand-edited
     `evidence.md` still contributes.
     """
-    found: set[str] = set()
-    for name in ("evidence.md", "rejected.md", "sections.md"):
-        path = dossier / name
-        if path.is_file():
-            found |= set(_CITEKEY_TOKEN.findall(path.read_text(encoding="utf-8")))
+    return _citekeys_in(dossier, MENTIONED_FILES)
+
+
+def rejected_reasons(dossier: Path) -> dict[str, str]:
+    """citekey -> why `rejected.md` says this draft turned it down.
+
+    The reason is the part that does not survive being reduced to a set.
+    "Turned down because the corpus had nothing better" and "turned down
+    because it is about a different field" age completely differently,
+    and only the first is worth revisiting when the corpus grows -- so a
+    re-grounding pass needs the sentence, not just the membership.
+    """
+    path = dossier / "rejected.md"
+    if not path.is_file():
+        return {}
+    found: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in _ROW_SPLIT.split(stripped.strip("|"))]
+        if len(cells) != 3:
+            continue
+        for citekey in _CITEKEY_TOKEN.findall(cells[0]):
+            found[citekey] = cells[2]
+    return found
+
+
+def section_citekeys(dossier: Path) -> dict[str, list[str]]:
+    """citekey -> the `sections.md` sections that cite it.
+
+    The point is scope, not bookkeeping: a reviser handed "this citekey
+    left the ledger" still has to find the prose that leans on it, and
+    reading the whole draft to find out is the cost `sections` and this
+    both exist to avoid. Absent or hand-mangled rows map nothing, like
+    every other read here.
+    """
+    path = dossier / "sections.md"
+    if not path.is_file():
+        return {}
+    found: dict[str, list[str]] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in _ROW_SPLIT.split(stripped.strip("|"))]
+        if len(cells) != 2:
+            continue
+        for citekey in _CITEKEY_TOKEN.findall(cells[1]):
+            found.setdefault(citekey, []).append(cells[0])
     return found
 
 
@@ -583,16 +673,18 @@ def log_retrieval(
     return path
 
 
-def retrieval_cost(dossier: Path) -> tuple[int, int]:
-    """(calls, characters returned) recorded in `retrieval.md`.
+def _retrieval_rows(dossier: Path) -> list[list[str]]:
+    """The parseable rows of `retrieval.md`, six cells each.
 
-    Advisory like every other count here: a hand-edited row that doesn't
-    parse is skipped rather than raising.
+    An integer `chars` cell is what separates a logged call from the
+    template's own header and separator rows, which otherwise parse to
+    six cells like any other. Advisory like every other read here: a
+    hand-edited row that doesn't parse is skipped rather than raising.
     """
     path = dossier / "retrieval.md"
     if not path.is_file():
-        return 0, 0
-    calls = chars = 0
+        return []
+    rows: list[list[str]] = []
     for line in path.read_text(encoding="utf-8").splitlines():
         # Split on unescaped pipes only: `log_retrieval` writes a query
         # containing a pipe as `\|`, which is markdown's literal, and
@@ -601,11 +693,38 @@ def retrieval_cost(dossier: Path) -> tuple[int, int]:
         if len(cells) != 6:
             continue
         try:
-            chars += int(cells[5])
+            int(cells[5])
         except ValueError:
             continue
-        calls += 1
-    return calls, chars
+        rows.append(cells)
+    return rows
+
+
+def retrieval_cost(dossier: Path) -> tuple[int, int]:
+    """(calls, characters returned) recorded in `retrieval.md`."""
+    rows = _retrieval_rows(dossier)
+    return len(rows), sum(int(row[5]) for row in rows)
+
+
+def recorded_queries(dossier: Path) -> list[str]:
+    """The distinct queries this draft was retrieved with, first seen first.
+
+    `retrieval.md` was written to measure what a run cost, and this is
+    the second thing it turns out to be good for: it is the only record
+    of *what this draft went looking for*, which is what makes "the
+    corpus grew" answerable as "and here is the part of the growth this
+    draft would have wanted". Deduplicated because a reformulated search
+    logs the same query more than once, and running it twice would just
+    report the same candidate twice.
+    """
+    seen: dict[str, None] = {}
+    for cells in _retrieval_rows(dossier):
+        # `log_retrieval` escapes a pipe on the way in; unescape it so the
+        # query goes to the ranker as the caller actually typed it.
+        query = cells[2].replace("\\|", "|").strip()
+        if query:
+            seen[query] = None
+    return list(seen)
 
 
 def draft_relpath(draft: Path) -> str:
@@ -703,6 +822,12 @@ def _count(text: str, shape: str) -> int:
     )
 
 
+def _resolve_dossier(draft_or_dossier: Path) -> Path:
+    """A dossier directory, given either it or the draft it belongs to."""
+    path = Path(draft_or_dossier)
+    return path if path.is_dir() else dossier_dir(path)
+
+
 def status(draft_or_dossier: Path) -> Status:
     """What this dossier holds, and whether the corpus has moved since.
 
@@ -736,6 +861,251 @@ def status(draft_or_dossier: Path) -> Status:
         report.current = (len(corpus_keys), digest(corpus_keys))
         report.unconsidered = corpus_keys - cited_citekeys(dossier)
     return report
+
+
+# --------------------------------------------------------------------------
+# Drift
+#
+# `status <draft>` answers "did the corpus move under this one draft?".
+# This answers the other half: which drafts on this machine have gone
+# stale, and what specifically about each. Read-only, lock-free, and
+# never fatal -- a missing ledger, a missing dossier file and an
+# unparsable row are all things to report, not to fail on.
+# --------------------------------------------------------------------------
+
+
+# How deep to look down each recorded query's ranking. 15 matches
+# `survey-writer`'s own `search(sub_theme, k=15)`: the report should
+# surface a new paper if and only if the draft's original search would
+# have put it in front of the writer, and a different number here would
+# quietly mean something else by "would have been considered".
+CANDIDATE_K = 15
+
+
+def _ephemeral_index(rows: list[sqlite3.Row]) -> dict:
+    """A BM25 term-frequency index built in memory and thrown away.
+
+    `src.retrieval.search()` cannot be used here, for two reasons that
+    are both about this being a *report*. It connects through
+    `ledger.connect()`, which mkdirs `content/`, executes the schema and
+    runs migrations -- a write connection, which is exactly what
+    `_corpus_rows` avoids. And it goes through `retrieval._load_index`,
+    which calls `_save_cache` whenever any document's fingerprint moved
+    -- which, after the sync that caused the drift being reported, is
+    guaranteed. Either one would make an inspection mutate the corpus
+    layer it is inspecting.
+
+    The index itself is not the problem, though: `_tokenize_item` and
+    `_bm25_scores` are pure, and the only thing that persists in
+    `retrieval` is the cache write between them. So this composes the
+    same two halves and skips the middle -- seeding from the on-disk
+    cache where a fingerprint still matches (`_load_cache` only reads),
+    tokenizing the rest into memory, and never writing back. A warm cache
+    makes this nearly free; a cold or absent one costs one tokenization
+    of the corpus, paid once per scan and dropped when it returns.
+
+    Imported lazily so that `import src.dossier` stays as cheap as the
+    rest of the module -- and it stays stdlib-only either way, since
+    `src.retrieval` is too.
+    """
+    from src import retrieval
+
+    cached = retrieval._load_cache()
+    index = {}
+    for row in rows:
+        entry = cached.get(row["citekey"])
+        if isinstance(entry, dict) and entry.get("fingerprint") == retrieval._fingerprint(row):
+            index[row["citekey"]] = entry
+        else:
+            index[row["citekey"]] = retrieval._tokenize_item(row)
+    return index
+
+
+class Corpus:
+    """The ledger read once, plus the throwaway index built from it.
+
+    Held as one object so that a sweep over every dossier pays for the
+    table read and the tokenization once between them all, rather than
+    once each. The index is built on first use, so a sweep over dossiers
+    that logged no queries never builds one at all.
+    """
+
+    def __init__(self, rows: list[sqlite3.Row]):
+        self.rows = rows
+        self.citekeys = {row["citekey"] for row in rows}
+        self.titles = {row["citekey"]: row["title"] or "" for row in rows}
+        self._index: dict | None = None
+
+    @property
+    def index(self) -> dict:
+        if self._index is None:
+            self._index = _ephemeral_index(self.rows)
+        return self._index
+
+    def matches(self, queries: list[str], k: int = CANDIDATE_K) -> dict[str, list[str]]:
+        """citekey -> the recorded queries whose top-k it would land in."""
+        from src import retrieval
+
+        hits: dict[str, list[str]] = {}
+        for query in queries:
+            terms = retrieval._tokenize(query)
+            if not terms:
+                continue
+            scores = retrieval._bm25_scores(self.index, terms)
+            # Ties broken by citekey so that two runs over an unchanged
+            # corpus report the same candidates in the same order.
+            ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))[:k]
+            for citekey, _score in ranked:
+                hits.setdefault(citekey, []).append(query)
+        return hits
+
+
+@dataclass
+class Candidate:
+    """A paper in the ledger that this dossier has never weighed, which
+    one of the dossier's own recorded queries would have surfaced."""
+    citekey: str
+    title: str
+    queries: list[str]
+
+
+@dataclass
+class Reconsider:
+    """A paper this draft read and declined, which its queries still
+    reach -- carried with the reason it was declined."""
+    citekey: str
+    title: str
+    queries: list[str]
+    reason: str
+
+
+@dataclass
+class Drift:
+    dossier: Path
+    name: str
+    draft: Path | None
+    corpus_available: bool = False
+    recorded: tuple[int, str] | None = None
+    current: tuple[int, str] | None = None
+    missing: dict[str, list[str]] = field(default_factory=dict)
+    candidates: list[Candidate] = field(default_factory=list)
+    reconsider: list[Reconsider] = field(default_factory=list)
+    unconsidered: int = 0
+
+    @property
+    def drifted(self) -> bool:
+        return bool(self.recorded and self.current and self.recorded[1] != self.current[1])
+
+    @property
+    def clean(self) -> bool:
+        # `reconsider` is deliberately not part of this. A rejection that
+        # still matches its query was true before the corpus moved and
+        # will be true on every sweep after it -- counting it as drift
+        # would mark every dossier that ever declined a paper permanently
+        # stale, which is exactly the signal this command exists to give.
+        return not self.missing and not self.candidates
+
+    def as_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "dossier": draft_relpath(self.dossier),
+            "draft": draft_relpath(self.draft) if self.draft else None,
+            "corpus_available": self.corpus_available,
+            "recorded": list(self.recorded) if self.recorded else None,
+            "current": list(self.current) if self.current else None,
+            "drifted": self.drifted,
+            "missing": self.missing,
+            "candidates": [
+                {"citekey": c.citekey, "title": c.title, "queries": c.queries}
+                for c in self.candidates
+            ],
+            "reconsider": [
+                {"citekey": r.citekey, "title": r.title,
+                 "queries": r.queries, "reason": r.reason}
+                for r in self.reconsider
+            ],
+            "unconsidered": self.unconsidered,
+        }
+
+
+def dossier_name(dossier: Path) -> str:
+    """A dossier's path under `content/dossiers/` -- what `list` prints."""
+    try:
+        return dossier.resolve().relative_to(config.DOSSIERS_DIR.resolve()).as_posix()
+    except ValueError:
+        return dossier.name
+
+
+def drift(dossier: Path, corpus: "Corpus | None" = None) -> Drift:
+    """What has gone stale about one dossier since its draft was written.
+
+    Two findings, and they are not the same kind of thing. A **missing**
+    citekey is a defect: the draft cites a paper the corpus no longer
+    has, and something has to be swapped or dropped. A **candidate** is
+    an opportunity: a paper the corpus has gained that this draft's own
+    recorded queries would have put in front of the writer. The first is
+    work; the second is a decision, and drift is still not itself a
+    reason to redraft.
+
+    Pass `corpus` to share one ledger read and one index across a sweep;
+    omit it and this reads the ledger for itself.
+    """
+    dossier = Path(dossier)
+    if corpus is None:
+        rows = _corpus_rows()
+        corpus = Corpus(rows) if rows is not None else None
+
+    report = Drift(
+        dossier=dossier,
+        name=dossier_name(dossier),
+        draft=find_draft(dossier),
+        recorded=recorded_corpus(dossier),
+    )
+    if corpus is None:
+        return report
+
+    report.corpus_available = True
+    report.current = (len(corpus.citekeys), digest(corpus.citekeys))
+
+    sections_citing = section_citekeys(dossier)
+    cited = _citekeys_in(dossier, CITED_FILES)
+    report.missing = {
+        citekey: sections_citing.get(citekey, [])
+        for citekey in sorted(cited - corpus.citekeys)
+    }
+
+    # Everything the dossier ever weighed -- rejections included, which is
+    # the point. Re-offering a paper the draft already turned down as if
+    # it were new would cost exactly the re-judging that `rejected.md`
+    # exists to prevent.
+    mentioned = cited_citekeys(dossier)
+    report.unconsidered = len(corpus.citekeys - mentioned)
+
+    declined = rejected_reasons(dossier)
+    matched = sorted(corpus.matches(recorded_queries(dossier)).items())
+    report.candidates = [
+        Candidate(citekey, corpus.titles.get(citekey, ""), queries)
+        for citekey, queries in matched
+        if citekey not in mentioned
+    ]
+    # A declined paper its queries still reach, reported separately and
+    # with the reason. `cited` wins the tie: a citekey that is both cited
+    # and listed as rejected is a stale `rejected.md` row, not an open
+    # question, and offering it back would send a reviser to re-decide
+    # something the draft already acts on.
+    report.reconsider = [
+        Reconsider(citekey, corpus.titles.get(citekey, ""), queries, declined[citekey])
+        for citekey, queries in matched
+        if citekey in declined and citekey not in cited
+    ]
+    return report
+
+
+def drift_all() -> list[Drift]:
+    """One drift report per dossier on this machine, nearest-first."""
+    rows = _corpus_rows()
+    corpus = Corpus(rows) if rows is not None else None
+    return [drift(path, corpus) for path in all_dossiers()]
 
 
 # --------------------------------------------------------------------------
@@ -882,7 +1252,106 @@ def _cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
+# How many findings of one kind to print before summarising the rest.
+# A drift report is read to decide what to do next, not as a manifest;
+# what it must never do is truncate silently, so the remainder is always
+# counted out loud.
+_SHOWN = 10
+
+
+def _print_drift(report: Drift) -> None:
+    marker = "" if report.draft else "   (draft missing)"
+    if not report.corpus_available:
+        print(f"  {report.name}{marker}\n    drift unavailable -- no readable ledger.")
+        return
+    if report.clean:
+        moved = " (corpus moved, nothing this dossier relies on)" if report.drifted else ""
+        print(f"  {report.name}{marker}\n    no drift{moved}.")
+        return
+
+    print(f"  {report.name}{marker}")
+    if report.missing:
+        print(f"    {len(report.missing)} cited citekey(s) no longer in the ledger:")
+        for citekey, in_sections in list(report.missing.items())[:_SHOWN]:
+            where = f"  cited in: {', '.join(in_sections)}" if in_sections else ""
+            print(f"      {citekey}{where}")
+        if len(report.missing) > _SHOWN:
+            print(f"      ... and {len(report.missing) - _SHOWN} more")
+    if report.candidates:
+        print(f"    {len(report.candidates)} new candidate(s) matching this "
+              "dossier's recorded queries:")
+        for candidate in report.candidates[:_SHOWN]:
+            title = f"  {candidate.title}" if candidate.title else ""
+            print(f"      {candidate.citekey}{title}")
+            print(f"        surfaced by: {'; '.join(candidate.queries)}")
+        if len(report.candidates) > _SHOWN:
+            print(f"      ... and {len(report.candidates) - _SHOWN} more")
+    # Only alongside a real finding. On its own this is true on every
+    # sweep forever, so printing it unconditionally would bury the drift
+    # it is meant to help act on.
+    if report.reconsider:
+        print(f"    {len(report.reconsider)} previously rejected paper(s) these "
+              "queries still reach:")
+        for entry in report.reconsider[:_SHOWN]:
+            title = f"  {entry.title}" if entry.title else ""
+            print(f"      {entry.citekey}{title}")
+            print(f"        rejected because: {entry.reason}")
+        if len(report.reconsider) > _SHOWN:
+            print(f"      ... and {len(report.reconsider) - _SHOWN} more")
+
+
+def _cmd_status_all(reports: list[Drift], as_json: bool) -> int:
+    if as_json:
+        print(json.dumps({"dossiers": [r.as_dict() for r in reports]}, indent=2))
+        return 0
+    if not reports:
+        print(f"No dossiers under {draft_relpath(config.DOSSIERS_DIR)}.")
+        return 0
+
+    print(f"Corpus drift across {len(reports)} dossier(s):\n")
+    for report in reports:
+        _print_drift(report)
+    stale = [r for r in reports if not r.clean]
+    # A dossier with no readable ledger has no findings, which is not the
+    # same as having none to find. Reporting it as current would be the
+    # one way this command could actively mislead: "nothing to do here"
+    # asserted about a check that never ran.
+    unknown = [r for r in reports if not r.corpus_available]
+    print()
+    if unknown:
+        print(f"  {len(unknown)} of {len(reports)} dossier(s) could not be checked: "
+              f"no readable ledger at {config.LEDGER_PATH}.")
+        print("  Run `python -m src.sync` to build one; until then drift is unknown,")
+        print("  not absent.")
+    if not stale:
+        if not unknown:
+            print("  Every dossier is current against the corpus.")
+        return 0
+    print(f"  {len(stale)} of {len(reports)} dossier(s) have drifted.")
+    print("  A missing citekey is a defect: the draft cites what the corpus no")
+    print("  longer has. A candidate is a decision, not a defect -- re-search only")
+    print("  if the change you are making touches a sub-theme it could bear on.")
+    if any(r.reconsider for r in stale):
+        print("  Candidates exclude everything in `rejected.md`; the reconsider list is")
+        print("  the exception, shown with its reason so you can judge whether it holds.")
+    else:
+        print("  `rejected.md` was already subtracted, so nothing here was turned "
+              "down before.")
+    return 0
+
+
 def _cmd_status(args: argparse.Namespace) -> int:
+    if args.all and args.draft:
+        print("[error] Give a draft path or --all, not both.", file=sys.stderr)
+        return 2
+    if not args.all and not args.draft:
+        print("[error] Give a draft path, or --all for every dossier.", file=sys.stderr)
+        return 2
+    if args.all:
+        return _cmd_status_all(drift_all(), args.json)
+    if args.json:
+        return _cmd_status_all([drift(_resolve_dossier(Path(args.draft)))], True)
+
     report = status(Path(args.draft))
     if not report.dossier.is_dir():
         print(f"No dossier at {draft_relpath(report.dossier)}.")
@@ -1051,7 +1520,12 @@ def main(argv: list[str] | None = None) -> int:
     p_init.set_defaults(func=_cmd_init)
 
     p_status = sub.add_parser("status", help="What a dossier holds, and corpus drift since")
-    p_status.add_argument("draft", help="Draft path, or the dossier directory itself")
+    p_status.add_argument("draft", nargs="?",
+                          help="Draft path, or the dossier directory itself")
+    p_status.add_argument("--all", action="store_true",
+                          help="One drift report over every dossier instead")
+    p_status.add_argument("--json", action="store_true",
+                          help="Machine-readable drift report (for draft-reviser)")
     p_status.set_defaults(func=_cmd_status)
 
     p_sections = sub.add_parser(

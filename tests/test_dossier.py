@@ -727,3 +727,545 @@ class TestRetrievalLog:
         dossier.init(draft, "survey")
         dossier.log_retrieval(draft, "search", "twin\tshadow\r\nmodel", 15, 15, 100)
         assert dossier.retrieval_cost(dossier.dossier_dir(draft)) == (1, 100)
+
+
+# ---------------------------------------------------------------------
+# Corpus drift across every dossier (`status --all`)
+# ---------------------------------------------------------------------
+
+
+def _seed_corpus(entries):
+    """A ledger holding these citekeys, each with a real parsed text file.
+
+    `_seed_ledger` above is enough for the fingerprint tests, which only
+    need citekeys to exist. Query matching needs the text those citekeys
+    rank against, so this writes `content/parsed/<citekey>.txt` and points
+    the ledger's `parsed_path` at it -- the same shape `sync` produces.
+    """
+    from src import ledger
+
+    config.PARSED_DIR.mkdir(parents=True, exist_ok=True)
+    con = ledger.connect()
+    try:
+        for citekey, title, body in entries:
+            parsed = config.PARSED_DIR / f"{citekey}.txt"
+            parsed.write_text(body, encoding="utf-8")
+            con.execute(
+                "INSERT INTO items (citekey, title, parsed_path, status, last_synced) "
+                "VALUES (?, ?, ?, 'parsed', '2026-01-01')",
+                (citekey, title, str(parsed)),
+            )
+        con.commit()
+    finally:
+        con.close()
+
+
+@pytest.fixture
+def grounded(draft):
+    """A dossier that cites one paper, rejected another, and logged the
+    query that found them -- the state every drift finding is computed
+    against."""
+    dossier.init(draft, "survey")
+    target = dossier.dossier_dir(draft)
+    (target / "evidence.md").write_text(
+        "# Kept evidence\n\n## `kept_paper_2024`\n\nWhy it was kept.\n"
+    )
+    (target / "rejected.md").write_text(
+        "# Rejected candidates\n\n| citekey | query that surfaced it | why rejected |\n"
+        "|---|---|---|\n| `turned_down_2023` | digital twin | off topic |\n"
+    )
+    (target / "sections.md").write_text(
+        "# Sections and their citekeys\n\n| section | citekeys |\n|---|---|\n"
+        "| 1. First | `kept_paper_2024` |\n"
+    )
+    dossier.log_retrieval(draft, "search", "digital twin", 15, 15, 2400)
+    return target
+
+
+class TestRecordedQueries:
+    def test_reads_the_queries_out_of_retrieval_md(self, draft):
+        dossier.init(draft, "survey")
+        dossier.log_retrieval(draft, "search", "digital twin", 15, 15, 100)
+        dossier.log_retrieval(draft, "evidence", "co-simulation", 2, 2, 100)
+        assert dossier.recorded_queries(dossier.dossier_dir(draft)) == [
+            "digital twin", "co-simulation",
+        ]
+
+    def test_a_repeated_query_is_reported_once_in_first_seen_order(self, draft):
+        dossier.init(draft, "survey")
+        for query in ("twin", "shadow", "twin"):
+            dossier.log_retrieval(draft, "search", query, 5, 5, 100)
+        assert dossier.recorded_queries(dossier.dossier_dir(draft)) == ["twin", "shadow"]
+
+    def test_an_escaped_pipe_is_restored(self, draft):
+        dossier.init(draft, "survey")
+        dossier.log_retrieval(draft, "search", "twin | shadow", 5, 5, 100)
+        assert dossier.recorded_queries(dossier.dossier_dir(draft)) == ["twin | shadow"]
+
+    def test_a_hand_edited_row_that_does_not_parse_is_skipped(self, draft):
+        dossier.init(draft, "survey")
+        path = dossier.dossier_dir(draft) / "retrieval.md"
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write("| 2026-01-01 | search | only three cells |\n")
+        dossier.log_retrieval(draft, "search", "real query", 5, 5, 100)
+        assert dossier.recorded_queries(dossier.dossier_dir(draft)) == ["real query"]
+
+    def test_an_empty_query_cell_is_not_a_query(self, draft):
+        dossier.init(draft, "survey")
+        path = dossier.dossier_dir(draft) / "retrieval.md"
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write("| 2026-01-01 | search |  | 5 | 5 | 100 |\n")
+        assert dossier.recorded_queries(dossier.dossier_dir(draft)) == []
+
+    def test_no_retrieval_file_means_no_queries(self, draft):
+        dossier.init(draft, "survey")
+        (dossier.dossier_dir(draft) / "retrieval.md").unlink()
+        assert dossier.recorded_queries(dossier.dossier_dir(draft)) == []
+
+
+class TestSectionCitekeys:
+    def test_maps_a_citekey_to_the_sections_citing_it(self, grounded):
+        (grounded / "sections.md").write_text(
+            "# Sections and their citekeys\n\n| section | citekeys |\n|---|---|\n"
+            "| 1. First | `a_one_2024`, `b_two_2024` |\n"
+            "| 2. Second | `b_two_2024` |\n"
+        )
+        assert dossier.section_citekeys(grounded) == {
+            "a_one_2024": ["1. First"],
+            "b_two_2024": ["1. First", "2. Second"],
+        }
+
+    def test_a_missing_sections_file_maps_nothing(self, draft):
+        assert dossier.section_citekeys(dossier.dossier_dir(draft)) == {}
+
+    def test_a_row_with_no_citekeys_contributes_nothing(self, grounded):
+        (grounded / "sections.md").write_text(
+            "# Sections\n\n| section | citekeys |\n|---|---|\n| 1. First | none yet |\n"
+        )
+        assert dossier.section_citekeys(grounded) == {}
+
+
+class TestDrift:
+    def test_a_cited_key_that_left_the_ledger_is_reported_with_its_sections(self, grounded):
+        _seed_corpus([("other_paper_2025", "Other", "unrelated text")])
+        report = dossier.drift(grounded)
+        assert report.missing == {"kept_paper_2024": ["1. First"]}
+
+    def test_a_rejected_key_leaving_the_ledger_is_not_a_finding(self, grounded):
+        _seed_corpus([("kept_paper_2024", "Kept", "text")])
+        report = dossier.drift(grounded)
+        assert report.missing == {}
+
+    def test_a_new_paper_matching_a_recorded_query_is_a_candidate(self, grounded):
+        _seed_corpus([
+            ("kept_paper_2024", "Kept", "digital twin architecture"),
+            ("fresh_twin_2026", "A fresh twin paper", "digital twin co-simulation study"),
+            ("unrelated_2026", "Baking bread", "sourdough starter hydration"),
+        ])
+        report = dossier.drift(grounded)
+        assert [c.citekey for c in report.candidates] == ["fresh_twin_2026"]
+        assert report.candidates[0].queries == ["digital twin"]
+
+    def test_a_paper_already_rejected_is_never_offered_again(self, grounded):
+        _seed_corpus([
+            ("kept_paper_2024", "Kept", "digital twin"),
+            ("turned_down_2023", "Turned down", "digital twin everywhere"),
+        ])
+        report = dossier.drift(grounded)
+        assert [c.citekey for c in report.candidates] == []
+
+    def test_the_candidate_carries_why_it_was_reachable(self, grounded):
+        _seed_corpus([
+            ("kept_paper_2024", "Kept", "digital twin"),
+            ("fresh_twin_2026", "Fresh", "digital twin"),
+        ])
+        report = dossier.drift(grounded)
+        assert report.candidates[0].title == "Fresh"
+
+    def test_no_ledger_reports_unavailable_rather_than_raising(self, grounded):
+        report = dossier.drift(grounded)
+        assert report.corpus_available is False
+        assert report.missing == {} and report.candidates == []
+
+    def test_no_recorded_fingerprint_still_reports_missing_citations(self, grounded):
+        """The fingerprint answers "did the corpus move"; a cited key
+        vanishing is a finding whether or not the dossier recorded one."""
+        (grounded / "scope.md").write_text("# Scope\n\n- genre: survey\n")
+        _seed_corpus([("other_paper_2025", "Other", "text")])
+        report = dossier.drift(grounded)
+        assert report.recorded is None
+        assert report.missing == {"kept_paper_2024": ["1. First"]}
+
+    def test_an_empty_dossier_directory_is_reported_not_refused(self, draft):
+        target = dossier.dossier_dir(draft)
+        target.mkdir(parents=True)
+        _seed_corpus([("any_paper_2025", "Any", "text")])
+        report = dossier.drift(target)
+        assert report.missing == {} and report.candidates == []
+
+    def test_a_dossier_whose_draft_is_gone_is_still_reported(self, grounded, draft):
+        draft.unlink()
+        _seed_corpus([("kept_paper_2024", "Kept", "text")])
+        report = dossier.drift(grounded)
+        assert report.draft is None
+
+
+class TestEphemeralIndex:
+    """The drift scan must leave the corpus layer exactly as it found it.
+
+    `src.retrieval.search()` cannot be called here: it goes through
+    `ledger.connect()`, which creates `content/`, executes the schema and
+    runs migrations, and through `_load_index`, which rewrites
+    `retrieval_index.json` whenever a fingerprint moved -- both of which a
+    read-only report must not do.
+    """
+
+    def test_no_retrieval_index_is_written(self, grounded):
+        _seed_corpus([
+            ("kept_paper_2024", "Kept", "digital twin"),
+            ("fresh_twin_2026", "Fresh", "digital twin"),
+        ])
+        dossier.drift(grounded)
+        assert not config.RETRIEVAL_INDEX_PATH.exists()
+
+    def test_an_existing_retrieval_index_is_left_byte_for_byte(self, grounded):
+        _seed_corpus([
+            ("kept_paper_2024", "Kept", "digital twin"),
+            ("fresh_twin_2026", "Fresh", "digital twin"),
+        ])
+        config.RETRIEVAL_INDEX_PATH.write_text('{"version": 1, "items": {}}')
+        before = config.RETRIEVAL_INDEX_PATH.read_bytes()
+        dossier.drift(grounded)
+        assert config.RETRIEVAL_INDEX_PATH.read_bytes() == before
+
+    def test_a_warm_cache_entry_is_reused_rather_than_re_tokenized(self, grounded):
+        """Seeding the on-disk cache with a *wrong* term count for a paper
+        proves the cache was read: the match can only come from the cache,
+        since the parsed text says something else entirely."""
+        _seed_corpus([("cached_paper_2026", "Cached", "sourdough starter")])
+        from src import retrieval
+
+        con = __import__("sqlite3").connect(config.LEDGER_PATH)
+        con.row_factory = __import__("sqlite3").Row
+        (row,) = con.execute("SELECT * FROM items").fetchall()
+        fingerprint = retrieval._fingerprint(row)
+        con.close()
+        config.RETRIEVAL_INDEX_PATH.write_text(__import__("json").dumps({
+            "version": 1,
+            "items": {"cached_paper_2026": {
+                "fingerprint": fingerprint,
+                "length": 2,
+                "term_freqs": {"digital": 1, "twin": 1},
+            }},
+        }))
+        report = dossier.drift(grounded)
+        assert [c.citekey for c in report.candidates] == ["cached_paper_2026"]
+
+    def test_a_stale_cache_entry_is_re_tokenized_in_memory(self, grounded):
+        _seed_corpus([("fresh_twin_2026", "Fresh", "digital twin")])
+        config.RETRIEVAL_INDEX_PATH.write_text(__import__("json").dumps({
+            "version": 1,
+            "items": {"fresh_twin_2026": {
+                "fingerprint": ["stale"],
+                "length": 2,
+                "term_freqs": {"sourdough": 1},
+            }},
+        }))
+        report = dossier.drift(grounded)
+        assert [c.citekey for c in report.candidates] == ["fresh_twin_2026"]
+
+    def test_the_ledger_is_never_created_by_a_scan(self, grounded):
+        dossier.drift(grounded)
+        assert not config.LEDGER_PATH.exists()
+
+
+class TestDriftAll:
+    def test_reports_every_dossier(self, isolated_config):
+        for name in ("alpha", "beta"):
+            path = config.DRAFTS_DIR / f"{name}.md"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("# x\n")
+            dossier.init(path, "survey")
+        _seed_corpus([("any_paper_2025", "Any", "text")])
+        assert [r.name for r in dossier.drift_all()] == ["alpha", "beta"]
+
+    def test_no_dossiers_is_an_empty_report_not_an_error(self, isolated_config):
+        assert dossier.drift_all() == []
+
+    def test_the_ledger_is_read_once_for_the_whole_sweep(self, isolated_config, monkeypatch):
+        """Per-dossier ledger reads made `--all` cost O(dossiers) full
+        table scans plus one corpus tokenization each."""
+        for name in ("alpha", "beta", "gamma"):
+            path = config.DRAFTS_DIR / f"{name}.md"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("# x\n")
+            dossier.init(path, "survey")
+            dossier.log_retrieval(path, "search", "digital twin", 5, 5, 100)
+        _seed_corpus([("fresh_twin_2026", "Fresh", "digital twin")])
+
+        calls = []
+        real = dossier._corpus_rows
+        monkeypatch.setattr(dossier, "_corpus_rows", lambda: calls.append(1) or real())
+        dossier.drift_all()
+        assert len(calls) == 1
+
+
+class TestStatusAllCLI:
+    def test_exits_zero_and_names_the_findings(self, grounded, capsys):
+        _seed_corpus([
+            ("other_paper_2025", "Other", "text"),
+            ("fresh_twin_2026", "A fresh twin", "digital twin co-simulation"),
+        ])
+        assert dossier.main(["status", "--all"]) == 0
+        out = capsys.readouterr().out
+        assert "kept_paper_2024" in out          # cited, now gone
+        assert "fresh_twin_2026" in out          # new, matches a logged query
+        assert "1. First" in out                 # the section to edit
+
+    def test_exits_zero_with_no_dossiers_at_all(self, isolated_config, capsys):
+        assert dossier.main(["status", "--all"]) == 0
+        assert "No dossiers" in capsys.readouterr().out
+
+    def test_exits_zero_with_no_ledger(self, grounded, capsys):
+        assert dossier.main(["status", "--all"]) == 0
+        assert "unavailable" in capsys.readouterr().out
+
+    def test_an_uncheckable_dossier_is_not_reported_as_current(self, grounded, capsys):
+        """No findings is not the same as nothing to find. Calling an
+        unchecked dossier current is the one way this could mislead."""
+        assert dossier.main(["status", "--all"]) == 0
+        out = capsys.readouterr().out
+        assert "could not be checked" in out
+        assert "drift is unknown" in out
+        assert "Every dossier is current" not in out
+
+    def test_a_mixed_sweep_reports_both_the_drift_and_the_unknown(self, grounded, capsys):
+        """One dossier under a readable ledger, one that predates it --
+        the summary has to carry both facts, not just the louder one."""
+        stray = config.DOSSIERS_DIR / "orphan"
+        stray.mkdir(parents=True)
+        (stray / "scope.md").write_text("# Scope\n")
+        _seed_corpus([("other_paper_2025", "Other", "text")])
+        assert dossier.main(["status", "--all"]) == 0
+        out = capsys.readouterr().out
+        assert "have drifted" in out
+        assert "could not be checked" not in out
+
+    def test_a_clean_dossier_says_so(self, grounded, capsys):
+        _seed_corpus([("kept_paper_2024", "Kept", "sourdough bread")])
+        assert dossier.main(["status", "--all"]) == 0
+        assert "no drift" in capsys.readouterr().out.lower()
+
+    def test_json_is_machine_readable_for_the_reviser(self, grounded, capsys):
+        _seed_corpus([
+            ("other_paper_2025", "Other", "text"),
+            ("fresh_twin_2026", "A fresh twin", "digital twin co-simulation"),
+        ])
+        assert dossier.main(["status", "--all", "--json"]) == 0
+        payload = __import__("json").loads(capsys.readouterr().out)
+        (entry,) = payload["dossiers"]
+        assert entry["missing"] == {"kept_paper_2024": ["1. First"]}
+        assert entry["candidates"][0]["citekey"] == "fresh_twin_2026"
+        assert entry["candidates"][0]["queries"] == ["digital twin"]
+
+    def test_json_for_one_draft_has_the_same_shape(self, grounded, draft, capsys):
+        _seed_corpus([("fresh_twin_2026", "Fresh", "digital twin")])
+        assert dossier.main(["status", str(draft), "--json"]) == 0
+        payload = __import__("json").loads(capsys.readouterr().out)
+        assert len(payload["dossiers"]) == 1
+
+    def test_a_draft_and_all_together_is_refused(self, draft, capsys):
+        assert dossier.main(["status", str(draft), "--all"]) == 2
+        assert "not both" in capsys.readouterr().err
+
+    def test_neither_a_draft_nor_all_is_refused(self, isolated_config, capsys):
+        assert dossier.main(["status"]) == 2
+        assert "--all" in capsys.readouterr().err
+
+    def test_a_dossier_whose_draft_is_gone_is_flagged(self, grounded, draft, capsys):
+        draft.unlink()
+        _seed_corpus([("kept_paper_2024", "Kept", "text")])
+        dossier.main(["status", "--all"])
+        assert "draft missing" in capsys.readouterr().out
+
+    def test_the_candidate_list_is_capped_with_a_visible_remainder(self, grounded, capsys):
+        _seed_corpus(
+            [("kept_paper_2024", "Kept", "digital twin")]
+            + [(f"fresh_{n}_2026", f"Fresh {n}", "digital twin study") for n in range(12)]
+        )
+        dossier.main(["status", "--all"])
+        assert "more" in capsys.readouterr().out
+
+    def test_a_missing_citekey_list_is_capped_too(self, grounded, capsys):
+        (grounded / "sections.md").write_text(
+            "# Sections\n\n| section | citekeys |\n|---|---|\n"
+            + "".join(f"| S{n} | `gone_{n}_2024` |\n" for n in range(12))
+        )
+        _seed_corpus([("survivor_2026", "Survivor", "sourdough")])
+        dossier.main(["status", "--all"])
+        out = capsys.readouterr().out
+        # 12 from sections.md, plus `kept_paper_2024` from evidence.md --
+        # a citekey counts as cited from either file.
+        assert "13 cited citekey(s) no longer in the ledger" in out
+        assert "... and 3 more" in out
+
+    def test_missing_citations_are_reported_without_any_candidates(self, grounded, capsys):
+        """The two findings are independent: a draft can cite a paper that
+        left without the corpus having gained anything it would want."""
+        _seed_corpus([("survivor_2026", "Survivor", "sourdough bread")])
+        dossier.main(["status", "--all"])
+        out = capsys.readouterr().out
+        assert "no longer in the ledger" in out
+        assert "new candidate(s)" not in out
+
+
+class TestDriftEdges:
+    def test_a_sections_row_with_the_wrong_cell_count_is_skipped(self, grounded):
+        (grounded / "sections.md").write_text(
+            "# Sections\n\n| section | citekeys |\n|---|---|\n"
+            "| 1. First | `kept_paper_2024` | stray fourth cell |\n"
+            "| 2. Second | `also_kept_2024` |\n"
+        )
+        assert dossier.section_citekeys(grounded) == {"also_kept_2024": ["2. Second"]}
+
+    def test_a_query_of_nothing_but_stopwords_ranks_nothing(self, grounded):
+        """`_tokenize` drops stopwords, so "the and of" reduces to no terms
+        at all -- scoring it would rank the whole corpus by an empty query."""
+        (grounded / "retrieval.md").write_text(
+            "# Retrieval calls\n\n| date | mode | query | asked | results | chars |\n"
+            "|---|---|---|---|---|---|\n| 2026-01-01 | search | the and of | 5 | 5 | 100 |\n"
+        )
+        _seed_corpus([("kept_paper_2024", "Kept", "digital twin")])
+        assert dossier.drift(grounded).candidates == []
+
+    def test_a_dossier_outside_the_dossiers_dir_falls_back_to_its_name(self, tmp_path):
+        assert dossier.dossier_name(tmp_path / "stray-dossier") == "stray-dossier"
+
+
+class TestRejectedReasons:
+    def test_maps_a_citekey_to_why_it_was_turned_down(self, grounded):
+        assert dossier.rejected_reasons(grounded) == {"turned_down_2023": "off topic"}
+
+    def test_a_row_with_the_wrong_cell_count_is_skipped(self, grounded):
+        (grounded / "rejected.md").write_text(
+            "# Rejected\n\n| citekey | query | why |\n|---|---|---|\n"
+            "| `broken_2023` | q |\n| `good_2023` | q | a real reason |\n"
+        )
+        assert dossier.rejected_reasons(grounded) == {"good_2023": "a real reason"}
+
+    def test_a_row_naming_no_citekey_contributes_nothing(self, grounded):
+        (grounded / "rejected.md").write_text(
+            "# Rejected\n\n| citekey | query | why |\n|---|---|---|\n"
+            "| none yet | q | r |\n"
+        )
+        assert dossier.rejected_reasons(grounded) == {}
+
+    def test_a_missing_file_maps_nothing(self, draft):
+        assert dossier.rejected_reasons(dossier.dossier_dir(draft)) == {}
+
+
+class TestReconsider:
+    """A paper this draft already read and declined, which its queries
+    still reach. Not drift -- it was declined against a corpus that
+    contained it -- but the reason is what a re-grounding pass needs in
+    order to decide whether the decision still holds."""
+
+    def test_a_still_matching_rejection_is_offered_back_with_its_reason(self, grounded):
+        _seed_corpus([
+            ("kept_paper_2024", "Kept", "digital twin"),
+            ("turned_down_2023", "Turned down", "digital twin everywhere"),
+        ])
+        (entry,) = dossier.drift(grounded).reconsider
+        assert (entry.citekey, entry.reason) == ("turned_down_2023", "off topic")
+        assert entry.queries == ["digital twin"]
+
+    def test_a_rejection_the_queries_no_longer_reach_is_not_offered(self, grounded):
+        _seed_corpus([
+            ("kept_paper_2024", "Kept", "digital twin"),
+            ("turned_down_2023", "Turned down", "sourdough starter hydration"),
+        ])
+        assert dossier.drift(grounded).reconsider == []
+
+    def test_it_never_duplicates_a_candidate(self, grounded):
+        _seed_corpus([
+            ("kept_paper_2024", "Kept", "digital twin"),
+            ("turned_down_2023", "Turned down", "digital twin"),
+            ("fresh_twin_2026", "Fresh", "digital twin"),
+        ])
+        report = dossier.drift(grounded)
+        assert [c.citekey for c in report.candidates] == ["fresh_twin_2026"]
+        assert [r.citekey for r in report.reconsider] == ["turned_down_2023"]
+
+    def test_a_cited_paper_is_never_offered_for_reconsideration(self, grounded):
+        (grounded / "rejected.md").write_text(
+            "# Rejected\n\n| citekey | query | why |\n|---|---|---|\n"
+            "| `kept_paper_2024` | digital twin | a stale row, since kept |\n"
+        )
+        _seed_corpus([("kept_paper_2024", "Kept", "digital twin")])
+        assert dossier.drift(grounded).reconsider == []
+
+    def test_it_does_not_by_itself_make_a_dossier_drifted(self, grounded, capsys):
+        """A rejection that still matches is true on every sweep forever.
+        Counting it as drift would mark every dossier that ever declined a
+        paper permanently stale, which is the signal this command exists
+        to give."""
+        _seed_corpus([
+            ("kept_paper_2024", "Kept", "digital twin"),
+            ("turned_down_2023", "Turned down", "digital twin"),
+        ])
+        report = dossier.drift(grounded)
+        assert report.reconsider and report.clean
+        assert dossier.main(["status", "--all"]) == 0
+        out = capsys.readouterr().out
+        assert "no drift" in out
+        assert "turned_down_2023" not in out
+
+    def test_it_is_printed_once_the_dossier_is_already_drifting(self, grounded, capsys):
+        _seed_corpus([
+            ("turned_down_2023", "Turned down", "digital twin"),
+            ("fresh_twin_2026", "Fresh", "digital twin"),
+        ])
+        dossier.main(["status", "--all"])
+        out = capsys.readouterr().out
+        assert "turned_down_2023" in out
+        assert "off topic" in out
+
+    def test_json_always_carries_it_for_the_reviser(self, grounded, capsys):
+        _seed_corpus([
+            ("kept_paper_2024", "Kept", "digital twin"),
+            ("turned_down_2023", "Turned down", "digital twin"),
+        ])
+        dossier.main(["status", "--all", "--json"])
+        (entry,) = __import__("json").loads(capsys.readouterr().out)["dossiers"]
+        assert entry["reconsider"] == [{
+            "citekey": "turned_down_2023",
+            "title": "Turned down",
+            "queries": ["digital twin"],
+            "reason": "off topic",
+        }]
+
+    def test_the_reconsider_list_is_capped_with_a_visible_remainder(self, grounded, capsys):
+        (grounded / "rejected.md").write_text(
+            "# Rejected\n\n| citekey | query | why |\n|---|---|---|\n"
+            + "".join(f"| `old_{n}_2023` | digital twin | thin |\n" for n in range(12))
+        )
+        _seed_corpus(
+            [("fresh_twin_2026", "Fresh", "digital twin")]
+            + [(f"old_{n}_2023", f"Old {n}", "digital twin study") for n in range(12)]
+        )
+        dossier.main(["status", "--all"])
+        out = capsys.readouterr().out
+        assert "12 previously rejected paper(s)" in out
+        assert "... and 2 more" in out
+
+    def test_the_trailer_does_not_contradict_the_reconsider_list(self, grounded, capsys):
+        """"nothing here was turned down before" is false the moment a
+        reconsider list is on screen."""
+        _seed_corpus([
+            ("turned_down_2023", "Turned down", "digital twin"),
+            ("fresh_twin_2026", "Fresh", "digital twin"),
+        ])
+        dossier.main(["status", "--all"])
+        out = capsys.readouterr().out
+        assert "turned down before" not in out
+        assert "the reconsider list is" in out

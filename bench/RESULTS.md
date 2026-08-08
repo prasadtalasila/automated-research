@@ -24,6 +24,7 @@ if it is obvious which is which, so:
 | [2026-08-04: the full-corpus sweep](#2026-08-04-the-full-corpus-sweep) | **Current** | The first whole-corpus measurement; corrected everything above it |
 | [2026-08-04b: repeats](#2026-08-04b-repeats-and-where-the-time-goes) | **Current** | Overturned the 32-vs-48 "knee" from the single-run sweep |
 | [2026-08-07: does the quotable passage survive a re-parse?](#2026-08-07-does-the-quotable-passage-survive-a-re-parse) | **Current** | Corrected "same-configuration runs reproduce exactly", which had been asserted in three documents |
+| [2026-08-08: what a drift sweep costs](#2026-08-08-what-a-drift-sweep-costs) | **Current** | The first measurement of `dossier status --all`, on the real corpus |
 
 The user-facing summary of everything still standing is
 [docs/PERFORMANCE.md](../docs/PERFORMANCE.md); the reproducibility
@@ -740,3 +741,89 @@ put a tight interval on the rate, and a 0-of-50 arm is fully consistent
 with a 2% rate rather than evidence of stability. The three mechanisms
 are each observed once or twice; treat them as existence proofs of
 distinct failure modes, not as a frequency distribution over them.
+
+## 2026-08-08: what a drift sweep costs
+
+`python3 -m src.dossier status --all` builds a BM25 index in memory and
+throws it away, rather than calling `src.retrieval.search()` -- which
+would take a write connection to the ledger and rewrite
+`content/retrieval_index.json` on every scan
+([docs/DRAFT-ITERATION.md](../docs/DRAFT-ITERATION.md#why-the-new-papers-are-not-found-with-search)).
+That design was argued from the shape of the code and shipped with an
+unmeasured claim attached: that a warm cache makes the scan nearly free
+and a cold one costs one corpus tokenization *shared across every
+dossier*. This is the stopwatch.
+
+Host: the multi-GPU machine (48 allowed CPUs, 251 GB RAM), bare
+`python3` 3.12.3, no GPU involved -- `src.dossier` is stdlib-only, so
+this needs no venv. Medians of 5 runs.
+
+### The real corpus: 646 ledger rows, 47.4 MB of parsed text
+
+`bench/bench_drift.py --real` copies this host's own
+`content/ledger.sqlite` and tokenizes the real `content/parsed/*.txt`
+behind it. The ledger is copied rather than opened in place because the
+warm step calls the real `retrieval.search()`, which goes through
+`ledger.connect()` -- a write connection that runs migrations. Timing a
+scan against someone's corpus is fine; migrating it is not. Verified
+byte-identical after the run.
+
+4 logged queries per dossier:
+
+| Dossiers swept | Cold (no index cache) | Warm (cache from a prior `search()`) |
+|---|---|---|
+| 1 | 2.130s | 0.218s |
+| 10 | 2.181s | 0.257s |
+| 50 | 2.364s | 0.432s |
+
+**The claim holds, and this is the line that shows it.** Going from 1
+dossier to 50 costs **+0.23s cold** -- about 5ms per additional dossier
+against a 2.1s fixed cost. The tokenization is paid once for the sweep,
+not once per dossier; had it been per-dossier, 50 dossiers would have
+taken somewhere near 105s.
+
+A warm cache is **5.5-9.8x** faster than a cold one, so "nearly free"
+was fair for the warm case and optimistic for the cold one: 2.1s is not
+free, it is just cheap enough to run after every sync.
+
+Dossiers that logged no retrieval calls never build an index at all:
+**0.042s for 50 dossiers**, which is the pure file-reading floor.
+
+### Synthetic corpora, as a scaling cross-check
+
+`bench_drift.py` without `--real` generates a corpus of the same shape
+(501 documents, median 16 pages at ~500 words, one 675-page book, Zipfian
+vocabulary). Kept because it is the only way to vary corpus size, and
+worth reading as a check on the generator: at a comparable document
+count it lands within ~30% of the real corpus, which is close enough to
+trust its *scaling* and not close enough to quote its absolute seconds.
+
+| Corpus | Documents | Parsed text | Cold, 1 dossier | Cold, 50 |
+|---|---|---|---|---|
+| real | 646 | 47.4 MB | 2.130s | 2.364s |
+| synthetic | 501 | 38.1 MB | 1.521s | 1.685s |
+| synthetic | 2000 | 148.6 MB | 5.857s | 6.471s |
+
+4.0x the documents costs 3.9x the cold time (1.521s -> 5.857s), so the
+tokenization is linear in corpus size, as expected -- it reads every
+parsed file once. The per-dossier marginal cost stays flat at every
+size: +0.61s for 49 more dossiers at 2000 documents, ~12ms each.
+
+### What this does not measure
+
+- **A cold page cache.** Every run here re-read 38-149 MB that the OS
+  had cached; the first sweep after a reboot pays disk for it too.
+- **Another corpus's vocabulary.** One real corpus, on one topic. A
+  corpus with a much larger vocabulary changes the index size, though not
+  the shape of the result.
+- **`--json`.** Serialization is a rounding error against tokenization
+  and was not separated out.
+- **Concurrency.** The scan is single-threaded and was measured on an
+  otherwise-idle machine.
+
+Reproduce:
+
+```bash
+python3 bench/bench_drift.py --dossiers 1 10 50 --repeats 5 \
+    --out bench/results/<date>-drift/drift-501.json
+```

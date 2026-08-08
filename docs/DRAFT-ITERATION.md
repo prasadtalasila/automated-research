@@ -29,6 +29,7 @@ Related reading:
 - [The asymmetry](#the-asymmetry)
 - [Where the tokens go](#where-the-tokens-go)
 - [The dossier](#the-dossier)
+- [Drift across every dossier](#drift-across-every-dossier)
 - [Revising a draft](#revising-a-draft)
 - [Backup and restore](#backup-and-restore)
 - [What this deliberately does not do](#what-this-deliberately-does-not-do)
@@ -179,6 +180,153 @@ a write lock, run a migration, or block behind a sync that is mid-run.
 **Drift is not itself a reason to redraft.** It is a reason to re-search
 if, and only if, the change being made touches a sub-theme the new papers
 could bear on.
+
+## Drift across every dossier
+
+`status <draft>` answers "did the corpus move under this one draft?",
+which is only useful if you already suspect it did. The corpus half of
+the bottleneck is the one nobody is watching: `src.sync` adds papers and
+`--remove-stale` drops them, and every draft written before that moment
+silently drifts. `status --all` is the sweep that makes it visible --
+one report over every dossier under `content/dossiers/`, always exiting
+0, because "some drafts have drifted" is the normal state of a live
+corpus and not a build failure.
+
+### Two findings, and they are not the same kind of thing
+
+| Finding | What it is | What it costs to ignore |
+|---|---|---|
+| **Missing** -- a cited citekey that has left the ledger | a defect | the draft cites a paper the corpus no longer has; the citation gate will fail on it |
+| **Candidate** -- a newly reachable paper the dossier never weighed | a decision | nothing, until the sub-theme it bears on is revised |
+
+Collapsing the two into one "drift" number was the thing worth avoiding.
+A missing citekey is work that has to happen; a candidate is an offer
+that is usually correct to decline. Reported together as a count, the
+first hides inside the second.
+
+**Missing is computed from `evidence.md` and `sections.md` only, not from
+`rejected.md`.** A paper the draft *stands on* vanishing is a defect; a
+paper the draft *turned down* vanishing is a non-event, and reporting the
+second as the first would make every `--remove-stale` run look like a
+pile of broken drafts. Each missing citekey is reported with the
+`sections.md` sections that cite it, because the reviser's next question
+is always "which prose leans on this?" and reading the draft to find out
+is exactly the cost this document exists to remove.
+
+**Candidates are matched against the queries in `retrieval.md`.** That
+file was added to measure what a run cost -- how many characters each
+retrieval call returned. It turns out to be the only record of *what
+this draft went looking for*, which is what makes "the corpus grew"
+answerable as "and here is the part of the growth this draft would have
+wanted". Each recorded query is re-run against the current corpus, and
+anything landing in its top 15 that the dossier has never mentioned is a
+candidate. Fifteen is not arbitrary: it is `survey-writer`'s own
+`search(sub_theme, k=15)`, so the report surfaces a paper if and only if
+the draft's original search would have put it in front of the writer.
+
+**Everything in `rejected.md` is subtracted first.** Re-offering a
+candidate the draft already read and declined would cost precisely the
+re-judging that `rejected.md` exists to prevent -- the report would
+recreate the bottleneck it is meant to expose.
+
+### The third list, and why it is not drift
+
+Subtracting the rejections throws away something worth keeping, though.
+"Turned down because the corpus had nothing better on this sub-theme"
+and "turned down because it is about a different field" age completely
+differently, and only the first is worth revisiting once the corpus
+grows. Membership in `rejected.md` cannot tell those apart; the reason
+column can.
+
+So a declined paper that the dossier's queries *still* reach is reported
+as a third list, `reconsider`, carrying the recorded reason. A citekey
+that is both cited and listed as rejected is treated as cited -- that is
+a stale `rejected.md` row, not an open question, and offering it back
+would send a reviser to re-decide something the draft already acts on.
+
+**It deliberately does not count as drift.** A rejection that still
+matches its query was true before the corpus moved and will be true on
+every sweep after it. Letting it mark a dossier stale would mean every
+dossier that ever declined a paper is permanently stale, which destroys
+the one signal this command exists to give. So `reconsider` never makes
+a dossier "drifted", and the terminal output prints it only alongside a
+real finding -- context for a re-grounding pass that is already
+warranted, rather than a standing reminder. `--json` always carries it,
+because there the consumer reads it at the moment it acts.
+
+### Why the new papers are not found with `search()`
+
+The obvious implementation -- call `src.retrieval.search(query, k=15)`
+for each recorded query -- is the one thing this could not do, for two
+reasons that are both about a report having no business changing what it
+reports on:
+
+- `search()` reaches the ledger through `ledger.connect()`, which mkdirs
+  `content/`, executes the schema and runs migrations. That is a write
+  connection, and the whole point of `status` opening the ledger
+  `mode=ro, timeout=0` is that an inspection must not take a write lock
+  or block behind a sync that is mid-run.
+- `search()` builds its index through `retrieval._load_index`, which
+  calls `_save_cache()` whenever any document's fingerprint has moved.
+  After the sync that caused the drift being reported, that is not an
+  edge case -- it is guaranteed. The scan would rewrite
+  `content/retrieval_index.json` every time it ran.
+
+**The BM25 index was never in the ledger to begin with**, which is what
+makes the alternative easy. The ledger holds bibliographic rows and a
+`parsed_path`; the index is a separate `content/retrieval_index.json`
+mapping each citekey to `{fingerprint, length, term_freqs}`, derived from
+the parsed text. And the two halves of `src.retrieval` that matter --
+`_tokenize_item` and `_bm25_scores` -- are pure; the only thing that
+persists is the cache write sitting between them.
+
+So the drift scan composes those two halves and skips the middle. It
+reads the existing cache with `_load_cache()` (which only reads), reuses
+every entry whose fingerprint still matches, tokenizes the rest into
+memory, ranks against that, and drops the whole thing when the scan
+returns. The ledger is read once and the index built once and lazily, so
+a sweep over dossiers that logged no queries never builds one at all.
+Nothing is written back, and the smoke test pins exactly that:
+`content/ledger.sqlite` and `content/retrieval_index.json` are both
+byte-identical after a scan.
+
+The cost of throwing the index away is that a cold-cache sweep re-does
+work the next `search()` will do again. That is accepted deliberately.
+The alternative is a read-only command that writes to the corpus layer
+as a side effect, which is a much worse thing to owe the reader.
+
+**What that costs is measured, not assumed** -- and unlike the estimates
+in [Where the tokens go](#where-the-tokens-go), it is a stopwatch figure,
+so it lives in
+[PERFORMANCE.md](PERFORMANCE.md#what-a-drift-sweep-costs) with the rest
+of the measurements. The load-bearing result, on this project's own
+corpus: sweeping 50 dossiers costs **0.23s more than sweeping one**
+(2.364s vs 2.130s cold), because the tokenization is shared. Had it been
+per dossier, 50 would have taken nearly two minutes. A warm cache is
+5.5-9.8x faster again. The first draft of this section called a warm
+sweep "nearly free"; the measurement says about 0.2-0.4s warm and ~2.1s
+cold -- cheap enough to run after every sync, but not nothing, and the
+wording here was corrected to match.
+
+### Unknown is not the same as absent
+
+A dossier on a machine with no readable ledger produces no findings, and
+reporting that as "current" would be the one way this command could
+actively mislead -- it would assert the result of a check that never ran.
+The sweep says so explicitly and still exits 0.
+
+### `--json`, and who it is for
+
+`--all --json` emits the same report as data: per dossier, the recorded
+and current fingerprints, `missing` as citekey -> citing sections,
+`candidates` as citekey, title and the queries that surfaced it, and
+`reconsider` as the same plus the recorded rejection reason. This
+exists because the consumer is not only a human. A re-grounding pass has
+to swap the missing citations, triage the candidates, and edit only the
+affected sections -- and having it re-parse a report written for a
+terminal would be a fragile way to hand over structured facts it already
+knows. Exiting 0 regardless is part of the same contract: the caller
+branches on the contents, not on the status code.
 
 ## Revising a draft
 
