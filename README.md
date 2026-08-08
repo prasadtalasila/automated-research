@@ -14,7 +14,13 @@ traceable back to a paper the bibliography actually holds.
 
 <p align="center">
 Named for the Hindu god who keeps the ledger of every deed and audits souls
-against it -- which is what this does to citations. <a href="docs/NAME.md">See more</a>.
+against it -- which is what this does to citations.
+<!-- Absolute on purpose. This is a raw HTML anchor inside a centred block,
+     and MkDocs only rewrites Markdown links, so a relative `docs/NAME.md`
+     here resolves on GitHub and 404s on the docs site. Making it a Markdown
+     link is not the fix: CommonMark treats the inside of an HTML block as
+     raw text, so GitHub would stop rendering it. -->
+<a href="https://github.com/prasadtalasila/chitragupta/blob/main/docs/NAME.md">See more</a>.
 </p>
 
 ---
