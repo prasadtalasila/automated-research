@@ -894,7 +894,12 @@ def _cmd_status(args: argparse.Namespace) -> int:
             # gate: it costs a comparison of two numbers already on this
             # report, and nothing else in the pipeline can see it -- the
             # draft looks finished and the judgment behind it is gone.
-            print("  but evidence.md and rejected.md are both empty -- this run")
+            #
+            # "no entries" rather than "empty": both counts are 0 for an
+            # absent file too, and the per-file lines above already
+            # distinguish `absent` from `empty (skeleton only)`. Calling
+            # a missing file empty would contradict them.
+            print("  but evidence.md and rejected.md hold no entries -- this run")
             print("  searched and recorded nothing it found, so a revision will")
             print("  have to re-retrieve and re-judge the same candidates.")
 
