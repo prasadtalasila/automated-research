@@ -655,6 +655,44 @@ class TestRetrievalLog:
 
         assert dossier.retrieval_cost(dossier.dossier_dir(draft)) == (2, 300)
 
+    def test_a_row_appended_while_the_file_is_being_created_is_not_overwritten(
+        self, draft, monkeypatch
+    ):
+        """The narrower race inside the create itself.
+
+        Making the file exist and filling it in are two steps, and a
+        second writer can append between them -- it finds the file
+        already there, so it skips creation and appends to what is still
+        an empty file. If the creating writer then writes the template
+        from offset 0, it writes straight over that row.
+
+        Reproduced by injecting a second writer at the moment
+        `retrieval.md` is first opened for writing, rather than by racing
+        real processes: the window is microseconds wide and process
+        startup dwarfs it, so eight concurrent processes hit it
+        essentially never and prove nothing.
+        """
+        dossier.init(draft, "survey")
+        path = dossier.dossier_dir(draft) / "retrieval.md"
+        path.unlink()
+
+        real_open, injected = Path.open, []
+
+        def racing_open(self, mode="r", *args, **kwargs):
+            handle = real_open(self, mode, *args, **kwargs)
+            if self.name == "retrieval.md" and "r" not in mode and not injected:
+                injected.append(True)
+                with real_open(self, "a", encoding="utf-8") as other:
+                    other.write("| 2026-08-08 | search | loser | 15 | 15 | 200 |\n")
+            return handle
+
+        with monkeypatch.context() as racing:
+            racing.setattr(Path, "open", racing_open)
+            dossier.log_retrieval(draft, "search", "winner", 15, 15, 100)
+
+        assert injected, "the interleaving never happened, so nothing was tested"
+        assert dossier.retrieval_cost(dossier.dossier_dir(draft)) == (2, 300)
+
     def test_status_flags_a_run_that_searched_and_recorded_nothing(self, draft, capsys):
         """The signature of a run that closed without transcribing what
         it found. Nothing else reports it: the packets are gone, and the

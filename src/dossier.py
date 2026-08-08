@@ -528,30 +528,48 @@ def log_retrieval(
     than a visible error. Whitespace is collapsed with `split()`, which
     covers newlines, tabs and carriage returns together.
 
-    Both writes are safe against a second writer arriving at the same
-    time, which matters because `--log` is a flag on the retrieval CLI
-    and a skill dispatching parallel subagents could hand it to all of
-    them. The template is written with mode `"x"` (`O_EXCL`), so exactly
-    one writer creates the file and a loser of that race appends to what
-    the winner wrote instead of truncating it -- which a `path.exists()`
-    check followed by `write_text` could not promise, since the check
-    can go stale between the two calls. The row itself is a single small
-    write to an `O_APPEND` handle, atomic on a local filesystem at this
-    size: concurrent rows can interleave in order, never in content.
-    This is deliberately not a lock -- see the module docstring, and
-    docs/TOKENS.md for why a lock would be the wrong instrument here.
+    **Nothing here ever writes at an offset.** That matters because
+    `--log` is a flag on the retrieval CLI and a skill dispatching
+    parallel subagents could hand it to all of them, so two processes
+    can reach this function at once. The file is opened once, in append
+    mode, and the template is written only when that open finds it
+    empty -- so both the template and the row go through `O_APPEND` and
+    land at whatever the end of the file is *at the time of the write*.
+    A writer can therefore never overwrite what another one put there.
+
+    Two earlier shapes could, and both are worth naming because each
+    looks correct:
+
+    - `if not path.exists(): path.write_text(TEMPLATE)` truncates, and
+      the check goes stale between the two calls.
+    - Creating with mode `"x"` fixes that, but publishes an empty file
+      and then writes the template to it from offset 0. A second writer
+      that appends a row in between has it overwritten.
+
+    What this does *not* promise: that the template is written exactly
+    once. Two writers that both find the file empty both write one, so
+    the file can carry a duplicate header. That is deliberately the
+    failure left in, because it loses nothing -- `retrieval_cost` skips
+    any row whose last cell isn't an integer, which both the header and
+    its separator are -- and `_count`'s advisory total is one high.
+    Buying exactly-once would need a lock or a link-into-place dance,
+    for a file whose whole point is to be cheap. See the module
+    docstring, and docs/TOKENS.md for why a lock is the wrong instrument
+    here.
+
+    Both writes go through one buffered handle and so reach the
+    filesystem as a single `write` of well under a page, which is atomic
+    under `O_APPEND` on a local filesystem. Concurrent rows can
+    interleave in order, never in content.
     """
     target = dossier_dir(draft)
     target.mkdir(parents=True, exist_ok=True)
     path = target / "retrieval.md"
-    try:
-        with path.open("x", encoding="utf-8") as handle:
-            handle.write(_RETRIEVAL_TEMPLATE)
-    except FileExistsError:
-        pass
     safe_query = " ".join(query.split()).replace("|", "\\|")
     row = f"| {date.today().isoformat()} | {mode} | {safe_query} | {k} | {results} | {chars} |\n"
     with path.open("a", encoding="utf-8") as handle:
+        if not handle.tell():
+            handle.write(_RETRIEVAL_TEMPLATE)
         handle.write(row)
     return path
 

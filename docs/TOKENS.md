@@ -341,27 +341,50 @@ reason is worth knowing because it is narrower than "the module is safe".
   gate. It must not block behind a `sync` that is mid-run, and a
   bookkeeping write is never allowed to fail the work it was recording.
 
-There is one path that *could* produce concurrent writers, and it is
-worth naming before someone builds it. `python3 -m src.retrieval ...
---log <draft>` appends to the dossier's `retrieval.md`, and subagents can
-run Bash. Today only `survey-writer` and `draft-reviser` pass `--log`,
-and both are single orchestrators. Give `--log` to six parallel
-interviewers and two things become live:
+There is one path that *can* produce concurrent writers, and it is worth
+naming because it was found by writing this document rather than by
+anything failing. `python3 -m src.retrieval ... --log <draft>` appends to
+the dossier's `retrieval.md`, and subagents can run Bash. Today only
+`survey-writer` and `draft-reviser` pass `--log`, and both are single
+orchestrators -- but give `--log` to six parallel interviewers and it is
+live.
 
-- `log_retrieval` writes the file's template when the file is absent and
-  then appends. Two processes that both find it missing can both write
-  the template, and the second `write_text` truncates -- so a row the
-  first had already appended is lost. The window is small and real.
-- The append itself is a single small write to a file opened `"a"`, which
-  is atomic on a local POSIX filesystem at these row sizes and is not
-  guaranteed to be on NFS.
+`log_retrieval` used to write the template when the file was absent and
+then append the row, which lost data two different ways. Both are worth
+knowing, because the second is what the obvious fix for the first turns
+into:
 
-Neither is a reason to change `src/dossier.py` now. Both are reasons that
-"the orchestrator owns every write" is load-bearing rather than
-stylistic, and they are what the per-persona-file proposal above would
-have to answer -- it sidesteps them by construction, since one file with
-one writer never races, but it does so by giving up the single-writer
-rule everywhere else.
+- **A stale check.** `if not path.exists(): path.write_text(TEMPLATE)`
+  truncates, and the check can go stale between the two calls, so a
+  second writer destroys rows the first had already appended.
+- **A file published before it is filled in.** Creating with mode `"x"`
+  (`O_EXCL`) fixes the check, and introduces a narrower version of the
+  same bug: the file becomes visible at zero length and *then* gets its
+  template written from offset 0. A second writer that appends a row in
+  that window has it overwritten. This one is microseconds wide, which
+  means concurrent processes essentially never hit it and a smoke test
+  proves nothing -- it has to be reproduced by forcing the interleaving.
+
+What the module does now is write nothing at an offset: one append-mode
+handle, and the template written only when that open finds the file
+empty, so every byte lands at whatever the end of the file is at the time
+of the write. The residual failure is a *duplicated header* when two
+writers both find it empty -- observed, at 16 concurrent processes -- and
+that is left in on purpose. It loses nothing: `retrieval_cost` skips any
+row whose last cell is not an integer, which the header and its separator
+both are, so all 16 rows still total correctly. Buying exactly-one-header
+would cost a lock or a link-into-place dance, on the cheapest file in the
+system.
+
+That is also the general answer to "why not just lock it". A lock fixes
+corruption, and the failure this section opened with is *loss* -- a
+transcription that never happened, which no mutual exclusion can conjure.
+It would also have to be skippable on timeout, since a bookkeeping write
+may never fail the work it records, and a lock you are willing to skip is
+not mutual exclusion. Meanwhile the per-persona-file proposal above
+sidesteps the whole question by construction, since one file with one
+writer never races -- at the price of the single-writer rule everywhere
+else.
 
 ## Measuring this without writing a survey
 
