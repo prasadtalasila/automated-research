@@ -32,7 +32,7 @@ Related reading:
 - [Where the tokens go](#where-the-tokens-go)
 - [Two worked examples](#two-worked-examples)
 - [What the dossier actually recovers](#what-the-dossier-actually-recovers)
-- [Why deep-research has one lever left](#why-deep-research-has-one-lever-left)
+- [Why deep-research has no lever left](#why-deep-research-has-no-lever-left)
 - [Who writes a packet down, and when](#who-writes-a-packet-down-and-when)
 - [Measuring this without writing a survey](#measuring-this-without-writing-a-survey)
 - [Measured, derived, and asserted](#measured-derived-and-asserted)
@@ -138,6 +138,10 @@ subject of
 [#74](https://github.com/prasadtalasila/chitragupta/issues/74), and
 ["What the dossier actually recovers"](#what-the-dossier-actually-recovers)
 below is careful about which part of it a dossier can and cannot remove.
+The half that could be removed now has been: Phase 5 dispatches through
+`python3 -m src.dossier brief` rather than pasting the packets into four
+prompts. The residency itself is untouched, and the reason it cannot be
+touched from inside a run is the subject of that section.
 
 ### 3. Whole-file rewrites
 
@@ -214,18 +218,22 @@ resident pool:
   `rejected.md`. Say ~4k output tokens: `4k x 5` = **20k equivalents** --
   as much as the entire residency, paid once, and paid for durability
   rather than for speed. It is not a saving and was never billed as one.
-- **Phase 5 dispatch prompts.** Each section writer is handed "the
+- **Phase 5 dispatch prompts.** Each section writer *was* handed "the
   relevant citekeys plus supporting facts", which the orchestrator emits
   as *output*. Four writers x ~800 tokens of packet-derived material is
   3.2k output = **16k equivalents**.
 
-That last row is the one #74 can actually collect, and it is why the
-answer is a file rather than better summarising: replace the pasted
-material with `read content/dossiers/<draft>/evidence.md, the rows for
-section 3` -- an estimated 40 output tokens per writer, ~0.8k
-equivalents. **An estimated 15k equivalents saved, in the 5x direction**,
-which is the same order as the entire resident cost the issue set out to
-attack, arrived at from the opposite side.
+That last row is the one #74 could actually collect, and it is why the
+answer is a file rather than better summarising. **Implemented** in
+3.10.0: the pasted material is now the one line
+`python3 -m src.dossier brief <draft> --section "<heading>"`, an
+estimated 40 output tokens per writer, ~0.8k equivalents.
+**An estimated 15k equivalents saved, in the 5x direction**, which is the
+same order as the entire resident cost the issue set out to attack,
+arrived at from the opposite side.
+[DRAFT-ITERATION.md](DRAFT-ITERATION.md#dispatching-from-the-dossier) has
+the mechanism and why it addresses by section rather than by citekey
+list.
 
 ## What the dossier actually recovers
 
@@ -243,12 +251,12 @@ that has already happened.
 So of the resident 20.7k in Example 2, a dossier recovers **none** within
 that run. What it does recover:
 
-| Effect | Pool | Why it is real |
-|---|---|---|
-| Phase 5 dispatch prompts shrink to a file reference | output, 5x | The orchestrator stops re-emitting packet material once per writer |
-| Subagents read only the rows they need | subagent one-shot | Four writers each receive a path instead of a paste |
-| Compaction stops being lossy | resident | A compacted run can recover exact packet detail from disk instead of re-dispatching six interviewers -- the single largest cost in the skill |
-| The next run skips Phase 2 entirely | structural | `draft-reviser` reads `evidence.md` and `rejected.md`; no interviews at all |
+| Effect | Pool | Why it is real | Status |
+|---|---|---|---|
+| Phase 5 dispatch prompts shrink to a file reference | output, 5x | The orchestrator stops re-emitting packet material once per writer | **implemented** (3.10.0, `dossier brief`) |
+| Subagents read only the rows they need | subagent one-shot | Four writers each receive a command instead of a paste | **implemented** (3.10.0) |
+| Compaction stops being lossy | resident | A compacted run can recover exact packet detail from disk instead of re-dispatching six interviewers -- the single largest cost in the skill | implemented by the transcription (`c4fbd9a`) |
+| The next run skips Phase 2 entirely | structural | `draft-reviser` reads `evidence.md` and `rejected.md`; no interviews at all | implemented by the transcription (`c4fbd9a`) |
 
 The third row is the underrated one. Today a long run that hits
 compaction either loses packet detail silently or pays six interviewer
@@ -280,33 +288,44 @@ writer, one record, verifiable by reading one skill file -- and it is
 exactly the invariant that keeps
 [the synchronisation questions below](#who-writes-a-packet-down-and-when)
 answerable. It is written down here so the trade is visible, not because
-it is recommended.
+it is recommended, and 3.10.0 deliberately did not take it: `brief` only
+*reads* the dossier, and the three subagent definitions still carry no
+`Write` tool.
 
-## Why deep-research has one lever left
+## Why deep-research has no lever left
 
 The claim in [#74](https://github.com/prasadtalasila/chitragupta/issues/74)
--- that this is now the only remaining way to cut `deep-research`'s token
-cost -- is reached by elimination, and the eliminations are each recorded
-elsewhere:
+-- that the fan-out payload was the only remaining way to cut
+`deep-research`'s token cost -- was reached by elimination, and the
+eliminations are each recorded elsewhere:
 
 | Lever | Status for this skill |
 |---|---|
-| Remove the structural cost (no revision path) | Already done -- `src/dossier.py` plus `draft-reviser` |
+| Remove the structural cost (no revision path) | Done -- `src/dossier.py` plus `draft-reviser` |
 | Trim what retrieval returns (two-stage triage) | Withdrawn. See [REJECTION.md](REJECTION.md): `deep-research`'s reads already happen inside subagents, so triage optimises the *cheap* pool, adds an estimated 270 further process starts at standard depth, and discards exactly the qualifying passages contradiction mapping exists to find |
-| Move reads behind the subagent boundary | Already done -- Phases 2, 5 and 7 all dispatch |
-| Cut the fan-out payload the orchestrator carries and re-emits | **Open** -- #74 |
+| Move reads behind the subagent boundary | Done -- Phases 2, 5 and 7 all dispatch |
+| Cut the fan-out payload the orchestrator carries and re-emits | Done in 3.10.0 -- `dossier brief`, an estimated 15k equivalents |
+| Cut the residency itself | **Not available** without one file per subagent, and [the trade above](#the-one-way-to-cut-residency-and-what-it-would-cost) is refused |
 
-The elimination is a real conclusion rather than an accident of what is
-left: this is the one substantial payload the skill puts in the expensive
-pool and then re-emits by hand.
+The elimination was a real conclusion rather than an accident of what was
+left: the dispatch payload was the one substantial thing the skill put in
+the expensive pool and then re-emitted by hand. With it gone, the honest
+statement of where this skill now stands is that its remaining cost is
+**structural to the genre** -- seven phases, a dozen subagents, and six
+packets that have to enter the orchestrator for Phase 3 to compare them
+against each other. A cheaper multi-perspective report is a different
+skill, not a further optimisation of this one; `survey-writer` is that
+skill, and the guardrails already say to point users there.
 
-Note the dependency listed on the issue is stale. It records itself as
-blocked by
+The dependency the issue records is also stale, in the direction of being
+already satisfied. It lists itself as blocked by
 [#81](https://github.com/prasadtalasila/chitragupta/issues/81), which is
 closed -- the dossier wiring landed in `c4fbd9a`, and
 `.claude/skills/deep-research/SKILL.md` has required the Phase 2
-transcription since. The write half exists; what remains is the
-dispatch-prompt half.
+transcription since. That was the write half; 3.10.0 is the
+dispatch-prompt half, and the two only work together. A run that skips
+the transcription now finds out at Phase 5, because `brief` exits 1 and
+names the citekey it has no block for.
 
 ## Who writes a packet down, and when
 
@@ -324,9 +343,20 @@ theoretical escape hatch; nothing instructs them through it.
 
 The failure mode that remains is therefore **loss, not corruption**: an
 orchestrator that moves to Phase 3 without transcribing has lost six
-packets' worth of rejected citekeys, and nothing reports it. That is
-silent by construction, which is why the skill states the transcription
-as a rule of the skill rather than as a suggestion.
+packets' worth of rejected citekeys. That used to be silent by
+construction, which is why the skill states the transcription as a rule
+of the skill rather than as a suggestion.
+
+Since 3.10.0 it is half-audible, and only because of a change made for a
+different reason. Phase 5 dispatches through `dossier brief`, which exits
+1 and names every citekey it has no block for, so a *kept* claim that was
+never transcribed surfaces at the moment the section that needs it is
+about to be written. A **rejected** citekey still fails silently: nothing
+downstream asks for it, which is exactly why it is the expensive half to
+lose -- the next session re-retrieves and re-judges those papers without
+ever knowing it is repeating work. `dossier status` reporting "searched
+and recorded nothing it found" remains the only signal there, and it is
+after the fact.
 
 **Is there a synchronisation risk?** Not on the current paths, and the
 reason is worth knowing because it is narrower than "the module is safe".
@@ -459,7 +489,12 @@ the number of turns they are resident for.
 That makes a stub corpus the right vehicle for the A/B that matters --
 the same topic, the same depth, once with packets pasted into dispatch
 prompts and once with a file reference -- because it is the one
-comparison where the difference is the change rather than the topic.
+comparison where the difference is the change rather than the topic. Note
+what the two arms now are: since 3.10.0 the shipped skill *is* the file
+reference, so the paste arm means checking out the 3.9.0 revision of
+`.claude/skills/deep-research/SKILL.md`, not editing the current one.
+[The dispatch payload, measured on real material](#the-dispatch-payload-measured-on-real-material)
+below is the cheaper half of that comparison, already done.
 
 Its limit is the honest one: a stub corpus tells you what the *structure*
 costs, not what a real run costs. Packet sizes on five toy papers are not
@@ -492,15 +527,60 @@ runs, and it costs nothing beyond passing a flag.
 The gap it leaves is exactly the one this document is about: it measures
 what entered context, and not how many turns it stayed there for.
 
+### The dispatch payload, measured on real material
+
+The one number here that is counted rather than estimated. It is a
+**character count of a payload**, not a token count of a run: the same
+unit `retrieval.md` already collects, and the same reason -- characters
+are countable without a model in the loop.
+
+Method: the shipped example report
+(`content/drafts/digital-twins-for-software-engineers/deep-research.md`,
+7 sections, 11 distinct citekeys) with a dossier built from its own
+citations -- `sections.md` from the citekeys each section actually cites,
+and one `evidence.md` block per citekey whose `support:` line is a real
+600-character evidence window pulled from the 501-paper corpus, i.e. the
+same `src.retrieval evidence` call an interviewer makes. Then, per
+section, `dossier brief --section` on one side and the dispatch line that
+replaces it on the other.
+
+| | Characters |
+|---|---|
+| Evidence a Phase 5 dispatch would have pasted, all sections | **15,660** |
+| Dispatch lines that replace it (`Your evidence: python3 -m src.dossier brief ... --section "..."`) | **901** |
+| Ratio | **17.4x** |
+
+At the documented conversions -- four characters per token, output at 5x
+a base input token -- that is an estimated 3,915 output tokens against
+225, or **~19.6k input-token equivalents against ~1.1k**. It brackets the
+15k estimate derived above rather than contradicting it, from the high
+side: this report's blocks carry a 600-character window each, where the
+estimate assumed ~800 tokens of packet-derived material per writer across
+four writers.
+
+Two sections contributed nothing, and they are the honest kind of zero:
+"Perspectives assembled" and "Self peer review" cite nothing, so there
+was never anything to paste for them. Reproduce it by building a dossier
+the same way and diffing the two payloads; nothing about it needs a
+drafting run.
+
+What it does **not** measure: any effect on residency (there is none --
+see [what the dossier actually recovers](#what-the-dossier-actually-recovers)),
+and the turn counts either side of the change. Those still want the
+before/after run in [#76](https://github.com/prasadtalasila/chitragupta/issues/76).
+
 ## Measured, derived, and asserted
 
 Kept separate on purpose, in a project where
 [PERFORMANCE.md](PERFORMANCE.md) means measured.
 
-**Measured** -- one figure. The 35 turns / 1,991,974 input / 14,318
-output above, from this session's own transcript, on the machine this was
-written on. It demonstrates the ratio; it is not a benchmark of a
-drafting run.
+**Measured** -- two figures, in two different units. The 35 turns /
+1,991,974 input / 14,318 output above, from this session's own
+transcript, on the machine this was written on: it demonstrates the
+ratio, and is not a benchmark of a drafting run. And the
+[15,660 against 901 characters](#the-dispatch-payload-measured-on-real-material)
+of Phase 5 dispatch payload, counted on the shipped example report
+against the real corpus: a payload size, not a run.
 
 **Derived** -- the turn counts (read off the skill files), the pricing
 multipliers (structural ratios of the Claude API, not prices), and every

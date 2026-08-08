@@ -64,6 +64,7 @@ Usage:
     python3 -m src.dossier status content/drafts/<name>.md
     python3 -m src.dossier status --all [--json]
     python3 -m src.dossier sections content/drafts/<name>.md
+    python3 -m src.dossier brief content/drafts/<name>.md --section "2. Failure modes"
     python3 -m src.dossier list
     python3 -m src.dossier export [<name> ...] [--out FILE] [--with-rendered]
     python3 -m src.dossier restore <archive.tar.gz> [--force]
@@ -316,19 +317,79 @@ def section_citekeys(dossier: Path) -> dict[str, list[str]]:
     both exist to avoid. Absent or hand-mangled rows map nothing, like
     every other read here.
     """
+    found: dict[str, list[str]] = {}
+    for title, citekeys in citekeys_by_section(dossier).items():
+        for citekey in citekeys:
+            found.setdefault(citekey, []).append(title)
+    return found
+
+
+def citekeys_by_section(dossier: Path) -> dict[str, list[str]]:
+    """section -> the citekeys `sections.md` assigns to it, in row order.
+
+    The file has one parser, and this is it -- `section_citekeys` is this
+    inverted. They answer different questions for different callers:
+    that one is "who leans on this paper?", for a reviser holding a
+    citekey that left the ledger; this one is "what is this section's
+    evidence?", for a section writer about to be dispatched. Row order is
+    kept because it is the order the run itself chose.
+
+    A section whose citekey cell is empty maps to `[]` rather than being
+    dropped. `deep-research` writes this file at outline time, before
+    every section has evidence assigned, and "planned but empty" and
+    "not a section at all" want opposite fixes -- one is a gap to fill,
+    the other a typo in the section name.
+    """
     path = dossier / "sections.md"
     if not path.is_file():
         return {}
     found: dict[str, list[str]] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
-        if not stripped.startswith("|"):
+        if not stripped.startswith("|") or set(stripped) <= set("|-: \t"):
             continue
         cells = [cell.strip() for cell in _ROW_SPLIT.split(stripped.strip("|"))]
-        if len(cells) != 2:
+        if len(cells) != 2 or [cell.lower() for cell in cells] == ["section", "citekeys"]:
             continue
-        for citekey in _CITEKEY_TOKEN.findall(cells[1]):
-            found.setdefault(citekey, []).append(cells[0])
+        found[cells[0]] = _CITEKEY_TOKEN.findall(cells[1])
+    return found
+
+
+def evidence_blocks(dossier: Path) -> dict[str, str]:
+    """citekey -> its whole `## `citekey`` block in `evidence.md`.
+
+    What a dispatched subagent reads instead of being handed the same
+    text pasted into its prompt. The block is returned verbatim, heading
+    included, because what a genre skill puts under one varies (a
+    `relevance:`/`support:` pair, a claim list, a quotation) and this
+    module does not own that shape -- only the heading that addresses it.
+
+    Keyed on the first citekey-shaped token in the heading, so
+    ``## `smith_x_2024` -- kept for section 3`` is addressable as
+    `smith_x_2024`. A heading carrying no backticked token falls back to
+    its own text: a hand-written dossier is a supported input everywhere
+    else here, and a block nobody can address is a block the next run
+    re-retrieves.
+    """
+    path = dossier / "evidence.md"
+    if not path.is_file():
+        return {}
+    found: dict[str, str] = {}
+    key: str | None = None
+    body: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("## "):
+            if key is not None:
+                found[key] = "\n".join(body).rstrip() + "\n"
+            heading = line[3:].strip()
+            tokens = _CITEKEY_TOKEN.findall(heading)
+            key = tokens[0] if tokens else heading.strip("` ")
+            body = [line]
+            continue
+        if key is not None:
+            body.append(line)
+    if key is not None:
+        found[key] = "\n".join(body).rstrip() + "\n"
     return found
 
 
@@ -860,6 +921,108 @@ def status(draft_or_dossier: Path) -> Status:
     if corpus_keys is not None:
         report.current = (len(corpus_keys), digest(corpus_keys))
         report.unconsidered = corpus_keys - cited_citekeys(dossier)
+    return report
+
+
+# --------------------------------------------------------------------------
+# Dispatching from the dossier
+#
+# `status` and `drift` read a dossier on behalf of a human. This reads it
+# on behalf of a *subagent*, and the difference is what the shape is for.
+#
+# A skill that fans out -- `deep-research` Phase 5 dispatches one writer
+# per section -- has to give each subagent the evidence its section
+# stands on. Pasting that evidence into the dispatch prompt spends it in
+# the output pool, which is the expensive direction (docs/TOKENS.md), and
+# spends it once per subagent. Handing over a command instead moves the
+# same text into the subagent's own one-shot context, where it is billed
+# once and discarded with that context.
+#
+# This does not, and cannot, shrink what the *orchestrator* is already
+# carrying: a context is append-only between compactions, so material
+# already returned into it stays. What it removes is the re-emission --
+# and, because the dossier outlives the run, the need to re-derive any of
+# it after a compaction or in a later session.
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class Brief:
+    """The evidence a dispatched subagent was asked for, and what of it
+    the dossier could not supply."""
+
+    dossier: Path
+    section: str | None = None  # the sections.md row this matched, if asked by section
+    blocks: list[tuple[str, str]] = field(default_factory=list)
+    missing: list[str] = field(default_factory=list)
+    known_sections: list[str] = field(default_factory=list)
+
+
+def _normalised(title: str) -> str:
+    return " ".join(title.split()).casefold()
+
+
+def _match_section(wanted: str, known: dict[str, list[str]]) -> str | None:
+    """The `sections.md` row `wanted` names, or None if it names no single
+    one.
+
+    Exact first (modulo case and runs of whitespace), then a unique
+    substring either way, so a writer dispatched for "Failure modes"
+    matches the row a skill numbered "2. Failure modes" without the
+    caller having to know how it was numbered.
+
+    An ambiguous name matches *nothing* rather than the first candidate.
+    Guessing here hands a section writer another section's evidence,
+    which is the one failure mode this whole path has to avoid: it comes
+    back as a fluent, correctly-cited section about the wrong thing.
+    """
+    target = _normalised(wanted)
+    for title in known:
+        if _normalised(title) == target:
+            return title
+    partial = [
+        title for title in known
+        if target in _normalised(title) or _normalised(title) in target
+    ]
+    return partial[0] if len(partial) == 1 else None
+
+
+def brief(
+    dossier: Path,
+    citekeys: "list[str] | tuple[str, ...]" = (),
+    section: str | None = None,
+) -> Brief:
+    """The kept-evidence blocks for `citekeys`, for `section`, or for both.
+
+    Reports rather than raises, like everything else here -- but the
+    report distinguishes three things a caller has to tell apart: a
+    citekey with a block (`blocks`), one asked for with no block
+    (`missing`), and a section name that matches no row (`section` back
+    as None, with `known_sections` filled in).
+
+    `missing` is the load-bearing one. A citekey that was retrieved,
+    kept, and then never transcribed exists nowhere once the run that
+    found it ends, and until this the loss was silent: the draft looked
+    finished and the judgment behind it was gone. A dispatch that reads
+    from here turns that into a named citekey at the moment it matters.
+    """
+    known = citekeys_by_section(dossier)
+    matched = _match_section(section, known) if section else None
+    report = Brief(dossier=dossier, section=matched, known_sections=list(known))
+    if section and matched is None:
+        return report
+
+    asked: list[str] = []
+    for citekey in list(known.get(matched, [])) + list(citekeys):
+        if citekey not in asked:
+            asked.append(citekey)
+
+    blocks = evidence_blocks(dossier)
+    for citekey in asked:
+        if citekey in blocks:
+            report.blocks.append((citekey, blocks[citekey]))
+        else:
+            report.missing.append(citekey)
     return report
 
 
@@ -1447,6 +1610,74 @@ def _cmd_sections(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_brief(args: argparse.Namespace) -> int:
+    """Exit codes: 0 when it printed at least one block, 1 when it could
+    not print any.
+
+    A caller of this is a dispatch prompt, not a person, so "nothing
+    here" has to be a status code rather than a paragraph -- a subagent
+    that reads an empty brief and writes the section anyway produces
+    exactly the ungrounded prose this project exists to prevent. Every
+    diagnostic goes to stderr so that stdout is only ever the evidence.
+    """
+    if not args.citekeys and not args.section:
+        print("Name at least one citekey, or a section with --section. "
+              "`brief` selects rows; it deliberately won't dump the whole "
+              "of evidence.md into a reader's context.", file=sys.stderr)
+        return 1
+
+    target = _resolve_dossier(Path(args.draft))
+    if not target.is_dir():
+        print(f"No dossier at {draft_relpath(target)}. Create one with "
+              f"`python3 -m src.dossier init {args.draft} --genre <genre>`.",
+              file=sys.stderr)
+        return 1
+
+    report = brief(target, args.citekeys, args.section)
+    if args.section and report.section is None:
+        print(f"No section matching {args.section!r} in "
+              f"{draft_relpath(target / 'sections.md')}.", file=sys.stderr)
+        if report.known_sections:
+            print("  Sections it does hold:", file=sys.stderr)
+            for title in report.known_sections:
+                print(f"    {title}", file=sys.stderr)
+        else:
+            print("  sections.md holds no rows yet -- the run that dispatches by "
+                  "section writes the section -> citekey plan there first.",
+                  file=sys.stderr)
+        return 1
+
+    label = f"{dossier_name(target)}"
+    if report.section:
+        label += f" -- section {report.section!r}"
+    asked = len(report.blocks) + len(report.missing)
+    print(f"# Kept evidence: {label}", file=sys.stderr)
+    print(f"#   {len(report.blocks)} of {asked} citekey(s) from "
+          f"{draft_relpath(target / 'evidence.md')}", file=sys.stderr)
+
+    if not args.check:
+        for _, block in report.blocks:
+            print(f"\n{block}", end="")
+
+    if report.missing:
+        print(f"\n[warn] {len(report.missing)} citekey(s) have no block in "
+              "evidence.md, so nothing here grounds them:", file=sys.stderr)
+        for citekey in report.missing:
+            print(f"    {citekey}", file=sys.stderr)
+        print("  Either the run that found them never transcribed them -- in "
+              "which case they are gone and have to be re-retrieved -- or they "
+              "are misspelled here.", file=sys.stderr)
+    elif not asked:
+        # A row that exists and assigns nothing. Distinct from a name
+        # that matched no row, and it wants the opposite fix: the plan
+        # has a gap in it, rather than the caller having mistyped.
+        print("\n[warn] That section is planned but has no citekeys assigned "
+              "to it, so there is nothing to write from. Assign its evidence "
+              "in sections.md, or don't dispatch a writer for it.",
+              file=sys.stderr)
+    return 0 if report.blocks else 1
+
+
 def _cmd_list(args: argparse.Namespace) -> int:
     found = all_dossiers()
     if not found:
@@ -1532,6 +1763,16 @@ def main(argv: list[str] | None = None) -> int:
         "sections", help="Heading -> line range, for reading and editing one section")
     p_sections.add_argument("draft", help="Path to the draft")
     p_sections.set_defaults(func=_cmd_sections)
+
+    p_brief = sub.add_parser(
+        "brief", help="The kept evidence for one section, for a subagent to read")
+    p_brief.add_argument("draft", help="Draft path, or the dossier directory itself")
+    p_brief.add_argument("citekeys", nargs="*", help="Citekeys to print the blocks for")
+    p_brief.add_argument("--section",
+                         help="Take the citekeys from this sections.md row instead")
+    p_brief.add_argument("--check", action="store_true",
+                         help="Report what resolves without printing the blocks")
+    p_brief.set_defaults(func=_cmd_brief)
 
     p_list = sub.add_parser("list", help="Every dossier on this machine")
     p_list.set_defaults(func=_cmd_list)

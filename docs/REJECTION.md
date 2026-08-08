@@ -310,7 +310,13 @@ exists to prevent.
 The right way to cut `deep-research`'s cost is where it actually spends:
 the interview packets held resident across Phases 3-7
 ([#74](https://github.com/prasadtalasila/chitragupta/issues/74)), not the
-retrieval inside Phase 2.
+retrieval inside Phase 2. That was done in 3.10.0, with one correction to
+the diagnosis worth carrying back here -- the residency itself could not
+be undone from inside a run, so what the fix collects is the *re-emission*
+of those packets into four dispatch prompts, in the output pool. See
+[TOKENS.md](TOKENS.md#what-the-dossier-actually-recovers). It does not
+reopen the case for triage: the reads this section is about still happen
+inside subagents, where they are billed once.
 
 ## Should any of this be configurable?
 

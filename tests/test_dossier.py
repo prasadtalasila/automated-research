@@ -1468,3 +1468,261 @@ class TestRestoreCLIOutput:
         out = capsys.readouterr().out
         assert "CHANGED (-1 citekeys)" in out
         assert "appear nowhere in this dossier" not in out
+
+
+# ---------------------------------------------------------------------
+# Dispatching from the dossier (`brief`)
+# ---------------------------------------------------------------------
+#
+# The reason these exist is a token bill rather than a correctness one.
+# A skill that fans out to parallel section writers has to hand each one
+# its source material, and pasting that material into the dispatch prompt
+# spends it in the *output* pool -- the expensive direction. `brief` is
+# what a dispatch prompt points at instead, so the tests that matter are
+# the ones about resolving the right rows and about saying so loudly when
+# there are none: a subagent handed a pointer to nothing writes an
+# ungrounded section, and nothing downstream would report why.
+
+
+def _fill_dossier(draft, evidence="", sections_rows=""):
+    """A dossier whose evidence.md and sections.md hold real rows."""
+    dossier.init(draft, "deep-research")
+    target = dossier.dossier_dir(draft)
+    if evidence:
+        (target / "evidence.md").write_text(
+            dossier._EVIDENCE_TEMPLATE + evidence, encoding="utf-8")
+    if sections_rows:
+        (target / "sections.md").write_text(
+            dossier._SECTIONS_TEMPLATE + sections_rows, encoding="utf-8")
+    return target
+
+
+_TWO_BLOCKS = (
+    "## `ferko_architecting_2022`\n\n"
+    "- relevance: names the service layer this section is about\n"
+    "- support: \"a digital twin is composed of services\"\n\n"
+    "## `talasila_composable_2025`\n\n"
+    "- relevance: the composition rule the section leans on\n"
+    "- support: \"twins compose from tool-agnostic parts\"\n"
+)
+
+
+class TestEvidenceBlocks:
+    def test_one_block_per_citekey_heading(self, draft):
+        target = _fill_dossier(draft, evidence=_TWO_BLOCKS)
+        blocks = dossier.evidence_blocks(target)
+        assert list(blocks) == ["ferko_architecting_2022", "talasila_composable_2025"]
+        assert "service layer" in blocks["ferko_architecting_2022"]
+        assert "composition rule" not in blocks["ferko_architecting_2022"]
+
+    def test_a_heading_that_carries_prose_still_keys_on_the_citekey(self, draft):
+        target = _fill_dossier(
+            draft, evidence="## `ferko_architecting_2022` -- kept for section 3\n\nbody\n")
+        assert "ferko_architecting_2022" in dossier.evidence_blocks(target)
+
+    def test_a_heading_without_backticks_keys_on_its_text(self, draft):
+        """A hand-written dossier is a supported input everywhere else
+        here, and a block nobody can address is a block that gets
+        re-retrieved."""
+        target = _fill_dossier(draft, evidence="## ferko_architecting_2022\n\nbody\n")
+        assert "ferko_architecting_2022" in dossier.evidence_blocks(target)
+
+    def test_no_evidence_file_maps_nothing(self, draft):
+        target = dossier.dossier_dir(draft)
+        target.mkdir(parents=True)
+        assert dossier.evidence_blocks(target) == {}
+
+
+class TestCitekeysBySection:
+    def test_reads_rows_in_order_and_skips_the_header(self, draft):
+        target = _fill_dossier(draft, sections_rows=(
+            "| 2. Failure modes | `ferko_architecting_2022`, `talasila_composable_2025` |\n"
+            "| 3. Adoption | `zech_digital-twins-as--service_2024` |\n"
+        ))
+        assert dossier.citekeys_by_section(target) == {
+            "2. Failure modes": ["ferko_architecting_2022", "talasila_composable_2025"],
+            "3. Adoption": ["zech_digital-twins-as--service_2024"],
+        }
+
+    def test_a_planned_section_with_no_citekeys_yet_is_still_a_section(self, draft):
+        """Phase 4 writes the plan before Phase 5 dispatches, and a
+        section it has not assigned evidence to must be reported as empty
+        rather than as unknown -- the two want opposite fixes."""
+        target = _fill_dossier(draft, sections_rows="| 4. Open questions |  |\n")
+        assert dossier.citekeys_by_section(target) == {"4. Open questions": []}
+
+    def test_no_sections_file_maps_nothing(self, draft):
+        target = dossier.dossier_dir(draft)
+        target.mkdir(parents=True)
+        assert dossier.citekeys_by_section(target) == {}
+
+    def test_a_hand_mangled_row_is_skipped_rather_than_fatal(self, draft):
+        target = _fill_dossier(draft, sections_rows=(
+            "| 2. Failure modes | `ferko_architecting_2022` |\n"
+            "| 3. Adoption | `a_b_2024` | stray fourth cell |\n"
+        ))
+        assert list(dossier.citekeys_by_section(target)) == ["2. Failure modes"]
+
+
+class TestBrief:
+    def test_resolves_the_citekeys_it_is_given_in_order(self, draft):
+        target = _fill_dossier(draft, evidence=_TWO_BLOCKS)
+        report = dossier.brief(
+            target, citekeys=["talasila_composable_2025", "ferko_architecting_2022"])
+        assert [key for key, _ in report.blocks] == [
+            "talasila_composable_2025", "ferko_architecting_2022"]
+        assert report.missing == []
+
+    def test_a_citekey_with_no_block_is_reported_not_dropped(self, draft):
+        target = _fill_dossier(draft, evidence=_TWO_BLOCKS)
+        report = dossier.brief(target, citekeys=["ferko_architecting_2022", "never_seen_2020"])
+        assert [key for key, _ in report.blocks] == ["ferko_architecting_2022"]
+        assert report.missing == ["never_seen_2020"]
+
+    def test_resolves_a_section_through_sections_md(self, draft):
+        target = _fill_dossier(draft, evidence=_TWO_BLOCKS, sections_rows=(
+            "| 2. Failure modes | `ferko_architecting_2022` |\n"
+            "| 3. Adoption | `talasila_composable_2025` |\n"
+        ))
+        report = dossier.brief(target, section="2. Failure modes")
+        assert report.section == "2. Failure modes"
+        assert [key for key, _ in report.blocks] == ["ferko_architecting_2022"]
+
+    def test_a_section_matches_on_its_title_without_its_numbering(self, draft):
+        target = _fill_dossier(draft, evidence=_TWO_BLOCKS, sections_rows=(
+            "| 2. Failure modes | `ferko_architecting_2022` |\n"
+        ))
+        report = dossier.brief(target, section="failure modes")
+        assert report.section == "2. Failure modes"
+
+    def test_an_ambiguous_section_matches_nothing_and_offers_the_candidates(self, draft):
+        """Guessing between two sections would hand a writer someone
+        else's evidence, which reads as a plausible section and is wrong."""
+        target = _fill_dossier(draft, evidence=_TWO_BLOCKS, sections_rows=(
+            "| 2. Failure modes in practice | `ferko_architecting_2022` |\n"
+            "| 3. Failure modes in theory | `talasila_composable_2025` |\n"
+        ))
+        report = dossier.brief(target, section="failure modes")
+        assert report.section is None
+        assert len(report.known_sections) == 2
+
+    def test_a_section_and_citekeys_together_are_the_union_without_repeats(self, draft):
+        target = _fill_dossier(draft, evidence=_TWO_BLOCKS, sections_rows=(
+            "| 2. Failure modes | `ferko_architecting_2022` |\n"
+        ))
+        report = dossier.brief(
+            target,
+            citekeys=["ferko_architecting_2022", "talasila_composable_2025"],
+            section="2. Failure modes",
+        )
+        assert [key for key, _ in report.blocks] == [
+            "ferko_architecting_2022", "talasila_composable_2025"]
+
+    def test_a_section_with_no_evidence_transcribed_resolves_to_nothing(self, draft):
+        target = _fill_dossier(draft, sections_rows=(
+            "| 2. Failure modes | `ferko_architecting_2022` |\n"
+        ))
+        report = dossier.brief(target, section="2. Failure modes")
+        assert report.blocks == []
+        assert report.missing == ["ferko_architecting_2022"]
+
+
+class TestBriefCli:
+    def test_prints_the_blocks_for_the_citekeys_asked_for(self, draft, capsys):
+        _fill_dossier(draft, evidence=_TWO_BLOCKS)
+        assert dossier.main(["brief", str(draft), "ferko_architecting_2022"]) == 0
+        out = capsys.readouterr().out
+        assert "service layer" in out
+        assert "composition rule" not in out
+
+    def test_check_reports_the_count_without_the_bodies(self, draft, capsys):
+        """What the orchestrator runs before dispatching: it needs to know
+        the rows are there, and reading them into its own context is the
+        cost the whole mechanism exists to avoid."""
+        _fill_dossier(draft, evidence=_TWO_BLOCKS)
+        assert dossier.main(
+            ["brief", str(draft), "ferko_architecting_2022", "--check"]) == 0
+        captured = capsys.readouterr()
+        assert "1 of 1" in captured.err
+        assert "service layer" not in captured.out + captured.err
+
+    def test_the_dossier_directory_works_as_well_as_the_draft_path(self, draft, capsys):
+        target = _fill_dossier(draft, evidence=_TWO_BLOCKS)
+        assert dossier.main(["brief", str(target), "ferko_architecting_2022"]) == 0
+        assert "service layer" in capsys.readouterr().out
+
+    def test_a_section_is_resolved_and_named_in_the_header(self, draft, capsys):
+        _fill_dossier(draft, evidence=_TWO_BLOCKS, sections_rows=(
+            "| 2. Failure modes | `ferko_architecting_2022` |\n"
+        ))
+        assert dossier.main(["brief", str(draft), "--section", "failure modes"]) == 0
+        captured = capsys.readouterr()
+        assert "2. Failure modes" in captured.err, "the header names the row it matched"
+        assert "service layer" in captured.out, "stdout carries only the evidence"
+
+    def test_an_unknown_section_exits_nonzero_and_lists_the_known_ones(self, draft, capsys):
+        _fill_dossier(draft, evidence=_TWO_BLOCKS, sections_rows=(
+            "| 2. Failure modes | `ferko_architecting_2022` |\n"
+        ))
+        assert dossier.main(["brief", str(draft), "--section", "adoption"]) == 1
+        err = capsys.readouterr().err
+        assert "2. Failure modes" in err
+
+    def test_an_unknown_section_with_no_plan_at_all_says_so(self, draft, capsys):
+        _fill_dossier(draft, evidence=_TWO_BLOCKS)
+        assert dossier.main(["brief", str(draft), "--section", "adoption"]) == 1
+        assert "sections.md" in capsys.readouterr().err
+
+    def test_nothing_transcribed_exits_nonzero_and_names_the_cause(self, draft, capsys):
+        """The failure this makes loud. Before it, an orchestrator that
+        skipped its transcription lost six packets and nothing said so."""
+        _fill_dossier(draft)
+        assert dossier.main(["brief", str(draft), "ferko_architecting_2022"]) == 1
+        err = capsys.readouterr().err
+        assert "ferko_architecting_2022" in err
+        assert "evidence.md" in err
+
+    def test_a_partial_result_still_prints_what_it_has_and_warns(self, draft, capsys):
+        _fill_dossier(draft, evidence=_TWO_BLOCKS)
+        assert dossier.main(
+            ["brief", str(draft), "ferko_architecting_2022", "never_seen_2020"]) == 0
+        captured = capsys.readouterr()
+        assert "service layer" in captured.out
+        assert "never_seen_2020" in captured.err
+
+    def test_no_selector_at_all_is_an_error_rather_than_the_whole_file(self, draft, capsys):
+        """Defaulting to "print everything" would put the whole of
+        evidence.md into the reader's context, which is what a caller
+        reaching for `brief` is trying not to do."""
+        _fill_dossier(draft, evidence=_TWO_BLOCKS)
+        assert dossier.main(["brief", str(draft)]) == 1
+        assert "--section" in capsys.readouterr().err
+
+    def test_no_dossier_at_all_points_at_init(self, draft, capsys):
+        assert dossier.main(["brief", str(draft), "a_b_2024"]) == 1
+        assert "init" in capsys.readouterr().err
+
+    def test_a_planned_section_with_no_evidence_assigned_says_which_gap(
+            self, draft, capsys):
+        """Distinct from a section name that matched nothing: this row
+        exists, and it is Phase 4's plan that is incomplete."""
+        _fill_dossier(draft, evidence=_TWO_BLOCKS,
+                      sections_rows="| 4. Open questions |  |\n")
+        assert dossier.main(["brief", str(draft), "--section", "Open questions"]) == 1
+        assert "planned but has no citekeys" in capsys.readouterr().err
+
+    def test_a_mistyped_dossier_path_gets_the_mirroring_rule_not_init(
+            self, isolated_config, capsys):
+        """`brief` takes either a draft path or a dossier directory, and
+        the two wrong-path cases have to say different things. A draft
+        with no dossier yet gets `init <that draft>`, which is the right
+        command. A dossier path that resolves to nothing never reaches
+        that suggestion -- `dossier_dir` refuses it first, because
+        `init` would not accept it -- and says which rule was broken
+        instead. `status` behaves the same way; this pins that they
+        agree."""
+        config.DRAFTS_DIR.mkdir(parents=True)
+        assert dossier.main(["brief", "content/dossiers/nope", "a_b_2024"]) == 1
+        err = capsys.readouterr().err
+        assert "is not under" in err
+        assert "init" not in err
