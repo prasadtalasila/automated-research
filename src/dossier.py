@@ -558,11 +558,13 @@ def log_retrieval(
     here.
 
     Write atomicity is deliberately *not* claimed. Both writes go
-    through one buffered handle, so CPython flushes them together as one
-    small write at close -- but that is the template happening to fit
-    inside the buffer rather than a guarantee, POSIX does not promise a
-    write to a regular file arrives unsplit, and text-mode I/O may flush
-    more than once. Nothing here depends on it. `retrieval_cost` skips
+    through one buffered handle and may well reach the filesystem as a
+    single small write -- but that is an implementation detail of how
+    the template's size compares to a buffer, not behaviour to rely on:
+    buffered text I/O can flush at points of its own choosing, closing
+    may still issue more than one write, and POSIX does not promise that
+    a write to a regular file arrives unsplit. Nothing here depends on
+    any of that. `retrieval_cost` skips
     any row it cannot parse, so a torn row costs that one measurement
     and leaves every other row intact -- while a row overwritten at an
     offset would have been silently gone. The guarantee this function
