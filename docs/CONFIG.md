@@ -1,5 +1,7 @@
 # Configuration
 
+Status: **reference.** Written 2026-08-03.
+
 Every setting, what values it accepts, and what it defaults to.
 
 What each setting *costs* lives in [PERFORMANCE.md](PERFORMANCE.md), so

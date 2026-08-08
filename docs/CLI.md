@@ -1,5 +1,7 @@
 # Command reference
 
+Status: **reference.** Written 2026-08-03.
+
 Every command this repository provides, every flag it accepts, and which
 interpreter each one needs. [README.md](../README.md)'s Quickstart is the
 short path; this is the full set.

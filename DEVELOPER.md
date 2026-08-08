@@ -146,7 +146,19 @@ DOCKER.md                 running this repo in a container (docker/Dockerfile)
                           automatically and RELEASE_TEMPLATE.md (copied by hand)
 docs/                     reference docs that ship in the release zip -- everything except the
                           root-level ones above, which stay put because they're what a reader looks
-                          for first
+                          for first. Every file here opens with a status line on the third line,
+                          `Status: **<kind>.** Written <date>.`, so a reader can tell what they are
+                          holding before reading it -- one of:
+                            reference.               what exists and how to look it up
+                            how-to.                  a procedure to follow start to finish
+                            implemented.             a built subsystem, described as built
+                            reasoning document.      why a decision went the way it did, kept
+                                                     because the reasoning outlives the decision
+                            measurements.            numbers from a real run on a named machine
+                            a proposal, not a plan.  nothing here is built; the decision is open
+                          A new document picks one of those rather than inventing a sixth. The date
+                          is when it was written, not when it was last touched -- git already
+                          records revisions, and a hand-maintained "last revised" goes stale
   PARALLELISM.md            parallel parse design: architecture, components, and the roadmap
   PERFORMANCE.md            what each config setting costs, measured -- the lookup-oriented companion
                             to PARALLELISM.md's design doc

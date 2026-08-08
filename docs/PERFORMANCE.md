@@ -1,5 +1,7 @@
 # Performance
 
+Status: **measurements.** Written 2026-08-03.
+
 What each setting in [CONFIG.md](CONFIG.md) costs, measured rather than
 estimated. [CONFIG.md](CONFIG.md) says what a setting *does* and what
 values it takes; this says what it *costs*, so neither document has to

@@ -1,5 +1,7 @@
 # Parallelism: design and roadmap
 
+Status: **implemented.** Written 2026-08-03.
+
 How the PDF parse path runs work in parallel, what each component is for,
 and what is planned next.
 

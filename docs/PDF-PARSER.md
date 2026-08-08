@@ -1,5 +1,7 @@
 # PDF parser tradeoffs for chitragupta
 
+Status: **reasoning document.** Written 2026-08-02.
+
 ## Short summary
 
 This repository needs PDF processing that balances speed, text quality, structure preservation, and portability.

@@ -1,5 +1,7 @@
 # The pipeline, its ladders, and its tiers
 
+Status: **reference.** Written 2026-08-06.
+
 Most of this repository does one job per module. This page is about the
 places where it does *one job two ways* -- where the same question ("what
 text supports this claim?", "how do I turn a draft into a PDF?") has more

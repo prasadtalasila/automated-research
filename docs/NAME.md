@@ -1,5 +1,7 @@
 # Chitragupta
 
+Status: **reference.** Written 2026-08-05.
+
 A divine record keeper who keeps the ledger of deeds and audits souls against it.
 
 ## The figure

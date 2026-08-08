@@ -1,4 +1,6 @@
-## Exporting your library from Zotero
+# Exporting your library from Zotero
+
+Status: **how-to.** Written 2026-08-03.
 
 How to get a `.bib` file and its PDFs into the shape this pipeline
 expects. See [../README.md](../README.md) for the Quickstart that
