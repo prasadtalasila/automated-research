@@ -92,9 +92,27 @@ jobs:
                            pathlib.Path("mkdocs.yml").read_text(), re.M)
           base = (base.group(1) + "/") if base else "/"
 
+          def refs(text):
+              """Every local reference in one page.
+
+              `srcset` is included and split on its own grammar -- a comma
+              separated candidate list, each entry a URL optionally followed
+              by a descriptor (`logo.svg 2x`). Missing it would let the
+              README's dark-mode logo, which is only ever reached through
+              `srcset`, break silently while this guard stayed green.
+              """
+              for attr, value in re.findall(r'(href|src|srcset)="([^"]+)"', text):
+                  if attr != "srcset":
+                      yield value
+                      continue
+                  for candidate in value.split(","):
+                      parts = candidate.strip().split()
+                      if parts:
+                          yield parts[0]
+
           missing = {}
           for html in sorted(site.rglob("*.html")):
-              for ref in re.findall(r'(?:href|src)="([^"]+)"', html.read_text(errors="replace")):
+              for ref in refs(html.read_text(errors="replace")):
                   if ref.startswith(("http://", "https://", "mailto:", "data:", "#", "//")):
                       continue
                   path = urllib.parse.unquote(ref.split("#")[0].split("?")[0])
