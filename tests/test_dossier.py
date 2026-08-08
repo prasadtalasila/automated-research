@@ -1710,3 +1710,19 @@ class TestBriefCli:
                       sections_rows="| 4. Open questions |  |\n")
         assert dossier.main(["brief", str(draft), "--section", "Open questions"]) == 1
         assert "planned but has no citekeys" in capsys.readouterr().err
+
+    def test_a_mistyped_dossier_path_gets_the_mirroring_rule_not_init(
+            self, isolated_config, capsys):
+        """`brief` takes either a draft path or a dossier directory, and
+        the two wrong-path cases have to say different things. A draft
+        with no dossier yet gets `init <that draft>`, which is the right
+        command. A dossier path that resolves to nothing never reaches
+        that suggestion -- `dossier_dir` refuses it first, because
+        `init` would not accept it -- and says which rule was broken
+        instead. `status` behaves the same way; this pins that they
+        agree."""
+        config.DRAFTS_DIR.mkdir(parents=True)
+        assert dossier.main(["brief", "content/dossiers/nope", "a_b_2024"]) == 1
+        err = capsys.readouterr().err
+        assert "is not under" in err
+        assert "init" not in err
