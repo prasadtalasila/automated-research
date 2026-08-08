@@ -30,7 +30,7 @@ A Zotero export is the **only** way to get a paper into this pipeline.
 There is no directory you can drop a raw PDF into to have it indexed:
 the enrichment layer's corpus is the bibliography, so anything it can
 retrieve is something a draft may cite -- see
-[`src/enrich/corpus.py`](../src/enrich/corpus.py) and AGENTS.md's citekey
+[`src/enrich/corpus.py`](https://github.com/prasadtalasila/chitragupta/blob/main/src/enrich/corpus.py) and AGENTS.md's citekey
 invariant. (Earlier versions did have such a directory, `papers/pdfs/`;
 it is gone. A PDF there is now simply ignored.)
 

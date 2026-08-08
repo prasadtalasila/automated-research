@@ -1,0 +1,153 @@
+# Documentation site for https://prasad.talasila.in/chitragupta/
+#
+# `docs_dir: .` is the whole design, and it is load-bearing rather than
+# a convenience. This repository's prose is split across two levels --
+# README.md, SOUL.md, AGENTS.md, DEVELOPER.md, DEVELOPER-AGENTS.md and
+# DOCKER.md at the root, everything else under docs/ -- and the two
+# levels link to each other 47 times, plus 6 more from
+# .claude/skills/*/SKILL.md. Staging the files into one flat tree would
+# change every one of those relative paths, so the build would have to
+# rewrite links, and a rewrite rule is a thing that can be wrong.
+# Serving the repository as it actually is means no path changes, so
+# there is nothing to rewrite: every link that works on GitHub works
+# here. The seven exceptions were links into `src/` and `bench/`, which
+# are code and this repo's own machinery rather than documentation --
+# those now point at GitHub by absolute URL, which is where they
+# belonged from either renderer.
+#
+# The cost is that everything not listed in `exclude_docs` below is part
+# of the site, so a new top-level directory of non-prose needs a line
+# there. That is the trade: one exclusion list to maintain, against a
+# link-rewriting step to maintain.
+#
+# `docs_dir: .` needs the `same-dir` plugin because MkDocs otherwise
+# refuses a docs_dir that contains mkdocs.yml. That plugin is on neither
+# tier of Zensical's supported-plugin list, so if this site ever moves
+# to Zensical, this file is the thing to check first.
+
+site_name: chitragupta
+site_url: https://prasad.talasila.in/chitragupta/
+site_description: >-
+  Turns a BibTeX bibliography into grounded survey papers, thesis chapters,
+  textbook chapters and tutorials, with every citation traceable back to a
+  paper the bibliography actually holds.
+site_author: Prasad Talasila
+
+repo_url: https://github.com/prasadtalasila/chitragupta
+repo_name: prasadtalasila/chitragupta
+edit_uri: edit/main/
+
+copyright: Copyright &copy; Prasad Talasila
+
+docs_dir: .
+# Nested inside docs_dir, which is the repository root -- allowed only
+# because `same-dir` special-cases it and `site/` is excluded below.
+# Gitignored; nothing but a build ever writes here.
+site_dir: site
+
+theme:
+  name: material
+  locale: en
+  logo: docs/logo.svg
+  favicon: docs/logo.svg
+  # Matched to prasad.talasila.in's own mkdocs.yml so the two builds read
+  # as one site rather than two properties on one origin. If the parent's
+  # palette changes, change it here too -- nothing enforces this.
+  palette:
+    primary: teal
+    accent: orange
+  features:
+    - navigation.footer
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.tabs.sticky
+    - navigation.tabs
+    - navigation.top
+    - navigation.tracking
+
+# Also matched to the parent, which serves /software.html rather than
+# /software/. One origin with two URL styles reads as two sites.
+use_directory_urls: false
+
+plugins:
+  - same-dir
+  - search
+
+markdown_extensions:
+  - attr_list
+  - tables
+  - admonition
+  # GitHub's own slug algorithm, not Python-Markdown's. Every in-page
+  # link in these documents was written against a heading as GitHub
+  # renders it -- `docs/CLI.md` alone has nine links to headings like
+  # "`python -m src.sync`", which GitHub slugs `#python--m-srcsync` and
+  # Python-Markdown slugs differently. Without this the anchors silently
+  # land nowhere on the site while still working in the repository.
+  - toc:
+      permalink: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify {kwds: {case: lower}}
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      linenums: true
+      use_pygments: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+
+# Everything here is either code, per-host data, this repo's own
+# machinery, or agent instructions that docs/GENRE.md already summarises
+# for a human reader.
+exclude_docs: |
+  .claude/
+  .github/
+  .venv-full/
+  .venv/
+  assets/
+  bench/
+  content/
+  docker/
+  logs/
+  papers/
+  scripts/
+  site/
+  src/
+  tests/
+  CITATION.cff
+  config.toml
+  config.toml.example
+  poetry.lock
+  poetry.toml
+  pyproject.toml
+
+nav:
+  - Home: README.md
+  - Getting started:
+      - Why this exists: SOUL.md
+      - Drafting with it: AGENTS.md
+      - Which genre skill: docs/GENRE.md
+      - Getting your library in: docs/ZOTERO.md
+      - Commands: docs/CLI.md
+      - Settings: docs/CONFIG.md
+  - Understanding the system:
+      - Architecture: docs/ARCHITECTURE.md
+      - Diagrams: docs/DIAGRAMS.md
+      - Ladders and fallbacks: docs/LADDERS.md
+      - Retrieval: docs/RETRIEVAL.md
+      - Rejection: docs/REJECTION.md
+      - Tokens: docs/TOKENS.md
+      - Iterating on a draft: docs/DRAFT-ITERATION.md
+  - Choosing settings:
+      - Performance: docs/PERFORMANCE.md
+      - PDF parser: docs/PDF-PARSER.md
+  - Reading the output:
+      - Citation provenance: docs/CITATION-PROVENANCE.md
+      - Writing standards: docs/WRITING-STANDARDS.md
+  - Working on it:
+      - Design constraints: docs/DESIGN.md
+      - Parallelism: docs/PARALLELISM.md
+      - GROBID citation graph: docs/GROBID-CITATION-GRAPH.md
+      - Developing: DEVELOPER.md
+      - Docker: DOCKER.md
+      - Changing this repo: DEVELOPER-AGENTS.md
+  - The name: docs/NAME.md

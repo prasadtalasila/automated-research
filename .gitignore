@@ -67,3 +67,7 @@ bench/par_*/
 # message when config.toml is absent, rather than silently falling back,
 # so a host is never running settings its owner didn't choose.
 config.toml
+
+# Built documentation site (mkdocs.yml -> .github/workflows/docs.yml).
+# Generated from the repository itself; nothing here is a source file.
+site/

@@ -11,8 +11,11 @@ reasoning is reusable and the mistake is an easy one to make twice.
 
 Related reading:
 
-- [DRAFT-ITERATION.md](DRAFT-ITERATION.md) -- the dossier, and where the
-  tokens go. This document assumes its two-pool framing.
+- [TOKENS.md](TOKENS.md) -- where the tokens go. This document assumes
+  its two-pool framing, and the accounting below is worked through there
+  with the caching multipliers applied.
+- [DRAFT-ITERATION.md](DRAFT-ITERATION.md) -- the dossier: what it holds,
+  and how a draft is revised without re-running the pipeline.
 - [RETRIEVAL.md](RETRIEVAL.md) -- how the corpus is ranked, what a
   snippet contains, and what `evidence` does.
 - [PERFORMANCE.md](PERFORMANCE.md) -- **measured** costs. Nothing here

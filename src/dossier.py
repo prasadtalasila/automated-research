@@ -527,12 +527,28 @@ def log_retrieval(
     either one turns a logged call into a silently miscounted one rather
     than a visible error. Whitespace is collapsed with `split()`, which
     covers newlines, tabs and carriage returns together.
+
+    Both writes are safe against a second writer arriving at the same
+    time, which matters because `--log` is a flag on the retrieval CLI
+    and a skill dispatching parallel subagents could hand it to all of
+    them. The template is written with mode `"x"` (`O_EXCL`), so exactly
+    one writer creates the file and a loser of that race appends to what
+    the winner wrote instead of truncating it -- which a `path.exists()`
+    check followed by `write_text` could not promise, since the check
+    can go stale between the two calls. The row itself is a single small
+    write to an `O_APPEND` handle, atomic on a local filesystem at this
+    size: concurrent rows can interleave in order, never in content.
+    This is deliberately not a lock -- see the module docstring, and
+    docs/TOKENS.md for why a lock would be the wrong instrument here.
     """
     target = dossier_dir(draft)
     target.mkdir(parents=True, exist_ok=True)
     path = target / "retrieval.md"
-    if not path.exists():
-        path.write_text(_RETRIEVAL_TEMPLATE, encoding="utf-8")
+    try:
+        with path.open("x", encoding="utf-8") as handle:
+            handle.write(_RETRIEVAL_TEMPLATE)
+    except FileExistsError:
+        pass
     safe_query = " ".join(query.split()).replace("|", "\\|")
     row = f"| {date.today().isoformat()} | {mode} | {safe_query} | {k} | {results} | {chars} |\n"
     with path.open("a", encoding="utf-8") as handle:
@@ -872,6 +888,15 @@ def _cmd_status(args: argparse.Namespace) -> int:
               f"{report.retrieval_chars:,} characters")
         if kept or rejected:
             print(f"  {kept} kept, {rejected} rejected")
+        else:
+            # Searched, and recorded nothing it found. Reported rather
+            # than blocked, like every other check outside the citation
+            # gate: it costs a comparison of two numbers already on this
+            # report, and nothing else in the pipeline can see it -- the
+            # draft looks finished and the judgment behind it is gone.
+            print("  but evidence.md and rejected.md are both empty -- this run")
+            print("  searched and recorded nothing it found, so a revision will")
+            print("  have to re-retrieve and re-judge the same candidates.")
 
     print()
     if report.current is None:

@@ -7,6 +7,9 @@ without re-running the pipeline that produced it.
 
 Related reading:
 
+- [TOKENS.md](TOKENS.md) -- where a run's tokens go, the two-pool
+  framing this document assumes, and how to measure any of it. The
+  arithmetic that used to be in "Where the tokens go" below.
 - [ARCHITECTURE.md](ARCHITECTURE.md) -- the three layers this sits inside.
 - [RETRIEVAL.md](RETRIEVAL.md) -- how the corpus is ranked, and what a
   snippet actually contains.
@@ -58,64 +61,22 @@ it.
 
 ## Where the tokens go
 
-**Every figure in this section is an estimate**, derived from file sizes
-in `content/drafts/` and the defaults documented in the genre skills.
-Nothing here counts tokens: the closest this repository gets is
-`retrieval.md`, which records the *character* payload of each retrieval
-call for one draft. Read the ratios, not the absolute numbers.
+**Moved.** The token accounting that was here now lives in
+[TOKENS.md](TOKENS.md), together with the same argument from
+[REJECTION.md](REJECTION.md) and the two worked examples that were in
+neither. It is one subject and was being told in three places.
 
-This section describes the costs as they stood before the dossier
-existed. It is kept in the present tense about the *mechanism*, because
-the mechanism is what a reader needs in order to recognise the same
-pattern elsewhere.
+The part this document depends on, in one paragraph: costs split into
+two pools, **orchestrator-resident** (re-sent on every remaining turn of
+the run, and so multiplied by everything that comes after it) and
+**subagent one-shot** (paid once, because the context is discarded when
+the subagent returns). Four things load the first pool -- retrieved
+candidates that are rejected but stay resident, fan-out packets held
+across phases, whole-file rewrites, and **no revision path at all**.
 
-The useful split is between two pools, because they are billed
-differently:
-
-| Pool | Billed | Examples |
-|---|---|---|
-| **Orchestrator-resident** | once per turn, for every remaining turn of the run | retrieval snippets read inline, interview packets, the assembled draft |
-| **Subagent one-shot** | once | anything read or written inside a dispatched subagent |
-
-Prompt caching blunts the first pool; it does not remove it, and it
-expires. Resident tokens are the expensive kind, and everything below is
-about them.
-
-### 1. Retrieved candidates that never leave context
-
-`survey-writer` step 1 calls `search(sub_theme, k=15)` for two to four
-sub-themes, over-fetching on purpose. Each `SearchResult` carries a
-citekey, a title, a score and a 500-character snippet -- **an estimated
-~150 tokens each**, so 30-60 results is an estimated **4.5k-9k tokens per
-retrieval pass**. Step 3 then tells you to reformulate and search again
-when a sub-theme comes up thin.
-
-The sharp part is what happens next. `reference.md` §1 sets "results kept
-per query ≈ top 3" out of fifteen. **The roughly 80% that get rejected
-cost exactly what the kept ones cost, and then stay resident for the rest
-of the run anyway.** Rejecting a candidate saves no tokens at all; it only
-saves you from citing it.
-
-### 2. Fan-out results held across phases
-
-`deep-research` Phase 2 dispatches six interviewers and holds their
-packets through Phases 3, 4, 5, 6 and 7 -- the contradiction map, the
-outline, the section writers, the polish pass and the peer-review
-reconciliation all read them. An estimated ~1k tokens per packet is ~6k
-tokens re-sent across the longest stretch of the run.
-
-### 3. Whole-file rewrites
-
-`content/drafts/digital-twins-for-software-engineers/survey.md` is 18.3
-KB, an estimated **~4.6k output tokens to write once**. Output tokens are
-the expensive direction, and a draft that is rewritten whole for each
-revision pays that every time -- including for a gate failure that
-touches one citekey.
-
-### 4. No revision path at all
-
-This was the big one, and it is what `src/dossier.py` plus the
-`draft-reviser` skill exist to remove. Before them, no genre skill had a
+The fourth is the one this module exists to remove, and it is the only
+one of the four that is *structural* rather than a constant factor: before
+`src/dossier.py` and the `draft-reviser` skill, no genre skill had a
 branch for "an existing draft plus a change request", so the only way to
 alter a paragraph was to run Phase 1 through Phase 7 again.
 
@@ -341,5 +302,5 @@ have to make.
 character payload of each retrieval call, not tokens, and nothing records
 what the drafting turns themselves cost. That is enough to compare one
 run against another on a real corpus; it is not enough to put a number on
-a whole draft. The estimates in [Where the tokens go](#where-the-tokens-go)
-remain estimates, and are labelled as such.
+a whole draft. The estimates in [TOKENS.md](TOKENS.md) remain estimates,
+and are labelled as such there.

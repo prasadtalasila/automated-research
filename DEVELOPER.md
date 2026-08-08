@@ -50,13 +50,13 @@ release zip for the same reason `tests/` is.
   organised by setting. Ships in the release archive, unlike `bench/`
 - [docs/PARALLELISM.md](docs/PARALLELISM.md) -- parallel parse design:
   architecture, components, and the roadmap
-- [bench/README.md](bench/README.md) -- how to run it, and what each
+- [bench/README.md](https://github.com/prasadtalasila/chitragupta/blob/main/bench/README.md) -- how to run it, and what each
   switch measures
-- [bench/RESULTS.md](bench/RESULTS.md) -- the dated measurement record,
+- [bench/RESULTS.md](https://github.com/prasadtalasila/chitragupta/blob/main/bench/RESULTS.md) -- the dated measurement record,
   newest last, with raw per-run data in `bench/results/`. Read its
   "Which sections are current" table first: several early conclusions
   were overturned by later runs and are kept, marked, rather than deleted
-- [bench/PARALLELISM-PLAN.md](bench/PARALLELISM-PLAN.md) -- what is still
+- [bench/PARALLELISM-PLAN.md](https://github.com/prasadtalasila/chitragupta/blob/main/bench/PARALLELISM-PLAN.md) -- what is still
   unknown, and what to measure before changing it
 
 The headline, in the order it was found:
@@ -167,8 +167,12 @@ docs/                     reference docs that ship in the release zip -- everyth
     svg/*.svg                 rendered exports (mmdc -b white -w 1900). Exports only -- edit the
                               fenced block in DIAGRAMS.md, then re-render
   CITATION-PROVENANCE.md    what src/citation_provenance.py reports and how to read it
-  DRAFT-ITERATION.md        why drafting costs what it costs, what a dossier holds, and how a draft
-                            is revised weeks later without re-running the pipeline that produced it
+  DRAFT-ITERATION.md        what a dossier holds, and how a draft is revised weeks later without
+                            re-running the pipeline that produced it
+  TOKENS.md                 where a run's tokens go -- the resident/one-shot pools, two worked
+                            examples, and how to measure it without paying for a full run
+  GENRE.md                  the six skills in .claude/: which writes what, how to pick, and what
+                            each one refuses to do
   LADDERS.md                every automatic fallback chain the code walks, and every tier you pick
                             yourself -- and what the bottom rung of each costs
   WRITING-STANDARDS.md      the prose standards the genre skills share, and their sources in the
@@ -197,6 +201,11 @@ pyproject.toml            Poetry config (dependency/lockfile manager only, packa
 poetry.toml               project-local Poetry config: virtualenvs.create = false (installs into
                           whatever venv VIRTUAL_ENV points at, e.g. .venv-full/, instead of Poetry's own)
 poetry.lock               resolved dependency versions -- regenerate with `poetry lock` after editing pyproject.toml
+mkdocs.yml                the documentation site published at prasad.talasila.in/chitragupta. `docs_dir: .`
+                          on purpose: the site is this repository as it stands, so every cross-document
+                          link works unchanged and there is no staging step to keep in sync. Built by
+                          .github/workflows/docs.yml, whose toolchain is pinned there rather than in
+                          poetry.lock -- nothing else needs mkdocs. Read its header before editing
 src/                      the corpus and drafting layers (sync needs bibtexparser;
                           citation_gate/references need nothing)
   config.py                 loads config.toml, env var overrides
