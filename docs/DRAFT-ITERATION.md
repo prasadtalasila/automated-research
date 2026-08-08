@@ -31,6 +31,7 @@ Related reading:
 - [The asymmetry](#the-asymmetry)
 - [Where the tokens go](#where-the-tokens-go)
 - [The dossier](#the-dossier)
+- [Dispatching from the dossier](#dispatching-from-the-dossier)
 - [Drift across every dossier](#drift-across-every-dossier)
 - [Revising a draft](#revising-a-draft)
 - [Backup and restore](#backup-and-restore)
@@ -102,7 +103,7 @@ shipped example content uses.
 | `scope.md` | genre, reader, what the draft covers and excludes, glossary, corpus fingerprint | in the transcript only |
 | `evidence.md` | each kept citekey, why it was kept, supporting quote or paraphrase | **specified** (survey-writer step 2) but written as JSON |
 | `rejected.md` | candidates retrieved and turned down, with the reason | **nowhere** |
-| `sections.md` | section heading -> the citekeys cited under it | **specified** (survey-writer step 8) but written as JSON |
+| `sections.md` | section heading -> the citekeys cited under it, and while a run is still going, the ones it plans to cite | **specified** (survey-writer step 8) but written as JSON |
 | `steering.md` | what the user asked for in chat that the draft doesn't show | **nowhere** |
 | `revisions.md` | append-only log of what changed and why | **nowhere** |
 | `retrieval.md` | every retrieval call and the size of what it returned | **nowhere** |
@@ -182,6 +183,83 @@ a write lock, run a migration, or block behind a sync that is mid-run.
 **Drift is not itself a reason to redraft.** It is a reason to re-search
 if, and only if, the change being made touches a sub-theme the new papers
 could bear on.
+
+## Dispatching from the dossier
+
+The dossier was built to be read by the *next* session. `brief` is the
+part that is read by the *current* one -- specifically by a subagent, and
+specifically instead of the orchestrator pasting the same text into its
+prompt. It closes
+[#74](https://github.com/prasadtalasila/chitragupta/issues/74).
+
+**The problem, in one phase.** `deep-research` Phase 5 dispatches one
+writer per section, and each needs the kept claims its section stands on.
+Written the obvious way, the orchestrator selects those claims from the
+Phase 2 packets it is holding and types them into four prompts. That is
+*output*, at 5x a cached input token, spent once per writer: an estimated
+four writers x ~800 tokens = 3.2k output, or **16k input-token
+equivalents** ([TOKENS.md](TOKENS.md#two-worked-examples) has the
+weights). The same material is already on disk by then, because Phase 2's
+transcription put it there.
+
+**The mechanism.** Phase 4 writes the section -> citekey plan into
+`sections.md`, and the dispatch prompt carries one line:
+
+```
+Your evidence: python3 -m src.dossier brief <draft> --section "2. Failure modes"
+```
+
+An estimated ~40 output tokens per writer, ~0.8k equivalents for the
+phase, against 16k -- **an estimated 15k equivalents saved**, in the
+expensive direction. The writer runs the command in its own context,
+which is discarded when it returns, so the blocks land in the one-shot
+pool at 1.25x once rather than being carried anywhere.
+
+Counted rather than estimated, on the shipped example report against the
+real 501-paper corpus: **15,660 characters of evidence become 901
+characters of dispatch line**, 17.4x, across its seven sections. Method
+and caveats in
+[TOKENS.md](TOKENS.md#the-dispatch-payload-measured-on-real-material) --
+it is a payload size, not a run.
+
+**Addressing by section, not by citekey list.** A prompt carrying the
+citekeys is already most of the way back to carrying the evidence, and
+the list would then exist in two places that can disagree. `sections.md`
+is where that decision was made, so it is what the command names. Section
+matching ignores numbering (`"Failure modes"` finds the row a skill wrote
+as `"2. Failure modes"`) and **an ambiguous name matches nothing**: a
+wrong match hands a writer another section's evidence, which comes back
+as fluent, correctly-cited prose about the wrong subject -- the one
+failure here that no downstream check catches.
+
+**What it does not do, and cannot.** It does not reduce what the
+orchestrator is already carrying. A context is append-only between
+compactions, so six packets returned into it in Phase 2 stay there
+whether or not they are also on disk, and reading an extract back *adds*
+tokens rather than removing any. The only way to avoid that residency
+would be to let each interviewer write its own file so the long-form
+material never enters the orchestrator at all -- which would cost the
+invariant that makes a dossier trustworthy (**one writer, one record**),
+and is written down as a rejected trade in
+[TOKENS.md](TOKENS.md#the-one-way-to-cut-residency-and-what-it-would-cost)
+rather than implemented here. The three subagent definitions still
+declare `tools: Bash, Read, Grep, Glob` with no `Write`, and still say in
+prose that they write nothing.
+
+**The second effect, which is not about tokens.** Until now, an
+orchestrator that moved past Phase 2 without transcribing lost six
+packets' worth of judgment and nothing reported it -- the draft looked
+finished and the record was simply absent. A run that *dispatches* from
+the file cannot skip the file: `brief` exits 1 when nothing resolves and
+names every citekey with no block, and `--check` lets the orchestrator
+find that out before four writers are already running. Silent loss became
+a named failure at the moment it is still cheap to fix.
+
+**Who else can use it.** Nothing in `brief` is `deep-research`-specific:
+any skill that fans out over sections has the same shape.
+`survey-writer`'s step 2a subagents read retrieval results rather than
+transcribed evidence, so they have nothing to point at yet; when that
+changes, the command is already there.
 
 ## Drift across every dossier
 

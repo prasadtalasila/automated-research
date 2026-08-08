@@ -81,6 +81,25 @@ Do not ask a subagent to write into `content/dossiers/`, and do not treat
 a returned packet as durable because you can still see it. If you haven't
 transcribed it, it is gone when the phase closes.
 
+**Then dispatch from the file rather than from your context.** Phase 5
+hands each section writer a command that reads its rows back:
+
+```bash
+python3 -m src.dossier brief content/drafts/deep-research-<slug>.md --section "<heading>"
+```
+
+Pasting the same claims into four dispatch prompts spends them as
+*output*, which costs five times what a cached input token costs and is
+spent once per writer; a pointer costs about forty tokens and the writer
+reads the rows inside its own context, which is discarded when it exits.
+`docs/TOKENS.md` has the arithmetic. This does not shrink what you are
+already carrying -- nothing can, a context is append-only between
+compactions -- so treat the transcription as the durability half and this
+as the cost half, and note the second only works if you did the first.
+Which is the other reason to prefer it: `brief` exits non-zero and names
+the citekey when a block is missing, so a transcription you skipped
+surfaces here instead of silently.
+
 **The dossier is not the provenance JSON, and neither replaces the
 other -- this skill writes both.** `content/provenance/<slug>.json`
 (Phase 7c) is the machine record of section -> citekey, for tooling. The
@@ -251,15 +270,56 @@ here, over the provisional versions from Phase 1, and hand the writers the
 glossary from that file. One glossary, in one place: a second copy kept
 only in this conversation is the drift Phase 4 exists to prevent.
 
+**Then write the plan into `sections.md`** -- one row per outline section
+with the kept citekeys that section will stand on, chosen from Phase 2's
+transcribed evidence. This is the decision you would otherwise make
+inside the Phase 5 dispatch prompt, and putting it in the file is what
+lets that prompt be one line: `dossier brief --section` resolves a
+section name through these rows. A section you haven't assigned evidence
+to yet gets a row with an empty citekey cell rather than no row at all --
+an empty cell is a gap to fill, a missing row reads as a mistyped section
+name, and Phase 5 has to be able to tell those apart. Phase 7(e)
+reconciles the file against what the finished report actually cites, so
+this is a plan now and a record then.
+
 ## Phase 5 -- Cited section writing (parallel)
 
-For each top-level section, select the relevant kept citekeys from Phase
-2's packets. For `standard`/`deep`, dispatch `deep-research-writer`
-subagents **in parallel** (one per section) with `TOPIC`, the section
-outline fragment, and the relevant citekeys plus supporting facts. If
-unavailable, use `general-purpose` with
-`.claude/agents/deep-research-writer.md`'s instructions. For `quick`, write
-inline. Cap concurrency per `reference.md` §1.
+Phase 4 already chose each section's citekeys and wrote them into
+`sections.md`. Before dispatching, check that those rows actually
+resolve to transcribed evidence:
+
+```bash
+python3 -m src.dossier brief content/drafts/deep-research-<slug>.md \
+  --section "<section heading>" --check
+```
+
+`--check` prints how many of the row's citekeys have a block and names
+any that don't, without printing the blocks -- so you find a missed
+transcription without reading the evidence back into your own context.
+Fix a gap now: a writer dispatched against an empty brief writes an
+ungrounded section that reads exactly like a grounded one.
+
+For `standard`/`deep`, dispatch `deep-research-writer` subagents **in
+parallel** (one per section), each given `TOPIC`, `READER`, `GLOSSARY`,
+its section outline fragment, and the one line that stands in for the
+evidence:
+
+```
+Your evidence: python3 -m src.dossier brief content/drafts/deep-research-<slug>.md --section "<heading>"
+```
+
+**Do not paste the kept claims into the prompt.** That is the whole of
+this phase's cost saving, and it is in the output pool -- see "The
+dossier" above and `docs/TOKENS.md`. If a writer needs something the
+rows don't carry (a term, a constraint from the user's steering), give it
+that, not the evidence it can read for itself.
+
+If `deep-research-writer` is unavailable, use `general-purpose` with
+`.claude/agents/deep-research-writer.md`'s instructions -- the command
+line goes in the prompt either way. For `quick`, write inline: you are
+the writer, the packets are already in your context, and running `brief`
+against yourself would only add tokens. Cap concurrency per
+`reference.md` §1.
 
 Inline `[@citekey]` citations, neutral tone, every sentence grounded, no
 per-section reference list. A writer may re-search a thin subpoint -- only
@@ -370,11 +430,15 @@ a rendering failure never blocks presenting the `.md` report.
 
 **(e) Close the dossier.** Two things are still only in this conversation:
 
-- **The section map.** Fill in `sections.md` -- one row per section
-  heading with the citekeys cited under it -- so a later revision can tell
-  which section owns a citation without reading the report.
+- **The section map.** Reconcile `sections.md` against the finished
+  report: Phase 4 wrote the *plan* there, and the writers moved off it --
+  a citekey one of them added by re-searching (its `### Sources added`
+  block) is cited and unlisted, and one it was handed but never used is
+  listed and uncited. Correct the rows to what the report actually cites,
+  so a later revision can tell which section owns a citation without
+  reading the report.
   `python3 -m src.dossier sections content/drafts/deep-research-<slug>.md`
-  prints the headings and their line ranges to build it from. It is the
+  prints the headings and their line ranges to check against. It is the
   same section -> citekey relation as (c)'s provenance JSON, written for
   the reviser rather than for tooling.
 - **The steering.** If the user shaped this run in chat -- "drop the

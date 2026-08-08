@@ -301,12 +301,34 @@ project's own corpus, and 50 dossiers cost only 0.19s more than one --
 see [PERFORMANCE.md](PERFORMANCE.md#what-a-drift-sweep-costs) and
 [DRAFT-ITERATION.md](DRAFT-ITERATION.md#drift-across-every-dossier).
 
+`brief` is the one subcommand written for a *subagent* rather than a
+person. A skill that dispatches parallel section writers has to give each
+one its evidence, and pasting that evidence into the dispatch prompt
+spends it as output -- the 5x direction, once per writer. `brief` is what
+the prompt points at instead: the writer runs it in its own context, and
+that context is discarded when it exits. It selects by citekey, or by a
+section named in `sections.md`, and refuses to dump the whole of
+`evidence.md` -- a caller reaching for it is trying not to read that.
+See [DRAFT-ITERATION.md](DRAFT-ITERATION.md#dispatching-from-the-dossier)
+and [TOKENS.md](TOKENS.md).
+
+Its exit code is the contract, because a dispatch prompt cannot read a
+paragraph: **0 when it printed at least one block, 1 when it could not
+print any** -- no dossier, an unknown section, a section whose row
+assigns no citekeys, or not one of the asked-for citekeys transcribed.
+The last three are different gaps and the message says which. Everything
+except the evidence itself goes to stderr, so stdout is only ever the
+blocks. A citekey with no block is
+named in a warning rather than dropped: it means the run that found it
+never transcribed it, and that material is gone rather than mislaid.
+
 | Subcommand | What it does |
 |---|---|
 | `init <draft> --genre G` | Create the skeleton. Only ever adds missing files -- safe to re-run |
 | `status <draft>` | What each file holds, the draft's section count, and whether the corpus moved since |
 | `status --all` | Corpus drift over every dossier: broken citations and new candidates. Always exits 0 |
 | `sections <draft>` | Heading -> line range, for reading and editing one section instead of the file |
+| `brief <draft> [citekey ...]` | The kept-evidence blocks for a section or a citekey list, for a subagent to read. **Exits 1 if nothing resolves** |
 | `list` | Every dossier on this machine |
 | `export [<name> ...]` | Bundle drafts + dossiers to a `.tar.gz` |
 | `restore <archive>` | Unpack a bundle. **Dry run unless `--force`** |
@@ -316,6 +338,8 @@ see [PERFORMANCE.md](PERFORMANCE.md#what-a-drift-sweep-costs) and
 | `--genre GENRE` | `init` | Required: `survey`, `thesis-chapter`, `textbook-chapter`, `tutorial`, `deep-research` |
 | `--all` | `status` | Report every dossier instead of one draft. Mutually exclusive with a draft path |
 | `--json` | `status` | Emit the drift report as JSON, for `draft-reviser` rather than a terminal |
+| `--section NAME` | `brief` | Take the citekeys from that `sections.md` row. Matches without the section's numbering; an ambiguous name matches nothing rather than guessing |
+| `--check` | `brief` | Report what resolves, and what doesn't, without printing the blocks -- what an orchestrator runs before dispatching |
 | `--out FILE` | `export` | Archive path (default `drafts-<name>-<date>.tar.gz`) |
 | `--with-rendered` | `export` | Include `content/rendered/` too -- large, it holds the PDFs |
 | `--force` | `restore` | Actually write, overwriting what is already there |
@@ -324,6 +348,12 @@ see [PERFORMANCE.md](PERFORMANCE.md#what-a-drift-sweep-costs) and
 python3 -m src.dossier init content/drafts/survey.md --genre survey
 python3 -m src.dossier status content/drafts/survey.md
 python3 -m src.dossier sections content/drafts/survey.md
+
+# Before dispatching a section writer: do this section's rows resolve?
+python3 -m src.dossier brief content/drafts/survey.md --section "2. Failure modes" --check
+# What the writer itself runs
+python3 -m src.dossier brief content/drafts/survey.md --section "2. Failure modes"
+python3 -m src.dossier brief content/drafts/survey.md talasila_composable_2025
 
 # After a sync: which drafts went stale, and what specifically
 python3 -m src.dossier status --all

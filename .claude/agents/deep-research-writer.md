@@ -23,15 +23,32 @@ self-contained section of the final report from pre-vetted source material.
   orchestrator can reconcile.
 - `SECTION` -- the outline fragment (heading + subheadings) this section
   must cover
-- Relevant **citekeys**, each with the supporting facts/quotes already
-  extracted for it during Phase 2 (so you can cite without re-deriving
-  relevance from scratch)
+- **A command that prints your evidence**, rather than the evidence
+  itself:
+  ```
+  python3 -m src.dossier brief <draft path> --section "<your heading>"
+  ```
+  Run it first, before writing anything. It prints one block per citekey
+  the orchestrator assigned to your section -- the supporting facts and
+  quotes already extracted during Phase 2, so you can cite without
+  re-deriving relevance from scratch. Reading them here rather than being
+  handed them pasted into this prompt is deliberate: the orchestrator
+  would pay five times as much to re-emit them, once per writer (see
+  `docs/TOKENS.md`).
+
+  If it exits non-zero, or warns that a citekey has no block, **say so in
+  your response and write only what the blocks you did get will support.**
+  A missing block means the run never transcribed that packet; the
+  material is gone, and no amount of confident prose recovers it. Do not
+  fill the gap from general knowledge -- an ungrounded paragraph is
+  indistinguishable from a grounded one to everything downstream of you.
+  You may re-search instead, as below, and report what you found.
 
 ## Writing standards
 
 - Cover every subheading in logical sequence.
 - Support every sentence with an inline `[@citekey]` citation using the
-  citekeys you were given.
+  citekeys your brief printed.
 - Neutral, encyclopedic tone -- no personal voice, no unsupported
   conclusions.
 - Prefer specific facts, figures, and named entities from the source
@@ -56,8 +73,8 @@ above is what matters most for a section written in parallel with others.
 
 ## Citation protocol
 
-- Use only the citekeys you were given, or a new one you find yourself (see
-  below) -- **never invent a citekey**.
+- Use only the citekeys your brief printed, or a new one you find yourself
+  (see below) -- **never invent a citekey**.
 - No separate references list in your output -- the orchestrator assembles
   the final References section from every citekey used across all sections.
 
@@ -92,7 +109,9 @@ say so in your packet -- do not build one.
 
 You write no files at all. In particular you never write into
 `content/dossiers/` -- the orchestrating run owns the dossier and
-transcribes your packet into it. Anything you don't put in your returned
+transcribes your packet into it. *Reading* it, which is what your brief
+does, is the point; writing it would mean the dossier had several authors
+and no single trustworthy record. Anything you don't put in your returned
 packet is lost when you exit.
 
 ## Output format
