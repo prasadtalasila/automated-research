@@ -300,10 +300,10 @@ in [Where the tokens go](#where-the-tokens-go), it is a stopwatch figure,
 so it lives in
 [PERFORMANCE.md](PERFORMANCE.md#what-a-drift-sweep-costs) with the rest
 of the measurements. The load-bearing result, on this project's own
-corpus: sweeping 50 dossiers costs **0.23s more than sweeping one**
-(2.364s vs 2.130s cold), because the tokenization is shared. Had it been
+corpus: sweeping 50 dossiers costs **0.24s more than sweeping one**
+(2.368s vs 2.126s cold), because the tokenization is shared. Had it been
 per dossier, 50 would have taken nearly two minutes. A warm cache is
-5.5-9.8x faster again. The first draft of this section called a warm
+5.4-9.6x faster again. The first draft of this section called a warm
 sweep "nearly free"; the measurement says about 0.2-0.4s warm and ~2.1s
 cold -- cheap enough to run after every sync, but not nothing, and the
 wording here was corrected to match.

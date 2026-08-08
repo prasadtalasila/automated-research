@@ -473,18 +473,18 @@ count, not on the PDFs behind them.
 
 | Dossiers swept | Cold (no index cache) | Warm (cache from a prior `search()`) |
 |---|---|---|
-| 1 | 2.130s | 0.218s |
-| 10 | 2.181s | 0.257s |
-| 50 | 2.364s | 0.432s |
+| 1 | 2.126s | 0.221s |
+| 10 | 2.178s | 0.262s |
+| 50 | 2.368s | 0.439s |
 
-**Fifty dossiers cost 0.23s more than one.** The corpus tokenization is
+**Fifty dossiers cost 0.24s more than one.** The corpus tokenization is
 paid once for the whole sweep, not once per dossier -- at ~5ms marginal
 cost each, the sweep is dominated by corpus size and effectively
 indifferent to how many drafts you have. Dossiers that logged no
-retrieval queries never build an index at all: 0.042s for 50.
+retrieval queries never build an index at all: 0.039s for 50.
 
 Cold cost is linear in corpus size (a generated 2000-document corpus:
-5.857s), and a warm cache is 5.5-9.8x faster than a cold one. So the
+5.857s), and a warm cache is 5.4-9.6x faster than a cold one. So the
 honest summary is not "free" but **"about two seconds after a sync, and
 it does not grow with your drafts"**. `bench/RESULTS.md` has the full
 run, the synthetic scaling cross-check, and what the measurement

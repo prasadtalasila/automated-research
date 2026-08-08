@@ -772,22 +772,28 @@ byte-identical after the run.
 
 | Dossiers swept | Cold (no index cache) | Warm (cache from a prior `search()`) |
 |---|---|---|
-| 1 | 2.130s | 0.218s |
-| 10 | 2.181s | 0.257s |
-| 50 | 2.364s | 0.432s |
+| 1 | 2.126s | 0.221s |
+| 10 | 2.178s | 0.262s |
+| 50 | 2.368s | 0.439s |
 
 **The claim holds, and this is the line that shows it.** Going from 1
-dossier to 50 costs **+0.23s cold** -- about 5ms per additional dossier
+dossier to 50 costs **+0.24s cold** -- about 5ms per additional dossier
 against a 2.1s fixed cost. The tokenization is paid once for the sweep,
 not once per dossier; had it been per-dossier, 50 dossiers would have
 taken somewhere near 105s.
 
-A warm cache is **5.5-9.8x** faster than a cold one, so "nearly free"
+A warm cache is **5.4-9.6x** faster than a cold one, so "nearly free"
 was fair for the warm case and optimistic for the cold one: 2.1s is not
 free, it is just cheap enough to run after every sync.
 
 Dossiers that logged no retrieval calls never build an index at all:
-**0.042s for 50 dossiers**, which is the pure file-reading floor.
+**0.039s for 50 dossiers**, which is the pure file-reading floor.
+
+Run-to-run spread, from two independent runs of the same configuration:
+cold 2.130s/2.126s at 1 dossier and 2.364s/2.368s at 50, warm
+0.218s/0.221s and 0.432s/0.439s. About 0.5%, so the +0.24s marginal cost
+of 49 more dossiers is comfortably outside the noise -- which is the only
+comparison in this section that the noise could have swallowed.
 
 ### Synthetic corpora, as a scaling cross-check
 
@@ -800,7 +806,7 @@ trust its *scaling* and not close enough to quote its absolute seconds.
 
 | Corpus | Documents | Parsed text | Cold, 1 dossier | Cold, 50 |
 |---|---|---|---|---|
-| real | 646 | 47.4 MB | 2.130s | 2.364s |
+| real | 646 | 47.4 MB | 2.126s | 2.368s |
 | synthetic | 501 | 38.1 MB | 1.521s | 1.685s |
 | synthetic | 2000 | 148.6 MB | 5.857s | 6.471s |
 

@@ -77,10 +77,14 @@ def _document(rng: random.Random, pages: int) -> str:
     return " ".join(words)
 
 
-def build_corpus(root: Path, docs: int, seed: int = 0) -> int:
+def build_corpus(docs: int, seed: int = 0) -> int:
     """A ledger plus `parsed/*.txt`, in the shape `sync` leaves them.
 
-    Returns the total size of the parsed text in bytes.
+    Returns the total size of the parsed text in bytes -- `st_size` of
+    what was actually written, which is what `adopt_real_corpus` reports
+    too. `len(text)` would be characters, and the two only agree while the
+    generated vocabulary stays ASCII, which is not a property this file
+    should silently depend on.
     """
     from src import ledger
 
@@ -96,7 +100,7 @@ def build_corpus(root: Path, docs: int, seed: int = 0) -> int:
         text = _document(rng, pages)
         path = config.PARSED_DIR / f"{citekey}.txt"
         path.write_text(text, encoding="utf-8")
-        total += len(text)
+        total += path.stat().st_size
         con.execute(
             "INSERT INTO items (citekey, title, parsed_path, status, last_synced) "
             "VALUES (?, ?, ?, 'parsed', '2026-08-08')",
@@ -179,7 +183,7 @@ def run(docs: int, dossier_counts: list[int], queries_each: int, repeats: int,
     if real_ledger is not None:
         docs, parsed_bytes = adopt_real_corpus(real_ledger, config.LEDGER_PATH)
     else:
-        parsed_bytes = build_corpus(config.CONTENT_DIR, docs)
+        parsed_bytes = build_corpus(docs)
     build_dossiers(max(dossier_counts), queries_each)
 
     result = {
@@ -194,35 +198,42 @@ def run(docs: int, dossier_counts: list[int], queries_each: int, repeats: int,
     }
 
     every = dossier.all_dossiers()
+    real_all_dossiers = dossier.all_dossiers
 
     def sweep(subset):
         # Measure `drift_all()` exactly as shipped rather than a
         # reimplementation of it: the thing being timed is its one ledger
         # read and one lazily built index, and a hand-rolled loop here
-        # could accidentally not have them.
+        # could accidentally not have them. Narrowing what it sweeps means
+        # patching its one input; `_measure` puts it back.
         dossier.all_dossiers = lambda: subset
         return dossier.drift_all()
 
-    for count in dossier_counts:
-        subset = every[:count]
+    try:
+        for count in dossier_counts:
+            subset = every[:count]
 
-        # Cold: no index cache on disk, as on the first sweep after a
-        # sync that changed every fingerprint.
+            # Cold: no index cache on disk, as on the first sweep after a
+            # sync that changed every fingerprint. Every repeat is cold,
+            # not just the first -- the scan never writes the cache back.
+            config.RETRIEVAL_INDEX_PATH.unlink(missing_ok=True)
+            result["cold"][str(count)] = _time(lambda: sweep(subset), repeats)
+
+            # Warm: the cache `python3 -m src.retrieval` leaves behind.
+            # Built once here through the real indexer, then reused
+            # read-only.
+            retrieval.search("digital twin", k=1)
+            result["warm"][str(count)] = _time(lambda: sweep(subset), repeats)
+
+        # The path that never builds an index at all: dossiers that logged
+        # no retrieval calls. Measured at the largest count only.
+        for path in every:
+            (path / "retrieval.md").unlink(missing_ok=True)
         config.RETRIEVAL_INDEX_PATH.unlink(missing_ok=True)
-        result["cold"][str(count)] = _time(lambda: sweep(subset), repeats)
-
-        # Warm: the cache `python3 -m src.retrieval` leaves behind. Built
-        # once here through the real indexer, then reused read-only.
-        retrieval.search("digital twin", k=1)
-        result["warm"][str(count)] = _time(lambda: sweep(subset), repeats)
-
-    # The path that never builds an index at all: dossiers that logged no
-    # retrieval calls. Measured at the largest count only.
-    for path in every:
-        (path / "retrieval.md").unlink(missing_ok=True)
-    config.RETRIEVAL_INDEX_PATH.unlink(missing_ok=True)
-    result["no_queries"][str(max(dossier_counts))] = _time(
-        lambda: sweep(every), repeats)
+        result["no_queries"][str(max(dossier_counts))] = _time(
+            lambda: sweep(every), repeats)
+    finally:
+        dossier.all_dossiers = real_all_dossiers
     return result
 
 

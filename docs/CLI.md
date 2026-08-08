@@ -297,7 +297,7 @@ Like every other read here it takes no lock and writes nothing: the
 ledger is opened read-only and the BM25 index used for matching is built
 in memory and discarded, leaving `content/retrieval_index.json`
 untouched. A sweep costs about 2s cold and 0.2-0.4s warm on this
-project's own corpus, and 50 dossiers cost only 0.23s more than one --
+project's own corpus, and 50 dossiers cost only 0.24s more than one --
 see [PERFORMANCE.md](PERFORMANCE.md#what-a-drift-sweep-costs) and
 [DRAFT-ITERATION.md](DRAFT-ITERATION.md#drift-across-every-dossier).
 
