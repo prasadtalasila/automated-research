@@ -398,6 +398,20 @@ class TestCli:
         assert retrieval.main(["search", "quantum chromodynamics"]) == 0
         assert "No results." in capsys.readouterr().out
 
+    def test_evidence_with_no_matching_passage_is_not_an_error(
+            self, ledger_con, tmp_path, capsys):
+        """The `search` counterpart above is covered; this is its
+        `evidence` twin. A document that exists and simply says nothing
+        about the query is an answer, and the two reasons it can happen --
+        no match, or no parsed text -- are indistinguishable from here, so
+        the message names both rather than guessing."""
+        self._seed(ledger_con, tmp_path)
+        assert retrieval.main(
+            ["evidence", "quantum chromodynamics", "--citekey", "a2024"]) == 0
+        out = capsys.readouterr().out
+        assert "a2024: no passage matches that query" in out
+        assert "no parsed text" in out
+
     def test_log_records_the_call_in_the_dossier(self, ledger_con, tmp_path, capsys):
         from src import dossier
 

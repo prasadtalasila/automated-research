@@ -277,10 +277,35 @@ So `python3 -m src.dossier status <draft> >/dev/null` is a usable test for
 "does this draft have a dossier yet", while a machine with no corpus built
 still gets a full report of what it has.
 
+`status --all` is the other direction: one drift report over *every*
+dossier, for after a `sync` that added or removed papers. It **always
+exits 0** -- some drafts having drifted is the normal state of a live
+corpus, not a failure -- so a caller branches on the contents, not the
+status code. It reports two different things per dossier:
+
+- **missing** -- a citekey the draft cites (`evidence.md` / `sections.md`)
+  that has left the ledger, listed with the sections citing it. A defect.
+- **candidates** -- papers now in the ledger that one of the dossier's own
+  `retrieval.md` queries would surface in its top 15, minus everything
+  already kept *or rejected*. A decision, not a defect.
+- **reconsider** -- papers the draft already declined that those queries
+  still reach, carried with the recorded reason. Not drift (it is true on
+  every sweep), so it never marks a dossier stale and prints only
+  alongside a real finding; `--json` always carries it.
+
+Like every other read here it takes no lock and writes nothing: the
+ledger is opened read-only and the BM25 index used for matching is built
+in memory and discarded, leaving `content/retrieval_index.json`
+untouched. A sweep costs about 2s cold and 0.2-0.4s warm on this
+project's own corpus, and 50 dossiers cost only 0.19s more than one --
+see [PERFORMANCE.md](PERFORMANCE.md#what-a-drift-sweep-costs) and
+[DRAFT-ITERATION.md](DRAFT-ITERATION.md#drift-across-every-dossier).
+
 | Subcommand | What it does |
 |---|---|
 | `init <draft> --genre G` | Create the skeleton. Only ever adds missing files -- safe to re-run |
 | `status <draft>` | What each file holds, the draft's section count, and whether the corpus moved since |
+| `status --all` | Corpus drift over every dossier: broken citations and new candidates. Always exits 0 |
 | `sections <draft>` | Heading -> line range, for reading and editing one section instead of the file |
 | `list` | Every dossier on this machine |
 | `export [<name> ...]` | Bundle drafts + dossiers to a `.tar.gz` |
@@ -289,6 +314,8 @@ still gets a full report of what it has.
 | Flag | Applies to | What it does |
 |---|---|---|
 | `--genre GENRE` | `init` | Required: `survey`, `thesis-chapter`, `textbook-chapter`, `tutorial`, `deep-research` |
+| `--all` | `status` | Report every dossier instead of one draft. Mutually exclusive with a draft path |
+| `--json` | `status` | Emit the drift report as JSON, for `draft-reviser` rather than a terminal |
 | `--out FILE` | `export` | Archive path (default `drafts-<name>-<date>.tar.gz`) |
 | `--with-rendered` | `export` | Include `content/rendered/` too -- large, it holds the PDFs |
 | `--force` | `restore` | Actually write, overwriting what is already there |
@@ -297,6 +324,10 @@ still gets a full report of what it has.
 python3 -m src.dossier init content/drafts/survey.md --genre survey
 python3 -m src.dossier status content/drafts/survey.md
 python3 -m src.dossier sections content/drafts/survey.md
+
+# After a sync: which drafts went stale, and what specifically
+python3 -m src.dossier status --all
+python3 -m src.dossier status --all --json
 
 # Back up everything, then one topic with its PDFs
 python3 -m src.dossier export

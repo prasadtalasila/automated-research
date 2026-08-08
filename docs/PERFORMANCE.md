@@ -450,6 +450,52 @@ contribution.** The largest is a boolean.
 these numbers; `bench/RESULTS.md` carries the measurements themselves,
 including the conclusions later ones overturned.
 
+## What a drift sweep costs
+
+Everything above is the corpus layer -- `sync` and the enrichment
+stages, where a run is measured in minutes. `python3 -m src.dossier
+status --all` sits in the drafting layer and is measured in seconds, but
+it is worth pricing here for one reason: it is meant to be run **after
+every sync**, so "cheap enough to be habitual" is a requirement, not a
+nicety.
+
+The sweep builds a BM25 index in memory and discards it, rather than
+calling `src.retrieval.search()` -- which would take a write connection
+to the ledger and rewrite `content/retrieval_index.json` every time an
+inspection ran. [DRAFT-ITERATION.md](DRAFT-ITERATION.md#why-the-new-papers-are-not-found-with-search)
+is the argument; this is the price.
+
+Multi-GPU machine, bare `python3` (no venv -- `src.dossier` is
+stdlib-only), no GPU involved. Medians of 5 runs over this project's own
+corpus: 646 ledger rows, 47.4 MB of parsed text. The drift scan never
+opens a PDF, so what it costs depends on the parsed text and the row
+count, not on the PDFs behind them.
+
+| Dossiers swept | Cold (no index cache) | Warm (cache from a prior `search()`) |
+|---|---|---|
+| 1 | 2.032s | 0.218s |
+| 10 | 2.036s | 0.257s |
+| 50 | 2.227s | 0.436s |
+
+**Fifty dossiers cost 0.19s more than one.** The corpus tokenization is
+paid once for the whole sweep, not once per dossier -- at ~4ms marginal
+cost each, the sweep is dominated by corpus size and effectively
+indifferent to how many drafts you have. Dossiers that logged no
+retrieval queries never build an index at all: 0.040s for 50.
+
+That marginal cost is measured **within** a run, where the two numbers
+share a process and a page cache. Cold time drifts ~5% between runs, so
+differencing two separate runs of this table would not reproduce it;
+three runs each produce a paired delta of 0.19-0.24s. `bench/RESULTS.md`
+has the spread.
+
+Cold cost is linear in corpus size (a generated 2000-document corpus:
+5.857s), and a warm cache is 5.1-9.3x faster than a cold one. So the
+honest summary is not "free" but **"about two seconds after a sync, and
+it does not grow with your drafts"**. `bench/RESULTS.md` has the full
+run, the synthetic scaling cross-check, and what the measurement
+excludes.
+
 ## What raising the worker count costs in reproducibility
 
 Worth pricing alongside the speedups above, because it is the one cost of
