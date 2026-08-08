@@ -60,6 +60,12 @@ BOOK_PAGES = 675
 # every document look equally relevant to every query and understate the
 # scoring cost.
 VOCAB = [f"term{n}" for n in range(4000)]
+# Computed once rather than per document: it is a fixed function of VOCAB,
+# and rebuilding it inside `_document` made corpus *generation* O(|VOCAB|)
+# per document -- 4000 divisions each, which starts to dominate setup at
+# larger --docs. Setup is not inside the timed region, so this never
+# affected a published figure; it just made the benchmark slower to run.
+VOCAB_WEIGHTS = [1 / (i + 1) for i in range(len(VOCAB))]
 QUERY_TERMS = ["digital", "twin", "cosimulation", "model", "architecture"]
 
 # Where --real reads from, resolved before config's paths are redirected
@@ -68,8 +74,7 @@ REAL_LEDGER = config.LEDGER_PATH
 
 
 def _document(rng: random.Random, pages: int) -> str:
-    words = rng.choices(VOCAB, weights=[1 / (i + 1) for i in range(len(VOCAB))],
-                        k=pages * WORDS_PER_PAGE)
+    words = rng.choices(VOCAB, weights=VOCAB_WEIGHTS, k=pages * WORDS_PER_PAGE)
     # Salt a minority of documents with the query vocabulary, so the
     # ranked top-k is a real selection rather than an arbitrary one.
     if rng.random() < 0.2:
