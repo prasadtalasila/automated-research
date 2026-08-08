@@ -527,15 +527,58 @@ def log_retrieval(
     either one turns a logged call into a silently miscounted one rather
     than a visible error. Whitespace is collapsed with `split()`, which
     covers newlines, tabs and carriage returns together.
+
+    **Nothing here ever writes at an offset.** That matters because
+    `--log` is a flag on the retrieval CLI and a skill dispatching
+    parallel subagents could hand it to all of them, so two processes
+    can reach this function at once. The file is opened once, in append
+    mode, and the template is written only when that open finds it
+    empty -- so both the template and the row go through `O_APPEND` and
+    land at whatever the end of the file is *at the time of the write*.
+    A writer can therefore never overwrite what another one put there.
+
+    Two earlier shapes could, and both are worth naming because each
+    looks correct:
+
+    - `if not path.exists(): path.write_text(TEMPLATE)` truncates, and
+      the check goes stale between the two calls.
+    - Creating with mode `"x"` fixes that, but publishes an empty file
+      and then writes the template to it from offset 0. A second writer
+      that appends a row in between has it overwritten.
+
+    What this does *not* promise: that the template is written exactly
+    once. Two writers that both find the file empty both write one, so
+    the file can carry a duplicate header. That is deliberately the
+    failure left in, because it loses nothing -- `retrieval_cost` skips
+    any row whose last cell isn't an integer, which both the header and
+    its separator are -- and `_count`'s advisory total is one high.
+    Buying exactly-once would need a lock or a link-into-place dance,
+    for a file whose whole point is to be cheap. See the module
+    docstring, and docs/TOKENS.md for why a lock is the wrong instrument
+    here.
+
+    Write atomicity is deliberately *not* claimed. Both writes go
+    through one buffered handle and may well reach the filesystem as a
+    single small write -- but that is an implementation detail of how
+    the template's size compares to a buffer, not behaviour to rely on:
+    buffered text I/O can flush at points of its own choosing, closing
+    may still issue more than one write, and POSIX does not promise that
+    a write to a regular file arrives unsplit. Nothing here depends on
+    any of that. `retrieval_cost` skips
+    any row it cannot parse, so a torn row costs that one measurement
+    and leaves every other row intact -- while a row overwritten at an
+    offset would have been silently gone. The guarantee this function
+    makes is the weaker, sufficient one: no writer addresses a position,
+    so no writer can destroy what another wrote.
     """
     target = dossier_dir(draft)
     target.mkdir(parents=True, exist_ok=True)
     path = target / "retrieval.md"
-    if not path.exists():
-        path.write_text(_RETRIEVAL_TEMPLATE, encoding="utf-8")
     safe_query = " ".join(query.split()).replace("|", "\\|")
     row = f"| {date.today().isoformat()} | {mode} | {safe_query} | {k} | {results} | {chars} |\n"
     with path.open("a", encoding="utf-8") as handle:
+        if not handle.tell():
+            handle.write(_RETRIEVAL_TEMPLATE)
         handle.write(row)
     return path
 
@@ -872,6 +915,20 @@ def _cmd_status(args: argparse.Namespace) -> int:
               f"{report.retrieval_chars:,} characters")
         if kept or rejected:
             print(f"  {kept} kept, {rejected} rejected")
+        else:
+            # Searched, and recorded nothing it found. Reported rather
+            # than blocked, like every other check outside the citation
+            # gate: it costs a comparison of two numbers already on this
+            # report, and nothing else in the pipeline can see it -- the
+            # draft looks finished and the judgment behind it is gone.
+            #
+            # "no entries" rather than "empty": both counts are 0 for an
+            # absent file too, and the per-file lines above already
+            # distinguish `absent` from `empty (skeleton only)`. Calling
+            # a missing file empty would contradict them.
+            print("  but evidence.md and rejected.md hold no entries -- this run")
+            print("  searched and recorded nothing it found, so a revision will")
+            print("  have to re-retrieve and re-judge the same candidates.")
 
     print()
     if report.current is None:

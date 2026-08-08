@@ -50,13 +50,13 @@ release zip for the same reason `tests/` is.
   organised by setting. Ships in the release archive, unlike `bench/`
 - [docs/PARALLELISM.md](docs/PARALLELISM.md) -- parallel parse design:
   architecture, components, and the roadmap
-- [bench/README.md](bench/README.md) -- how to run it, and what each
+- [bench/README.md](https://github.com/prasadtalasila/chitragupta/blob/main/bench/README.md) -- how to run it, and what each
   switch measures
-- [bench/RESULTS.md](bench/RESULTS.md) -- the dated measurement record,
+- [bench/RESULTS.md](https://github.com/prasadtalasila/chitragupta/blob/main/bench/RESULTS.md) -- the dated measurement record,
   newest last, with raw per-run data in `bench/results/`. Read its
   "Which sections are current" table first: several early conclusions
   were overturned by later runs and are kept, marked, rather than deleted
-- [bench/PARALLELISM-PLAN.md](bench/PARALLELISM-PLAN.md) -- what is still
+- [bench/PARALLELISM-PLAN.md](https://github.com/prasadtalasila/chitragupta/blob/main/bench/PARALLELISM-PLAN.md) -- what is still
   unknown, and what to measure before changing it
 
 The headline, in the order it was found:
@@ -146,7 +146,19 @@ DOCKER.md                 running this repo in a container (docker/Dockerfile)
                           automatically and RELEASE_TEMPLATE.md (copied by hand)
 docs/                     reference docs that ship in the release zip -- everything except the
                           root-level ones above, which stay put because they're what a reader looks
-                          for first
+                          for first. Every file here opens with a status line on the third line,
+                          `Status: **<kind>.** Written <date>.`, so a reader can tell what they are
+                          holding before reading it -- one of:
+                            reference.               what exists and how to look it up
+                            how-to.                  a procedure to follow start to finish
+                            implemented.             a built subsystem, described as built
+                            reasoning document.      why a decision went the way it did, kept
+                                                     because the reasoning outlives the decision
+                            measurements.            numbers from a real run on a named machine
+                            a proposal, not a plan.  nothing here is built; the decision is open
+                          A new document picks one of those rather than inventing a sixth. The date
+                          is when it was written, not when it was last touched -- git already
+                          records revisions, and a hand-maintained "last revised" goes stale
   PARALLELISM.md            parallel parse design: architecture, components, and the roadmap
   PERFORMANCE.md            what each config setting costs, measured -- the lookup-oriented companion
                             to PARALLELISM.md's design doc
@@ -167,8 +179,12 @@ docs/                     reference docs that ship in the release zip -- everyth
     svg/*.svg                 rendered exports (mmdc -b white -w 1900). Exports only -- edit the
                               fenced block in DIAGRAMS.md, then re-render
   CITATION-PROVENANCE.md    what src/citation_provenance.py reports and how to read it
-  DRAFT-ITERATION.md        why drafting costs what it costs, what a dossier holds, and how a draft
-                            is revised weeks later without re-running the pipeline that produced it
+  DRAFT-ITERATION.md        what a dossier holds, and how a draft is revised weeks later without
+                            re-running the pipeline that produced it
+  TOKENS.md                 where a run's tokens go -- the resident/one-shot pools, two worked
+                            examples, and how to measure it without paying for a full run
+  GENRE.md                  the six skills in .claude/: which writes what, how to pick, and what
+                            each one refuses to do
   LADDERS.md                every automatic fallback chain the code walks, and every tier you pick
                             yourself -- and what the bottom rung of each costs
   WRITING-STANDARDS.md      the prose standards the genre skills share, and their sources in the
@@ -197,6 +213,11 @@ pyproject.toml            Poetry config (dependency/lockfile manager only, packa
 poetry.toml               project-local Poetry config: virtualenvs.create = false (installs into
                           whatever venv VIRTUAL_ENV points at, e.g. .venv-full/, instead of Poetry's own)
 poetry.lock               resolved dependency versions -- regenerate with `poetry lock` after editing pyproject.toml
+mkdocs.yml                the documentation site published at prasad.talasila.in/chitragupta. `docs_dir: .`
+                          on purpose: the site is this repository as it stands, so every cross-document
+                          link works unchanged and there is no staging step to keep in sync. Built by
+                          .github/workflows/docs.yml from pyproject.toml's optional `docs` group
+                          (`poetry install --only docs`). Read its header before editing
 src/                      the corpus and drafting layers (sync needs bibtexparser;
                           citation_gate/references need nothing)
   config.py                 loads config.toml, env var overrides

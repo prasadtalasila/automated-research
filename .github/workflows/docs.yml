@@ -1,0 +1,91 @@
+name: Docs
+
+# Builds the documentation site and publishes it to GitHub Pages, where
+# it is served at https://prasad.talasila.in/chitragupta/ -- not because
+# this repository claims that domain, but because GitHub propagates a
+# user site's custom domain to every project site under the same
+# account. Nothing here configures the domain, and this repository must
+# NOT contain a CNAME file: adding one would try to claim the domain for
+# this project alone and break the inheritance.
+#
+# Every push builds; only main publishes. A PR gets the build as a check
+# so a broken link or a nav entry pointing at a file that moved fails
+# review rather than the site.
+
+on:
+  push:
+    branches: [main]
+    tags-ignore:
+      - 'v*'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Resolved versions come from poetry.lock, like every other
+      # dependency in this repository -- DEVELOPER-AGENTS.md's "don't add
+      # a second install path". `--only docs` rather than `--with docs`
+      # because a docs build has no use for the enrich stack: this
+      # installs the seventeen packages of the mkdocs group and nothing
+      # else, so the job stays seconds rather than the minutes a torch
+      # download costs.
+      #
+      # Not `scripts/install_full_pipeline.sh`: that script is the single
+      # install path for the *pipeline* (host, Docker and the CI test job
+      # all share it), and it deliberately does not know about this
+      # group. Nothing here needs a venv either -- setup-python's
+      # environment is the target, and poetry.toml's
+      # `virtualenvs.create = false` means Poetry installs straight into
+      # it instead of making a second one.
+      #
+      # mkdocs-same-dir is what makes mkdocs.yml's `docs_dir: .` legal,
+      # which is why this site needs no staging step and no link
+      # rewriting. See that file's header comment.
+      - name: Install the docs toolchain
+        run: |
+          pip install poetry
+          poetry install --only docs --no-root
+
+      # --strict turns MkDocs' warnings into failures. What it actually
+      # catches here is a nav entry pointing at a file that moved and a
+      # link into a page that no longer has that anchor -- both silent
+      # otherwise, and both easy to introduce, since every document in
+      # this repository links freely to every other one.
+      - name: Build the site
+        run: mkdocs build --strict
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    # Only main publishes; a PR gets the build above as a check and
+    # nothing else.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -9,7 +9,7 @@
 [tool.poetry]
 package-mode = false
 name = "chitragupta"
-version = "3.7.0"
+version = "3.8.0"
 description = "Bib-sync, citation-gate, and genre-writing pipeline for a research corpus."
 authors = ["Prasad Talasila"]
 license = "MIT"
@@ -73,6 +73,26 @@ optional = true
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.0,<9.0"
 pytest-cov = ">=5.0,<7.0"
+
+# Optional group (`poetry install --only docs`): builds the documentation
+# site at https://prasad.talasila.in/chitragupta/ from mkdocs.yml. Nothing
+# else needs it -- no module imports mkdocs, no test runs it, and
+# scripts/install_full_pipeline.sh deliberately does not install it, since
+# a docs build is not part of getting the pipeline running.
+# .github/workflows/docs.yml is the only consumer, and it uses `--only
+# docs` so a docs build never installs the enrich stack it has no use for.
+#
+# mkdocs-same-dir is what makes mkdocs.yml's `docs_dir: .` legal, and that
+# is what lets the site be this repository as it stands -- no staging
+# step, no link rewriting. It is a 0.x pin because upstream has never
+# released a 1.0, and it is on neither tier of Zensical's supported-plugin
+# list: if this site ever moves to Zensical, this is the line to check.
+[tool.poetry.group.docs]
+optional = true
+
+[tool.poetry.group.docs.dependencies]
+mkdocs-material = ">=9.5,<10.0"
+mkdocs-same-dir = ">=0.1.5,<0.2"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

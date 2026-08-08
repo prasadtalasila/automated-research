@@ -1,5 +1,7 @@
 # Design
 
+Status: **reasoning document.** Written 2026-08-02.
+
 Why this pipeline refuses what it refuses.
 
 **Written for** someone changing how runs interact, fail, or reject each

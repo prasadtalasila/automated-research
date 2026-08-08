@@ -1,5 +1,7 @@
 # Architecture
 
+Status: **reference.** Written 2026-08-06.
+
 What actually runs, what each part writes, and which parts are optional.
 
 **Written for** someone who has the pipeline working and now wants to
