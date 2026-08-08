@@ -1269,3 +1269,202 @@ class TestReconsider:
         out = capsys.readouterr().out
         assert "turned down before" not in out
         assert "the reconsider list is" in out
+
+
+# ---------------------------------------------------------------------
+# The reporting CLI's own output
+#
+# `status`, `list`, `sections` and `restore` are read by a human deciding
+# what to do next, and most of what they print is a branch: a dossier
+# whose draft is gone, a file that was never created, a corpus that moved
+# by more than fits on a screen. Those branches were reachable only
+# through `main()`, so they went unexercised while the functions beneath
+# them were fully covered -- which is the shape of gap that lets a report
+# say something untrue without any test noticing.
+# ---------------------------------------------------------------------
+
+
+class TestPathsOutsideTheContentTree:
+    def test_draft_name_of_a_draft_outside_drafts_falls_back_to_its_stem(
+            self, isolated_config, tmp_path):
+        stray = tmp_path / "elsewhere.md"
+        assert dossier.draft_name(stray) == "elsewhere"
+
+    def test_find_draft_of_a_dossier_outside_dossiers_finds_nothing(
+            self, isolated_config, tmp_path):
+        assert dossier.find_draft(tmp_path / "not-a-dossier") is None
+
+
+class TestUnreadableLedger:
+    def test_a_ledger_that_cannot_be_opened_reports_unavailable(
+            self, isolated_config, monkeypatch):
+        """`exists()` is not `openable()`. A directory where the ledger
+        should be is the cheap way to prove the difference, and the scan
+        has to survive it rather than raise into a report."""
+        fake = config.CONTENT_DIR / "ledger.sqlite"
+        fake.mkdir(parents=True)
+        monkeypatch.setattr(config, "LEDGER_PATH", fake)
+        assert dossier._corpus_rows() is None
+        assert dossier.known_citekeys() is None
+
+
+class TestInitCLI:
+    def test_a_second_init_says_the_dossier_is_already_complete(self, draft, capsys):
+        dossier.init(draft, "survey")
+        assert dossier.main(["init", str(draft), "--genre", "survey"]) == 0
+        assert "already complete" in capsys.readouterr().out
+
+    def test_with_a_ledger_present_it_does_not_warn_about_drift_checks(self, draft, capsys):
+        _seed_ledger(["talasila_composable_2025"])
+        assert dossier.main(["init", str(draft), "--genre", "survey"]) == 0
+        out = capsys.readouterr().out
+        assert "created scope.md" in out
+        assert "No ledger" not in out
+
+
+class TestStatusCLIOutput:
+    def test_a_dossier_that_outlived_its_draft_says_so(self, draft, capsys):
+        dossier.init(draft, "survey")
+        draft.unlink()
+        assert dossier.main(["status", str(dossier.dossier_dir(draft))]) == 0
+        assert "MISSING -- the dossier outlived its draft" in capsys.readouterr().out
+
+    def test_a_file_that_was_never_created_reads_absent(self, draft, capsys):
+        dossier.init(draft, "survey")
+        (dossier.dossier_dir(draft) / "steering.md").unlink()
+        dossier.main(["status", str(draft)])
+        assert "steering.md   absent" in capsys.readouterr().out.replace("  ", "  ")
+
+    def test_the_kept_and_rejected_tally_appears_beside_the_retrieval_cost(
+            self, grounded, draft, capsys):
+        dossier.main(["status", str(draft)])
+        out = capsys.readouterr().out
+        assert "1 call(s) returned" in out
+        assert "1 kept, 1 rejected" in out
+
+    def test_a_dossier_with_no_fingerprint_reports_the_current_corpus_instead(
+            self, draft, capsys):
+        dossier.init(draft, "survey")
+        (dossier.dossier_dir(draft) / "scope.md").write_text("# Scope\n\n- genre: survey\n")
+        _seed_ledger(["a_paper_2024", "b_paper_2024"])
+        assert dossier.main(["status", str(draft)]) == 0
+        out = capsys.readouterr().out
+        assert "scope.md records no corpus fingerprint" in out
+        assert "now: 2 citekeys" in out
+
+    def test_an_unmoved_corpus_says_the_evidence_is_current(self, draft, capsys):
+        _seed_ledger(["a_paper_2024"])
+        dossier.init(draft, "survey")
+        assert dossier.main(["status", str(draft)]) == 0
+        assert "unchanged -- the dossier's evidence is current" in capsys.readouterr().out
+
+    def test_a_moved_corpus_names_what_was_never_considered(self, draft, capsys):
+        _seed_ledger(["a_paper_2024"])
+        dossier.init(draft, "survey")
+        _seed_ledger(["b_paper_2025", "c_paper_2025"])
+        assert dossier.main(["status", str(draft)]) == 0
+        out = capsys.readouterr().out
+        assert "CHANGED (+2 citekeys)" in out
+        assert "b_paper_2025" in out
+        assert "Drift is not itself a reason to redraft" in out
+
+    def test_the_never_considered_list_is_capped_with_a_visible_remainder(
+            self, draft, capsys):
+        _seed_ledger(["a_paper_2024"])
+        dossier.init(draft, "survey")
+        _seed_ledger([f"new_{n}_paper_2025" for n in range(12)])
+        dossier.main(["status", str(draft)])
+        assert "... and 3 more" in capsys.readouterr().out
+
+
+class TestSectionsCLIOutput:
+    def test_a_draft_with_no_headings_says_so_and_exits_zero(self, isolated_config, capsys):
+        config.DRAFTS_DIR.mkdir(parents=True)
+        flat = config.DRAFTS_DIR / "prose.md"
+        flat.write_text("just prose\nover two lines\n")
+        assert dossier.main(["sections", str(flat)]) == 0
+        assert "No headings in" in capsys.readouterr().out
+
+
+class TestListCLIOutput:
+    def test_it_names_every_dossier_and_flags_an_orphan(self, draft, capsys):
+        dossier.init(draft, "survey")
+        orphan = config.DRAFTS_DIR / "gone.md"
+        orphan.write_text("# x\n")
+        dossier.init(orphan, "survey")
+        orphan.unlink()
+        assert dossier.main(["list"]) == 0
+        out = capsys.readouterr().out
+        assert "dt-for-engineers/survey" in out
+        assert "gone   (draft missing)" in out
+        assert "2 dossier(s) under" in out
+
+
+class TestRestoreCLIOutput:
+    def test_an_archive_that_is_not_a_tarball_is_refused_without_a_traceback(
+            self, isolated_config, tmp_path, capsys):
+        junk = tmp_path / "not-really.tar.gz"
+        junk.write_bytes(b"this is not a gzip stream")
+        assert dossier.main(["restore", str(junk)]) == 1
+        assert "[error]" in capsys.readouterr().err
+
+    def test_an_unsafe_member_is_refused_without_a_traceback(
+            self, isolated_config, tmp_path, capsys):
+        archive = tmp_path / "hostile.tar.gz"
+        payload = tmp_path / "payload.md"
+        payload.write_text("x")
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(payload, arcname="../escaped.md")
+        assert dossier.main(["restore", str(archive)]) == 1
+        assert "escapes the extraction directory" in capsys.readouterr().err
+
+    def test_a_directory_member_is_carried_but_not_counted_as_a_file(
+            self, isolated_config, tmp_path, capsys):
+        """`export` only ever adds files, but a hand-rolled or
+        hand-edited bundle can carry directory entries, and the plan
+        counts files -- an empty directory is not something to warn about
+        overwriting."""
+        archive = tmp_path / "with-dir.tar.gz"
+        staging = tmp_path / "drafts"
+        staging.mkdir()
+        (staging / "one.md").write_text("# one\n")
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(staging, arcname="drafts")
+        assert dossier.main(["restore", str(archive)]) == 0
+        out = capsys.readouterr().out
+        assert "1 new file(s)" in out
+        assert "Dry run" in out
+
+    def test_the_overwrite_list_is_capped_with_a_visible_remainder(
+            self, isolated_config, tmp_path, capsys):
+        config.DRAFTS_DIR.mkdir(parents=True)
+        for n in range(12):
+            (config.DRAFTS_DIR / f"draft{n}.md").write_text(f"# {n}\n")
+        archive = tmp_path / "all.tar.gz"
+        dossier.export([], archive)
+        assert dossier.main(["restore", str(archive)]) == 0
+        out = capsys.readouterr().out
+        assert "12 existing file(s) would be OVERWRITTEN" in out
+        assert "... and 2 more" in out
+
+    def test_a_corpus_that_only_shrank_reports_drift_with_nothing_to_look_at(
+            self, draft, capsys):
+        """Drift is a digest comparison, so losing a paper moves it just
+        as gaining one does -- but there is then nothing "never
+        considered" to list, and the report must not print an empty
+        heading."""
+        _seed_ledger(["a_paper_2024", "b_paper_2024"])
+        dossier.init(draft, "survey")
+        (dossier.dossier_dir(draft) / "evidence.md").write_text(
+            "# Kept evidence\n\n## `a_paper_2024`\n\nkept.\n\n## `b_paper_2024`\n\nkept.\n"
+        )
+        from src import ledger
+        con = ledger.connect()
+        con.execute("DELETE FROM items WHERE citekey = 'b_paper_2024'")
+        con.commit()
+        con.close()
+
+        assert dossier.main(["status", str(draft)]) == 0
+        out = capsys.readouterr().out
+        assert "CHANGED (-1 citekeys)" in out
+        assert "appear nowhere in this dossier" not in out
