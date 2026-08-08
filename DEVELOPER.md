@@ -204,8 +204,8 @@ poetry.lock               resolved dependency versions -- regenerate with `poetr
 mkdocs.yml                the documentation site published at prasad.talasila.in/chitragupta. `docs_dir: .`
                           on purpose: the site is this repository as it stands, so every cross-document
                           link works unchanged and there is no staging step to keep in sync. Built by
-                          .github/workflows/docs.yml, whose toolchain is pinned there rather than in
-                          poetry.lock -- nothing else needs mkdocs. Read its header before editing
+                          .github/workflows/docs.yml from pyproject.toml's optional `docs` group
+                          (`poetry install --only docs`). Read its header before editing
 src/                      the corpus and drafting layers (sync needs bibtexparser;
                           citation_gate/references need nothing)
   config.py                 loads config.toml, env var overrides
