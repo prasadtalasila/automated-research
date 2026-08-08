@@ -182,7 +182,16 @@ The ledger is opened read-only with `timeout=0`, exactly as
 a write lock, run a migration, or block behind a sync that is mid-run.
 **Drift is not itself a reason to redraft.** It is a reason to re-search
 if, and only if, the change being made touches a sub-theme the new papers
-could bear on.
+could bear on. That is a claim about a corpus that *grew*; a corpus that
+lost a paper the draft cites has produced a broken citation, which is
+fixed whether or not anyone asked. The line between the two is drawn in
+"Two findings, and they are not the same kind of thing" below, and acted
+on in "Re-grounding after the corpus moves".
+
+The fingerprint is written once, by `init`, and is not maintained by any
+command -- the only thing that rewrites it is a re-grounding pass, which
+re-stamps it as the record that the draft was brought back into line with
+that corpus.
 
 ## Dispatching from the dossier
 
@@ -430,6 +439,70 @@ Steps 3 and 4 are where the output-token saving lives: a scoped edit
 inside one section replaces an estimated ~4.6k-token whole-file rewrite.
 Steps 1, 2 and 5 are where the input-token saving lives: no retrieval
 pass at all in the common case.
+
+### Re-grounding after the corpus moves
+
+The sweep above makes drift visible. Re-grounding is the same reviser
+loop entered from that report instead of from a request, and it is
+composition rather than new machinery: every command it runs already
+existed.
+
+It reads `status <draft> --json`, refuses to proceed when
+`corpus_available` is false (an empty finding list from a check that
+never ran is not a clean bill of health), and then treats the three
+findings as the three different things they are. A **missing** citekey is
+repaired: cite a paper that supports the same claim, or drop the claim,
+editing only the sections the report names. A **candidate** is pursued
+only where it bears on the sub-theme in play, and reached with `evidence`
+rather than `search` -- the report already carries the citekey and the
+query that surfaced it, so re-running the search would pay for fifteen
+snippets to be handed back the same fifteen keys. A **reconsider** entry
+is not re-judged at all; it is shown with its recorded reason, and
+re-opened only when that reason has stopped holding.
+
+Then the fingerprint is re-stamped and the gate runs, and the gate is
+what decides the draft is presentable. This matters because `missing` is
+computed from `evidence.md` and `sections.md` rather than from the draft
+body: a citation the dossier never recorded cannot appear in the report,
+and only `citation_gate` reads the draft itself.
+
+What re-grounding promises is an empty `missing` list, and deliberately
+not an empty `candidates` list. A recorded query returns fifteen hits and
+a revision accepts one or two, so a healthy draft keeps showing
+candidates on every sweep; that is the sweep working. The way to silence
+them would be to write the unpursued ones into `rejected.md`, which would
+turn a title into a permanent judgment that every later revision trusts
+-- the same objection that withdrew `triage` ([REJECTION.md](REJECTION.md)).
+
+### The scoped default, and the way out of it
+
+Steps 3-5 above are an economy, and economies have a failure mode: they
+can start reading as rules about what the user is allowed to ask for. A
+revision that touches one sub-theme should re-search one sub-theme --
+but whether that is what this revision is remains a judgment about
+someone else's draft, and [SOUL.md](../SOUL.md) puts "let a machine
+outrank a human on a judgment call" under what this assistant will not
+do.
+
+So `draft-reviser` carries a second mode with a different cost profile:
+a wide pass that re-searches every sub-theme in `sections.md` and reads
+the whole draft. It is invoked when the user asks for it, when an agreed
+scope change invalidated the old queries, or when the draft is being
+re-targeted at a different reader -- and its cost is stated before it
+runs rather than discovered afterwards in `retrieval.md`.
+
+The guardrail that survives is narrower than "never re-search widely". It
+is **never re-run the genre skill**, which is a different act: it
+discards the dossier and pays to rediscover a worse version of it. A wide
+re-search keeps `rejected.md` and honours it, keeps the recorded reader
+and glossary, still edits section by section rather than rewriting the
+file, and still logs every call. Wide *search* does not imply wide
+*rewrite* -- most sections survive a re-check untouched, and rewriting
+those is pure cost.
+
+Nothing enforces any of this. The only mechanical gate in the pipeline is
+`citation_gate`, and the reason is the same principle: a token-economy
+heuristic is not the kind of claim that earns a gate.
 
 ### Section anchors
 

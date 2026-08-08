@@ -93,9 +93,10 @@ have the full semantics.
   evidence, **rejected candidates and why**, and the steering the user
   gave in chat. That is what makes a draft revisable weeks later:
   `draft-reviser` reads the dossier and edits the affected sections
-  instead of re-running the genre skill over the whole topic. Never
-  re-run a genre skill to change an existing draft --
-  see docs/DRAFT-ITERATION.md.
+  instead of re-running the genre skill over the whole topic -- including
+  when the change comes from the corpus rather than from you, re-grounding
+  a draft whose cited papers a `sync` removed. Never re-run a genre skill
+  to change an existing draft -- see docs/DRAFT-ITERATION.md.
 - **The enrichment layer -- optional** (`scripts/enrich.py`):
   Docling, embeddings and topic modelling over the same corpus. It extends
   the *corpus* layer rather than the drafting one -- nothing in it is

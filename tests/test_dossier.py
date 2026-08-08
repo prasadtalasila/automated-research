@@ -1074,6 +1074,18 @@ class TestStatusAllCLI:
         payload = __import__("json").loads(capsys.readouterr().out)
         assert len(payload["dossiers"]) == 1
 
+    def test_json_reports_a_missing_dossier_rather_than_exiting_1(self, draft, capsys):
+        """`--json` returns before the `is_dir()` check the text path
+        exits 1 on, so a draft with no dossier still produces an envelope
+        and a 0. `draft-reviser` therefore has to branch on the payload
+        rather than the status code -- pinned so the contract cannot
+        change under it silently."""
+        _seed_corpus([("fresh_twin_2026", "Fresh", "digital twin")])
+        assert dossier.main(["status", str(draft), "--json"]) == 0
+        (entry,) = __import__("json").loads(capsys.readouterr().out)["dossiers"]
+        assert entry["missing"] == {} and entry["candidates"] == []
+        assert entry["recorded"] is None, "nothing on disk recorded a fingerprint"
+
     def test_a_draft_and_all_together_is_refused(self, draft, capsys):
         assert dossier.main(["status", str(draft), "--all"]) == 2
         assert "not both" in capsys.readouterr().err

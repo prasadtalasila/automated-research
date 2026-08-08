@@ -55,6 +55,16 @@ re-judge it**. That instruction is what makes revision cheap, and it is
 also what makes a rejection permanent. Acceptances get revisited every
 time the draft is edited; rejections do not get revisited at all.
 
+The one place a rejection is deliberately re-surfaced is the drift
+sweep's `reconsider` list: a declined paper that the dossier's own
+queries still reach, carried with the reason it was declined. Even there
+it is shown rather than re-judged -- re-grounding weighs the recorded
+reason and re-opens the paper only if that reason has stopped holding
+([DRAFT-ITERATION.md](DRAFT-ITERATION.md#re-grounding-after-the-corpus-moves)).
+The rule runs the other way too: a re-grounding pass may not write an
+unpursued candidate into `rejected.md` to make a drift report look tidy,
+because that would manufacture a permanent judgment out of a title.
+
 **It propagates into claims.** A survey's deliverable includes what the
 corpus does *not* cover. `deep-research` reports a "blind spot" and is
 explicitly told that "no appropriate answer can be formulated from this
@@ -269,6 +279,18 @@ to `retrieval.md` on the query that surfaced the candidate (mechanical,
 but joining on free text is fragile), or **have the tool write it** via a
 `dossier reject` subcommand (most reliable, but trades away the
 "Markdown a human can freely edit" property the dossier rests on).
+
+**Still unbuilt, and partly overtaken.** `triage` was removed, so the
+weakest tier in the table above no longer has a producer -- what remains
+is the gap between a scope rejection and an `evidence` rejection, which
+is narrower than the case this section was written against. What shipped
+instead is coarser and cost nothing: the drift sweep's `reconsider` list
+re-surfaces a declined paper *with its reason* whenever the dossier's
+queries still reach it, and leaves the judgment to a reader. That covers
+the "re-check when the change touches that sub-theme" half without
+anyone having to label a stage. The stage column is still the better
+answer for an honest gap analysis, and still blocked on the same
+question of who writes it.
 
 ## Why deep-research keeps the boundary alone
 

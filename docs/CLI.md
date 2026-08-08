@@ -277,6 +277,13 @@ So `python3 -m src.dossier status <draft> >/dev/null` is a usable test for
 "does this draft have a dossier yet", while a machine with no corpus built
 still gets a full report of what it has.
 
+That test only works without `--json`. Adding it puts the command on the
+machine-readable path, which reports a missing dossier as an almost-empty
+entry and **exits 0** like every other `--json` call -- consistent with
+"the caller branches on the contents", but worth knowing if you were
+relying on the exit code. Check `recorded` and `draft` in the payload
+instead.
+
 `status --all` is the other direction: one drift report over *every*
 dossier, for after a `sync` that added or removed papers. It **always
 exits 0** -- some drafts having drifted is the normal state of a live

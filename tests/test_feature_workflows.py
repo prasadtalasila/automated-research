@@ -11,7 +11,7 @@ import subprocess
 
 import pytest
 
-from src import bib_reader, citation_gate, config, ledger, references, sync
+from src import bib_reader, citation_gate, config, dossier, ledger, references, sync
 from src import render_output
 
 pandoc_available = shutil.which("pandoc") is not None
@@ -225,4 +225,234 @@ class TestReparseReproducibility:
         unstable = {k for k in row_a if row_a[k] != row_b[k]}
         assert unstable == {"last_synced"}, (
             f"columns changed across a re-parse of unchanged input: {sorted(unstable)}"
+        )
+
+
+def _add_paper(citekey, title, body):
+    """One parsed paper in the ledger, with the text a query ranks against.
+
+    Raw SQL for the same reason `tests/test_dossier.py` uses it:
+    `upsert_reference` takes a `bib_reader.Reference` and would drag
+    bibtexparser into a chain that is otherwise stdlib-only.
+    """
+    config.PARSED_DIR.mkdir(parents=True, exist_ok=True)
+    parsed = config.PARSED_DIR / f"{citekey}.txt"
+    parsed.write_text(body, encoding="utf-8")
+    con = ledger.connect()
+    try:
+        con.execute(
+            "INSERT INTO items (citekey, title, parsed_path, status, last_synced) "
+            "VALUES (?, ?, ?, 'parsed', '2026-01-01')",
+            (citekey, title, str(parsed)),
+        )
+        con.commit()
+    finally:
+        con.close()
+
+
+def _drop_paper(citekey):
+    """What `sync --remove-stale` does to a paper dropped from the bib."""
+    con = ledger.connect()
+    try:
+        con.execute("DELETE FROM items WHERE citekey = ?", (citekey,))
+        con.commit()
+    finally:
+        con.close()
+    (config.PARSED_DIR / f"{citekey}.txt").unlink()
+
+
+class TestReGroundingAfterTheCorpusMoves:
+    """The chain `draft-reviser`'s re-grounding mode runs: a corpus that
+    moved -> `dossier status --json` -> a scoped edit -> `citation_gate`.
+
+    Characterisation rather than test-first: the mode itself lives in
+    `.claude/skills/draft-reviser/SKILL.md`, which no test can assert on.
+    What these pin is the composition underneath it -- the three findings
+    the skill branches on, and the fact that acting on them needs no new
+    machinery. A change in `src/` that broke the mode would otherwise
+    break nothing that fails.
+
+    No binaries: the seams here are dossier <-> ledger <-> citation_gate,
+    all pure Python, so this runs everywhere rather than skipping wherever
+    pandoc is absent.
+    """
+
+    @pytest.fixture
+    def grounded(self, isolated_config):
+        """A draft that cites one paper, turned another down, and logged
+        the query that found both -- written against the corpus as it
+        stood at the time, so `scope.md` records that fingerprint."""
+        _add_paper("kept_paper_2024", "Digital twin architectures",
+                   "Digital twin architectures for engineering systems.")
+        _add_paper("turned_down_2023", "Digital twin adoption economics",
+                   "Digital twin adoption economics and cost recovery.")
+
+        draft = config.DRAFTS_DIR / "dt-for-engineers" / "survey.md"
+        draft.parent.mkdir(parents=True)
+        draft.write_text(
+            "# A survey\n\n## 1. First\n\n"
+            "Twins are structured this way [@kept_paper_2024].\n\n"
+            "## 2. Second\n\nmore\n"
+        )
+
+        dossier.init(draft, "survey")
+        target = dossier.dossier_dir(draft)
+        (target / "evidence.md").write_text(
+            "# Kept evidence\n\n## `kept_paper_2024`\n\nHow twins are structured.\n"
+        )
+        (target / "rejected.md").write_text(
+            "# Rejected candidates\n\n| citekey | query that surfaced it | why rejected |\n"
+            "|---|---|---|\n| `turned_down_2023` | digital twin | out of scope: adoption economics |\n"
+        )
+        (target / "sections.md").write_text(
+            "# Sections and their citekeys\n\n| section | citekeys |\n|---|---|\n"
+            "| 1. First | `kept_paper_2024` |\n"
+        )
+        dossier.log_retrieval(draft, "search", "digital twin", 15, 15, 2400)
+
+        assert citation_gate.run([str(draft)]) == 0, "the draft starts sound"
+        return draft
+
+    def test_a_moved_corpus_produces_the_three_findings_and_a_failing_gate(self, grounded):
+        """`missing` is a defect the gate agrees with; `candidates` are new;
+        a paper already turned down is held back in `reconsider`."""
+        _drop_paper("kept_paper_2024")
+        _add_paper("fresh_twin_2026", "Digital twin fidelity",
+                   "Digital twin fidelity metrics for engineering models.")
+
+        report = dossier.drift(dossier.dossier_dir(grounded))
+
+        # A defect: the draft stands on a paper the corpus no longer has,
+        # carried with the section that cites it so the edit stays scoped.
+        assert report.missing == {"kept_paper_2024": ["1. First"]}
+        assert citation_gate.run([str(grounded)]) == 1, (
+            "the gate is the exit criterion, and it must already disagree "
+            "with a draft the drift report calls broken"
+        )
+
+        # An opportunity, and a separate kind of thing.
+        assert [c.citekey for c in report.candidates] == ["fresh_twin_2026"]
+
+        # Already judged once. `rejected.md` was subtracted from
+        # `candidates`, and the reason is carried so the skill can weigh
+        # it without re-retrieving and re-judging the paper.
+        assert [r.citekey for r in report.reconsider] == ["turned_down_2023"]
+        assert report.reconsider[0].reason == "out of scope: adoption economics"
+
+        assert report.drifted, "the recorded fingerprint no longer matches"
+
+    def test_the_json_the_skill_reads_carries_all_three(self, grounded, capsys):
+        """One envelope, one element, exit 0 -- the contract #85 added for
+        this mode. The skill branches on the payload, never the code."""
+        _drop_paper("kept_paper_2024")
+        _add_paper("fresh_twin_2026", "Digital twin fidelity",
+                   "Digital twin fidelity metrics for engineering models.")
+
+        assert dossier.main(["status", str(grounded), "--json"]) == 0
+        (entry,) = __import__("json").loads(capsys.readouterr().out)["dossiers"]
+
+        assert entry["corpus_available"] is True
+        assert entry["missing"] == {"kept_paper_2024": ["1. First"]}
+        assert [c["citekey"] for c in entry["candidates"]] == ["fresh_twin_2026"]
+        assert entry["reconsider"][0]["reason"] == "out of scope: adoption economics"
+        assert entry["current"] is not None, "the values a re-stamp writes back"
+
+    def test_a_scoped_re_grounding_clears_the_defect_and_passes_the_gate(self, grounded):
+        """Swapping the citation and recording the swap drives `missing`
+        empty and the gate back to OK -- with nothing in `src/` beyond the
+        files the skill already writes, and no fingerprint change."""
+        _drop_paper("kept_paper_2024")
+        _add_paper("fresh_twin_2026", "Digital twin fidelity",
+                   "Digital twin fidelity metrics for engineering models.")
+        target = dossier.dossier_dir(grounded)
+        before = dossier.recorded_corpus(target)
+
+        # Exactly what the skill does: edit inside the one section the
+        # report named, then write the dossier back.
+        grounded.write_text(
+            grounded.read_text().replace("@kept_paper_2024", "@fresh_twin_2026")
+        )
+        (target / "evidence.md").write_text(
+            "# Kept evidence\n\n## `fresh_twin_2026`\n\nHow twins are structured.\n"
+        )
+        (target / "sections.md").write_text(
+            "# Sections and their citekeys\n\n| section | citekeys |\n|---|---|\n"
+            "| 1. First | `fresh_twin_2026` |\n"
+        )
+
+        report = dossier.drift(target)
+        assert not report.missing, "the defect is gone"
+        assert "fresh_twin_2026" not in [c.citekey for c in report.candidates], (
+            "an accepted candidate leaves the list by being recorded in evidence.md"
+        )
+        assert citation_gate.run([str(grounded)]) == 0
+
+        assert dossier.recorded_corpus(target) == before, (
+            "clearing the defect needs no fingerprint re-stamp -- the "
+            "re-stamp is bookkeeping the skill does afterwards, not the "
+            "mechanism"
+        )
+
+    def test_re_stamping_the_fingerprint_clears_drifted_and_still_parses(self, grounded):
+        """The one step of the mode with a silent failure mode.
+
+        `scope.md`'s corpus line is written once by `init` and rewritten
+        only here. Reshaping it rather than rewriting it makes
+        `recorded_corpus()` return `None`, and the dossier downgrades to
+        "records no corpus fingerprint" instead of erroring -- so the
+        skill is told to rewrite the line in place, and this is what says
+        that the line it writes is one the parser accepts.
+        """
+        _drop_paper("kept_paper_2024")
+        _add_paper("fresh_twin_2026", "Digital twin fidelity",
+                   "Digital twin fidelity metrics for engineering models.")
+        target = dossier.dossier_dir(grounded)
+        scope = target / "scope.md"
+
+        (count, digest) = dossier.drift(target).current
+        old = dossier.recorded_corpus(target)
+        scope.write_text(scope.read_text().replace(
+            f"- corpus: {old[0]} citekeys, digest `{old[1]}`",
+            f"- corpus: {count} citekeys, digest `{digest}`",
+        ))
+
+        assert dossier.recorded_corpus(target) == (count, digest), (
+            "the re-stamped line must still match what `init` wrote"
+        )
+        assert not dossier.drift(target).drifted
+
+    def test_an_unpursued_candidate_keeps_the_dossier_unclean(self, grounded):
+        """The limit of the claim above, pinned deliberately.
+
+        `Drift.clean` is `not missing and not candidates`, so a dossier
+        with any candidate left unpursued still shows in the sweep -- and
+        on a real corpus that is the normal outcome, since a query returns
+        fifteen hits and a revision accepts one or two. Driving `clean`
+        true would mean writing the rest into `rejected.md` on nothing but
+        a title, which is the judgment `docs/REJECTION.md` refuses to make
+        cheaply. Re-grounding therefore promises `missing`, not `clean`.
+        """
+        _drop_paper("kept_paper_2024")
+        _add_paper("fresh_twin_2026", "Digital twin fidelity",
+                   "Digital twin fidelity metrics for engineering models.")
+        _add_paper("other_twin_2026", "Digital twin calibration",
+                   "Digital twin calibration under drift in engineering use.")
+        target = dossier.dossier_dir(grounded)
+
+        grounded.write_text(
+            grounded.read_text().replace("@kept_paper_2024", "@fresh_twin_2026")
+        )
+        (target / "evidence.md").write_text(
+            "# Kept evidence\n\n## `fresh_twin_2026`\n\nHow twins are structured.\n"
+        )
+        (target / "sections.md").write_text(
+            "# Sections and their citekeys\n\n| section | citekeys |\n|---|---|\n"
+            "| 1. First | `fresh_twin_2026` |\n"
+        )
+
+        report = dossier.drift(target)
+        assert not report.missing
+        assert [c.citekey for c in report.candidates] == ["other_twin_2026"]
+        assert not report.clean, (
+            "an unweighed candidate is still a decision the sweep should surface"
         )

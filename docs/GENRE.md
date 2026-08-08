@@ -200,6 +200,17 @@ candidates are not re-judged. A request that contradicts the recorded
 scope is a scope change and gets said out loud rather than quietly
 applied.
 
+It also runs the other way round, from the corpus rather than from a
+request. When `dossier status --all` reports that a sync removed a paper
+a draft cites, `draft-reviser` re-grounds it: reads the drift report as
+JSON, repairs the broken citations in the sections that carry them,
+weighs only the new candidates that bear on the sub-theme in play, leaves
+previously declined papers declined unless their recorded reason has
+stopped holding, and re-stamps the corpus fingerprint once the gate
+passes. What that promises is no *missing* citations, not an empty
+candidate list -- see
+[DRAFT-ITERATION.md](DRAFT-ITERATION.md#re-grounding-after-the-corpus-moves).
+
 Drafts written before `src/dossier.py` existed have no dossier, and so do
 hand-written ones. It bootstraps rather than refusing -- `dossier init`,
 then fill in what the draft itself can tell you -- and says in chat that
@@ -210,9 +221,24 @@ evidence entries to fill the file: an empty `evidence.md` is honest, and
 a fabricated one is the same failure class as a fabricated citekey.
 
 **Every one of the five drafting skills routes here for changes.** Each
-carries the same row in its own "When to invoke" table: *user asks to
-change something that already exists -> use `draft-reviser`, never re-run
-this skill*. [TOKENS.md](TOKENS.md) is why.
+carries the rule twice: as a row in its own routing table -- *user asks
+to change something that already exists -> use `draft-reviser`, never
+re-run this skill* -- and as a clause in its frontmatter `description`,
+which is the surface that decides which skill is picked in the first
+place. The table alone is not enough: it is read only after a skill has
+already been chosen. [TOKENS.md](TOKENS.md) is why the rule exists.
+
+**It is a default, not a gate.** Nothing enforces it; no hook checks it,
+and the only mechanical gate in the pipeline is `citation_gate`. That is
+deliberate -- [SOUL.md](../SOUL.md) puts "let a machine outrank a human
+on a judgment call" under *what you will not do*, and how wide a revision
+should look is exactly such a call. So `draft-reviser` also carries a
+deliberate **wide pass**: re-search every sub-theme, read the whole
+draft, say what it costs first. What makes that different from re-running
+the genre skill is that it keeps the dossier -- the rejections and their
+reasons, the reader, the glossary, the steering -- and spends tokens only
+on what is genuinely unknown. The thing that stays never is discarding
+that state and rediscovering a worse version of it.
 
 ## What all six have in common
 
