@@ -1,6 +1,6 @@
 ---
 name: textbook-chapter-writer
-description: Drafts an undergraduate textbook chapter -- learning objectives, motivation, worked examples, exercises -- for a student who is studying the topic, not yet doing it. Diataxis-wise this is explanation with worked application, not a tutorial; if the user wants a hands-on lesson the reader follows at a keyboard, use `tutorial-writer` instead. May cite grounding papers from the synced corpus (content/ledger.sqlite via src.retrieval.search()) for motivation/background, but is not citation-dense; most content is original worked examples and exercises. Triggers when the user asks to draft a textbook chapter, lecture notes, course reader, teaching material, or worked-examples handout for students. Any citations it does include must pass `python -m src.citation_gate` before the draft is presented -- never a fabricated citekey.
+description: Drafts an undergraduate textbook chapter -- learning objectives, motivation, worked examples, exercises -- for a student who is studying the topic, not yet doing it. Diataxis-wise this is explanation with worked application, not a tutorial; if the user wants a hands-on lesson the reader follows at a keyboard, use `tutorial-writer` instead. May cite grounding papers from the synced corpus (content/ledger.sqlite via src.retrieval.search()) for motivation/background, but is not citation-dense; most content is original worked examples and exercises. Triggers when the user asks to draft a textbook chapter, lecture notes, course reader, teaching material, or worked-examples handout for students. To change one that already exists in content/drafts/, use draft-reviser instead -- never re-run this skill to make a change. Any citations it does include must pass `python -m src.citation_gate` before the draft is presented -- never a fabricated citekey.
 tags: [textbook, teaching, undergraduate, pedagogy, explanation]
 ---
 
@@ -84,6 +84,7 @@ exist whether or not a single `[@citekey]` does.
 | User asks for a hands-on lesson the reader follows step by step to a working result | Use `tutorial-writer` instead |
 | User asks for a survey or lit review | Use `survey-writer` instead |
 | User asks for a thesis chapter | Use `thesis-chapter-writer` instead |
+| User asks to change a chapter that **already exists** in `content/drafts/` | Use `draft-reviser` instead -- never re-run this skill to make a change |
 
 If the request is genuinely ambiguous ("write something teaching X"), ask one
 question: *will the reader be reading this, or doing it?* Reading is this

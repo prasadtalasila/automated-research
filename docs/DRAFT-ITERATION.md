@@ -396,6 +396,36 @@ them would be to write the unpursued ones into `rejected.md`, which would
 turn a title into a permanent judgment that every later revision trusts
 -- the same objection that withdrew `triage` ([REJECTION.md](REJECTION.md)).
 
+### The scoped default, and the way out of it
+
+Steps 3-5 above are an economy, and economies have a failure mode: they
+can start reading as rules about what the user is allowed to ask for. A
+revision that touches one sub-theme should re-search one sub-theme --
+but whether that is what this revision is remains a judgment about
+someone else's draft, and [SOUL.md](../SOUL.md) puts "let a machine
+outrank a human on a judgment call" under what this assistant will not
+do.
+
+So `draft-reviser` carries a second mode with a different cost profile:
+a wide pass that re-searches every sub-theme in `sections.md` and reads
+the whole draft. It is invoked when the user asks for it, when an agreed
+scope change invalidated the old queries, or when the draft is being
+re-targeted at a different reader -- and its cost is stated before it
+runs rather than discovered afterwards in `retrieval.md`.
+
+The guardrail that survives is narrower than "never re-search widely". It
+is **never re-run the genre skill**, which is a different act: it
+discards the dossier and pays to rediscover a worse version of it. A wide
+re-search keeps `rejected.md` and honours it, keeps the recorded reader
+and glossary, still edits section by section rather than rewriting the
+file, and still logs every call. Wide *search* does not imply wide
+*rewrite* -- most sections survive a re-check untouched, and rewriting
+those is pure cost.
+
+Nothing enforces any of this. The only mechanical gate in the pipeline is
+`citation_gate`, and the reason is the same principle: a token-economy
+heuristic is not the kind of claim that earns a gate.
+
 ### Section anchors
 
 `sections` extracts the outline from the draft itself rather than from

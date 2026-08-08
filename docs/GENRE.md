@@ -221,9 +221,24 @@ evidence entries to fill the file: an empty `evidence.md` is honest, and
 a fabricated one is the same failure class as a fabricated citekey.
 
 **Every one of the five drafting skills routes here for changes.** Each
-carries the same row in its own "When to invoke" table: *user asks to
-change something that already exists -> use `draft-reviser`, never re-run
-this skill*. [TOKENS.md](TOKENS.md) is why.
+carries the rule twice: as a row in its own routing table -- *user asks
+to change something that already exists -> use `draft-reviser`, never
+re-run this skill* -- and as a clause in its frontmatter `description`,
+which is the surface that decides which skill is picked in the first
+place. The table alone is not enough: it is read only after a skill has
+already been chosen. [TOKENS.md](TOKENS.md) is why the rule exists.
+
+**It is a default, not a gate.** Nothing enforces it; no hook checks it,
+and the only mechanical gate in the pipeline is `citation_gate`. That is
+deliberate -- [SOUL.md](../SOUL.md) puts "let a machine outrank a human
+on a judgment call" under *what you will not do*, and how wide a revision
+should look is exactly such a call. So `draft-reviser` also carries a
+deliberate **wide pass**: re-search every sub-theme, read the whole
+draft, say what it costs first. What makes that different from re-running
+the genre skill is that it keeps the dossier -- the rejections and their
+reasons, the reader, the glossary, the steering -- and spends tokens only
+on what is genuinely unknown. The thing that stays never is discarding
+that state and rediscovering a worse version of it.
 
 ## What all six have in common
 
