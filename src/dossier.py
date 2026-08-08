@@ -557,10 +557,17 @@ def log_retrieval(
     docstring, and docs/TOKENS.md for why a lock is the wrong instrument
     here.
 
-    Both writes go through one buffered handle and so reach the
-    filesystem as a single `write` of well under a page, which is atomic
-    under `O_APPEND` on a local filesystem. Concurrent rows can
-    interleave in order, never in content.
+    Write atomicity is deliberately *not* claimed. Both writes go
+    through one buffered handle, so CPython flushes them together as one
+    small write at close -- but that is the template happening to fit
+    inside the buffer rather than a guarantee, POSIX does not promise a
+    write to a regular file arrives unsplit, and text-mode I/O may flush
+    more than once. Nothing here depends on it. `retrieval_cost` skips
+    any row it cannot parse, so a torn row costs that one measurement
+    and leaves every other row intact -- while a row overwritten at an
+    offset would have been silently gone. The guarantee this function
+    makes is the weaker, sufficient one: no writer addresses a position,
+    so no writer can destroy what another wrote.
     """
     target = dossier_dir(draft)
     target.mkdir(parents=True, exist_ok=True)
