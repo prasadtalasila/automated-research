@@ -200,6 +200,17 @@ candidates are not re-judged. A request that contradicts the recorded
 scope is a scope change and gets said out loud rather than quietly
 applied.
 
+It also runs the other way round, from the corpus rather than from a
+request. When `dossier status --all` reports that a sync removed a paper
+a draft cites, `draft-reviser` re-grounds it: reads the drift report as
+JSON, repairs the broken citations in the sections that carry them,
+weighs only the new candidates that bear on the sub-theme in play, leaves
+previously declined papers declined unless their recorded reason has
+stopped holding, and re-stamps the corpus fingerprint once the gate
+passes. What that promises is no *missing* citations, not an empty
+candidate list -- see
+[DRAFT-ITERATION.md](DRAFT-ITERATION.md#re-grounding-after-the-corpus-moves).
+
 Drafts written before `src/dossier.py` existed have no dossier, and so do
 hand-written ones. It bootstraps rather than refusing -- `dossier init`,
 then fill in what the draft itself can tell you -- and says in chat that
